@@ -8,6 +8,7 @@
 | [data-sources.md](data-sources.md) | Source workbooks, profiling results, known defects |
 | [odk-mapping.md](odk-mapping.md) | Every ODK field mapped to its column, with semantics |
 | [seeding.md](seeding.md) | Running the hierarchy and facility loaders |
+| [import.md](import.md) | Bulk CHW upload: formats, staging, scope, validation *(design — phase 6)* |
 | [decisions.md](decisions.md) | Decision log, including options rejected and why |
 | [roadmap.md](roadmap.md) | Phases and current status |
 
