@@ -4,13 +4,15 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1–5 complete. Phase 6 (import and export) is next, and nothing in it is
-started.**
+**Phases 1–5 complete. Phase 6 is half done: bulk import of the core record is built and
+verified; the profile columns and the scoped export are not.**
 
-The register is now usable at scale: search by name or NIN, filter by cadre, status and
-any level of the hierarchy, and page through the result with a keyset. What is missing is
-getting the existing register in — every record so far has been typed one at a time — and
-getting a scoped slice back out.
+The register is usable at scale — search by name or NIN, filter by cadre, status and any
+level of the hierarchy, page with a keyset — and it can now be filled from the files
+districts already hold. A CSV or Excel upload is checked row by row against the hierarchy
+and the register, staged, and reported on; a human commits or discards it. What is left is
+the optional survey attributes on the same machinery, and getting a scoped slice back
+out.
 
 | | State |
 |---|---|
@@ -22,12 +24,14 @@ getting a scoped slice back out.
 | `internal/store` | users, sessions, audit, locations, chws, profiles, stats — every method takes a `Scope` |
 | `internal/http` | auth, user admin, audit, dashboard (scoped stats + charts), CHW CRUD, profiles, search and paging |
 | `internal/web` | layout + eleven pages, one stylesheet, three scripts, Chart.js vendored |
-| `internal/importer` | **empty — phase 6** |
-| CSV export | **phase 6 — it shares `store.Filter` with the listing** |
-| `chw_languages` | **empty by design — fills from the importer's parsing in phase 6** |
+| `migrations/` 0006–0007 | import staging and the commit claim, applied and probed |
+| `internal/importer` | readers, resolver, row validation — 30 tests, none needing a database |
+| Import UI | upload, report, commit, discard, template and `errors.csv` |
+| Profile columns on import | **not started — the vocabulary is fixed in [import.md](import.md)** |
+| CSV export | **not started — it shares `store.Filter` with the listing** |
+| `chw_languages` | **empty by design — fills with the profile columns** |
 
-Immediate next steps, in order: the CSV/ODK reader, per-row validation writing failures to
-`import_quarantine` with a reason, a dry-run that reports before it writes, and the scoped
+Immediate next steps, in order: the profile columns through the importer, then the scoped
 export.
 
 ## Decisions locked
@@ -49,11 +53,17 @@ Full rationale, including rejected alternatives, is in [decisions.md](decisions.
 | Supervision | Year + month on the CHW, not per service domain |
 | ODK provenance | Stripped |
 | GPS | Not captured |
+| Import formats | CSV and Excel, read by `excelize`; first worksheet only |
+| Import flow | Upload validates and stages, a human commits or discards; nothing is written by uploading |
+| Import scope | A row naming another district is refused, never silently relocated |
+| `location_code` | Decides the placement when given; a contradicting name column is a refusal |
 
 ## Stack
 
 - `net/http` stdlib routing (1.22+), no framework
 - `pgx/v5` + hand-written SQL
+- `excelize/v2` for `.xlsx` / `.xlsm` uploads — the only third-party code that is not the
+  driver, the migration runner or the password hash
 - `goose` migrations embedded in the binary
 - `html/template` server-rendered; vanilla JS only for the cascading location selects
 - Cookie sessions (sha256-hashed in DB, raw token never stored), CSRF tokens on all mutating forms
@@ -67,7 +77,7 @@ internal/auth/                      Scope, capabilities, argon2id, sessions, CSR
 internal/store/                     SQL, one file per aggregate, every method takes a Scope
 internal/http/                      router, handlers, form decoding, flashes
 internal/web/{templates,static}/    layout + pages, one stylesheet, cascading selects
-internal/importer/                  not started (phase 6)
+internal/importer/                  CSV/Excel readers, name resolution, row validation
 migrations/                         *.sql + embed.go (go:embed)
 ```
 
@@ -100,14 +110,16 @@ district user unrepresentable in the database.
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
 4. **Optional attributes** — profile form, tools and service-domain junctions *(done)*
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination *(done)*
-6. **Import + export** — CSV importer with per-row error report, scoped CSV export
+6. **Import + export** — CSV/Excel importer with a per-row error report *(done for the
+   core record)*, the profile columns, scoped CSV export
 7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
    `-create-admin`)
 
 Geography is phase 1 because nothing else is testable without it. Phases 1–5 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization
 layer, the core register record, every optional attribute around it, and the search and
-paging that make a register of that size navigable. Phase 6 (import and export) is next.
+paging that make a register of that size navigable. Phase 6 is under way — the core record
+imports in bulk; the profile columns and the export are what remain.
 
 ## Source data
 
@@ -233,6 +245,25 @@ database, since the real register arrives with the importer in phase 6:
   prefixes an index scan on `chws_nin_prefix_idx`. The trigram index is used for a
   selective name; for a term matching 4% of the table the planner prefers a sequential
   scan, which at this size is the cheaper plan and not a defect
+
+Phase 6's import half was exercised the same way, against the seeded hierarchy and a
+24,573-record register — through the running server, and through a real browser on the
+Selenium grid for the pages. The full list is in [import.md](import.md); in brief:
+
+- an eleven-row file carrying one of every refusal imported four and refused seven, across
+  six distinct quarantine reasons, with placement derived by trigger in every case
+- `BUHOBA A` — two villages of that name under one parish, the real case the schema's
+  `(parent_id, code)` identity exists for — is quarantined with both candidates and their
+  chains, and imports once `location_code` names which
+- an ABIM manager's file naming GULU imported the ABIM row and refused the other two, and
+  the rendered page named neither the district nor any location inside it
+- a `district_viewer` gets 403 on every import route and no rail entry; an ABIM manager
+  gets 404 on a national batch's report, error file and commit
+- 10,000 rows validate and stage in 4s and commit in 32s, one transaction per record
+- **a batch committed twice at once imports each row once.** Before the claim in migration
+  0007 this was measured creating 2,033 records from a 1,200-row file
+- a row that lost a NIN race between the report and the commit is marked `failed` and
+  quarantined while its neighbours import
 
 Reproduce from the repo root:
 

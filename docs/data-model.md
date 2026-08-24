@@ -180,6 +180,37 @@ targets and MoH may extend them. Both are seeded in `0003`.
 The source Tool list includes a member called `None`. It is deliberately absent from the
 `tools` table — it means "no tools", which is the empty set, not a tool named None.
 
+## Import staging
+
+`0006` adds the tables a bulk upload passes through, and `0007` the claim that keeps two
+commits off one batch. See [import.md](import.md) for the flow they serve.
+
+`import_batches` is one uploaded file: its name, its format, the uploader, and
+**`district_id` — the uploader's scope at upload time**, `NULL` for a national one. Batches
+are read through that column, so another district's report is `ErrNotFound`. It is
+recorded rather than re-derived because a user's role can change afterwards and a batch's
+reach cannot. `columns` keeps the header exactly as the file spelled it, in order, which
+is what `errors.csv` is rebuilt from.
+
+`import_rows` is one line: `raw` as it arrived, a verdict, the resolved `location_id`, the
+`problems` array, and `chw_id` once it becomes a record.
+
+Two constraints carry rules that would otherwise live only in Go:
+
+| Constraint | Says |
+|---|---|
+| `import_batches_commit_complete` | a status and its timestamp cannot disagree — the shape `chws_deactivation_complete` already uses |
+| `import_rows_refusal_explained` | a `rejected` or `failed` row must carry at least one problem. A refusal without a stated reason is the silent drop invariant 7 forbids |
+
+`import_batches.district_id` gets the same trigger `users.district_id` has, refusing an id
+that is not a district.
+
+Two foreign keys are deliberately restrictive. `import_quarantine.batch_id` refuses the
+deletion of a batch that produced quarantine rows, so no future pruning can destroy the
+record of a refusal by tidying away the batch it came from. And `import_rows.chw_id` means
+a CHW cannot be deleted while an import row points at them — invariant 5 arriving from a
+second direction.
+
 ## Verified rejections
 
 `seed/verify_constraints.sql` probes the schema with 39 bad-data cases against a live

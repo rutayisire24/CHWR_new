@@ -11,6 +11,8 @@ Server-rendered. No SPA, no framework, no ORM, no JS build step.
 - Go 1.24 (`net/http` stdlib routing, 1.22+ patterns) — no web framework
 - PostgreSQL 18 via `pgx/v5` with hand-written SQL — no ORM
 - `goose` migrations, embedded in the binary
+- `excelize/v2` reads uploaded `.xlsx` / `.xlsm` — the only dependency that is not the
+  driver, the migration runner or the password hash
 - `html/template` + vanilla CSS; vanilla JS for the cascading location selects and the
   dashboard charts, which use Chart.js vendored into `internal/web/static/vendor/`
 - Cookie sessions stored in Postgres, argon2id passwords, CSRF on all mutating forms
@@ -25,10 +27,10 @@ internal/domain/     entities, no I/O
 internal/store/      SQL; every method takes a Scope
 internal/auth/       Scope, capabilities, argon2id, sessions, CSRF, middleware
 internal/http/       handlers, routing, form decoding
-internal/importer/   CSV/ODK ingest (not started)
+internal/importer/   CSV/Excel ingest: readers, name resolution, row validation
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_chws, 0004_facilities_mfl,
-                     0005_chw_listing
+                     0005_chw_listing, 0006_imports, 0007_import_lease
 seed/                hierarchy extraction + load
 data/                source workbooks and the district-to-region map (checked in)
 docs/                detailed reference — see docs/README.md
@@ -50,8 +52,9 @@ These are enforced in the schema, not just in application code. Do not work arou
    `chws_deactivation_complete` keeps those consistent.
 6. **Every mutation writes to `audit_log`** with before/after JSONB. That table doubles as
    CHW change history, which is why there is no separate versioning table.
-7. **Nothing is dropped silently on import.** Unresolvable rows go to `import_quarantine`
-   with a reason. A half-loaded register is worse than a rejected one.
+7. **Nothing is dropped silently on import.** Refused rows go to `import_quarantine` with
+   a reason, and `import_rows_refusal_explained` makes a refusal without one impossible to
+   store. A half-loaded register is worse than a rejected one.
 8. **Facilities are parented to district, never lower.** The MFL's subcounty column
    resolves for 47% of rows; it is kept raw in `subcounty_label` and never matched.
 9. **A CHW's facility is in the CHW's own district.** `chw_profiles.facility_id` is an
@@ -158,6 +161,37 @@ no-JavaScript rendering.
 The `--viz-*` palette in `app.css` is assigned by the job the colour does. No chart uses
 more than two identities, and the status colours stay out of charts entirely — green here
 means "this CHW is active" and nothing else.
+
+## Bulk import
+
+`/imports` takes a CSV or Excel file, checks every row, and **writes nothing**. It stages
+the verdicts in `import_batches` / `import_rows`; a human reads the report and commits or
+discards. What is committed is what was reviewed — re-reading the file would validate
+against a register that has since moved.
+
+Commit calls `store.CHWs.CreateTx` once per row, in a transaction it shares with the CHW's
+audit row and the staged row's mark. That is what keeps invariant 6 structural here too,
+and what stops a killed process leaving a CHW whose import row still reads `ready`. A row
+that fails does not abort the batch; it is marked, quarantined, and the rest continue.
+Committing is claimed first (`import_batches.committing_at`) because the run takes tens of
+seconds and two concurrent runs would both write the rows neither had marked yet.
+
+A district user's file cannot reach another district. Four layers say so and only the last
+is load-bearing: the `chw.import` capability, a template carrying their district, a
+resolver preloaded with only the districts their `Scope` allows, and `CreateTx`'s
+post-insert check against the derived `district_id`. **A row naming another district is
+refused, never relocated**, and the refusal names neither that district nor the location it
+matched — a district user must not map the country by probing names.
+
+Location names are matched by dropping every separator and nothing fuzzier; two siblings
+matching is an ambiguity, quarantined with both candidates and the code that settles it.
+`location_code` decides the placement when given, and a contradicting name column is a
+refusal, not a preference. Rules the CHW form already applies — the NIN pattern, the age
+range, the cadre and sex vocabularies — live in `internal/domain` and are shared, so the
+importer can never accept what the form refuses.
+
+The profile columns are not imported yet; their vocabulary is fixed in `docs/import.md` so
+the template does not change under people already filling it in.
 
 ## Auth
 

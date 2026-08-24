@@ -238,6 +238,61 @@ the meaning back. Magnitude comparisons are one hue; whole-and-part is two steps
 hue; the only two-identity charts are sex (blue/orange) and active/inactive, which is
 emphasis — one hue plus the de-emphasis grey — rather than two identities.
 
+**Bulk import stages, and a human commits.** An upload writes nothing to `chws`. It
+validates every row, stores the verdicts, and produces a report; a separate act imports
+them. Re-reading the file at commit was rejected because the register moves between the
+two requests — a NIN gets claimed, a location is deactivated — and what is committed has
+to be the thing that was reviewed.
+
+**Commit calls `CHWs.CreateTx` once per row, inside a transaction it shares with the audit
+row and the staged row's mark.** Bulk `INSERT` or `COPY` would be a second implementation
+of the derived `district_id`, the post-insert scope check and invariant 6, and the second
+implementation is the one that gets it wrong. Marking the row after the insert committed
+was rejected too: a process killed in between leaves a CHW whose import row still reads
+`ready`, and the next attempt creates them twice. The cost is measured and accepted — 3.2
+ms a row, 32 seconds at the 10,000-row cap. All-or-nothing over that many rows was
+rejected because one lost race would discard a correct nine-thousand-row import.
+
+**A batch is claimed before it is committed.** Not a nicety: two concurrent runs both read
+the same page of `ready` rows before either marks them, and a double-submitted 1,200-row
+file was measured creating 2,033 records. `committing_at` is a lease rather than a flag, so
+a process killed mid-commit does not wedge the batch.
+
+**A row naming another district is refused, not relocated.** Silently rewriting it to the
+uploader's own district would turn a data error into an invisible permanent one. Refusing
+the whole file was also rejected: one stray line should not block a three-thousand-row
+upload. The refusal names neither the district nor the location it matched, because a
+district user must not be able to map the country by probing names.
+
+**`location_code` decides the placement, and a contradicting name column is a refusal.**
+Migration 0001 already settles which channel is authoritative — code is the identity, name
+is a label — but when the two disagree one of them is wrong and nothing in the file says
+which. Preferring the code quietly would file a CHW somewhere no human confirmed. The cost
+is a renamed location: a file carrying last year's name with a correct code is refused
+though it was right, and that case is indistinguishable from a wrong code.
+
+**Location names are matched by dropping every separator, and nothing fuzzier.** Collapsing
+whitespace instead matched "Kanu East" to `KANU EAST` and still missed `KANU-EAST`, which
+is the spelling the workbook uses. Over-matching is bounded because a fold that hits two
+siblings is an ambiguity — quarantined with both candidates — so it produces a question,
+never a silently wrong answer. Trigram matching across 71,207 villages was rejected: it
+would answer confidently and wrongly, and a CHW filed under the wrong village is not an
+error anyone notices.
+
+**Excel is read by `excelize`, pinned to v2.9.1.** A hand-rolled reader over `archive/zip`
+is about two hundred lines and was rejected: it would be a second implementation of a
+format whose edge cases — styles, dates as serials, merged cells, scientific notation in a
+numeric cell — are exactly where a wrong answer looks like a right one. v2.11 requires Go
+1.25, and a library choice should not bump the project's Go version as a side effect. Only
+the first worksheet is read; guessing which sheet was meant is the kind of guess that
+reads as a right answer.
+
+**Nothing sweeps a staged batch.** A pending batch's rows are the only copy there is,
+because refusals reach `import_quarantine` at commit; deleting one would destroy the only
+record that an upload was attempted and refused. A committed batch's rows are the most
+redundant data in the system. A timed sweep was written into the design and removed before
+it was built, on those grounds.
+
 ## Known costs
 
 **`last_supervised_on` is NULL on every imported row.** The form records supervision per

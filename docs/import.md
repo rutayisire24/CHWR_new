@@ -1,9 +1,9 @@
 # Bulk import
 
-**Status: design, not built.** Phase 6. `internal/importer` is an empty directory and
-`migrations/0006_imports.sql` does not exist yet. This document is the plan the
-implementation is measured against; when the code lands, the tense changes and this line
-goes away.
+**Built and verified.** The core record imports from CSV and Excel, through the UI, with
+per-row refusals and a scoped report. Two things named here are not built yet: the profile
+columns, which follow on the same machinery, and the scoped CSV export that finishes phase
+6. Both are marked where they appear.
 
 Every record on the register so far was typed one at a time. Districts hold their CHW
 lists in spreadsheets and ODK exports, and the register is not usable until those get in.
@@ -16,16 +16,18 @@ vocabulary follows.
 ## Shape
 
 ```
-internal/importer/     parse, validate, resolve — no SQL of its own
-  columns.go   the column vocabulary; also generates the blank template
-  csv.go       encoding/csv, header-normalized, order-independent
-  xlsx.go      excelize → the same row shape
-  row.go       one row → store.CHWInput + []Problem
-  resolve.go   district > subcounty > parish > village, by name within parent
-internal/store/imports.go     batches, staged rows, quarantine writes
-internal/http/imports.go      upload, report, commit, discard, template, errors.csv
+internal/importer/      parse, validate, resolve — no SQL of its own
+  columns.go    the column vocabulary, the header matcher, the blank template
+  read.go       encoding/csv and excelize, both to one Row shape; the limits
+  resolve.go    district > subcounty > parish > village, by name within parent
+  validate.go   one row → Record + []Problem, and the cross-file NIN pass
+internal/domain/import.go     Batch, ImportRow, Problem, the status and code vocabularies
+internal/domain/parse.go      the field rules the CHW form and the importer share
+internal/store/imports.go     batches, staged rows, the commit claim, quarantine writes
+internal/http/imports.go      the routes, the store adapter, the commit runner
 internal/web/templates/       imports.html, import_report.html
-migrations/0006_imports.sql
+migrations/0006_imports.sql   staging tables
+migrations/0007_import_lease.sql   the commit claim
 docs/import.md                this file
 ```
 
@@ -281,6 +283,7 @@ would take four uploads to surface four errors in one row.
 | `duplicate_nin` | that NIN is already on the register; the record is named |
 | `duplicate_nin_in_file` | two rows in this file carry the same NIN; both rejected |
 | `possible_duplicate` | **warning** — same name at the same location |
+| `lost_race` | raised at commit only: the row was acceptable when the report was produced, and the register moved underneath it |
 
 `possible_duplicate` warns and imports, because two people in one village genuinely share
 a name; that is why `chws_dup_probe_idx` exists and why the CHW form asks for a second
@@ -375,56 +378,83 @@ the batch table is already where such a worker would keep its state.
 `PostForm` comes back empty, the token compare fails, and every upload would be refused
 with a 403 before any handler ran.
 
-The middleware gains a multipart branch — `http.MaxBytesReader` for the global cap, then
-`ParseMultipartForm`, which populates `PostForm` from the body and spills the file to a
-temp file rather than memory. It is the first thing to build, and it carries its own test:
-a multipart POST without a token is 403, with one it passes.
+The middleware therefore has a multipart branch — `http.MaxBytesReader` for the global cap,
+then `ParseMultipartForm`, which populates `PostForm` from the body and spills the file to
+a temp file rather than memory, removed by the middleware so no handler can forget to. Its
+test bites: reverting the branch turns the accept case into exactly the 403 above.
 
 Putting the token in the query string, or posting it by `fetch` with `X-CSRF-Token`, were
 both rejected — the first leaks it into logs and history, and the second makes the upload
 form depend on JavaScript when nothing else on the register does.
 
-## Order of work
+## What is left
 
-1. The CSRF multipart branch, with its test
-2. `github.com/xuri/excelize/v2`; migration 0006; `store.Imports`
-3. `internal/importer` — the column vocabulary, both readers, row validation, the
-   resolver. Table-driven tests; the parsing and validation need no database
-4. Handlers, the two templates, the nav entry, the template download, `errors.csv`
-5. Verification against the real database and in a browser
-6. This document brought to the present tense; roadmap, application, decisions and
-   `CLAUDE.md` updated
-7. The profile columns on the same machinery
-8. Scoped CSV export, which shares `store.Filter` with the listing — the other half of
-   phase 6
+The core record is in. Two pieces of phase 6 are not:
 
-## Verification plan
+1. **The profile columns**, on the same machinery — the vocabulary is fixed above so the
+   template does not change under people who have already started filling it in. Each of
+   the profile CHECKs needs its own row-level rule, for the same reason the profile form
+   pre-checks them: a `phone_branch_exclusive` violation reaching the operator as a 500
+   tells them nothing.
+2. **The scoped CSV export**, which shares `store.Filter` with the listing.
 
-Against the seeded hierarchy and a real database, not only unit tests. Each of these is a
-case the design claims to handle:
+If the row cap ever rises, the commit becomes a background job. The batch table is already
+where such a worker would keep its state, and `committing_at` is already the claim it
+would take.
 
-- a clean file of both cadres imports, and each CHW's `district_id` is derived, never read
-  from the file
-- an ABIM manager's file naming GULU rows: those rows rejected `outside_scope`, the ABIM
-  rows imported, the report naming neither GULU nor the matched location
-- an ABIM manager cannot open a national batch's report or its `errors.csv`
-- a village name that exists twice under one parish is quarantined with both candidates,
-  not resolved to the first, and the same row imports once `location_code` names which
+## Verified
+
+Against the seeded hierarchy and a 24,573-record register — driven through the running
+server and, for the pages, a real browser on the Selenium grid. Not only unit tests.
+
+An eleven-row file carrying one of every refusal imported four and refused seven, across
+six distinct quarantine reasons:
+
+- placement is derived, never read from the file: a VHT landed at their village, a CHEW at
+  their parish, and `district_id` came from the trigger in both cases
+- a village that does not exist under the named parish is refused, naming the parish
+  searched
+- `BUHOBA A` — the genuine collision under `SIGULU MUKANI`, two siblings sharing a name —
+  is quarantined with both candidates, each carrying the chain above it and the code that
+  settles it. The same row imports once `location_code` names which one
 - a `location_code` contradicting its name columns is refused with both readings in the
-  message; the same code pointing outside the uploader's district says only
-  `outside_scope`, naming nothing
-- a name differing from the code's location only by punctuation or case is not a mismatch
-- a CHEW given a village and a VHT given only a parish are both `placement_level`
-- a NIN already on the register rejects and names the existing record; two rows in one
-  file sharing a NIN reject each other
-- a name already at that location warns, imports, and is skipped when the box is ticked
-- a file missing `last_name` is refused whole, with nothing staged
-- a row that passed validation but loses a NIN race at commit is rejected and quarantined
-  while the rest of the batch lands, and the report says so
-- every imported CHW has its own `chw.create` audit row, and the batch has one
-  `chw.import`
-- an upload with no CSRF token is 403; with one it reaches the handler
-- an `.xlsx` and a CSV of the same 500 rows produce identical results
-- a batch committed twice at once imports each row once: the second attempt is refused in
-  milliseconds, writes nothing, and says why
+  message; case and punctuation are not a contradiction
+- a cadre column holding two cadres is refused, not truncated
+- a CHEW handed a village and a VHT given only a parish are both `placement_level`
+- a NIN already on the register is refused, naming the record it collides with; two rows
+  of one file sharing a NIN refuse each other, naming both lines
+- a row with several bad fields carries all of them, not the first
+
+Scope, from both sides:
+
+- an ABIM manager's file naming GULU imported the ABIM row and refused the other two — one
+  by name, one by `location_code`. The rendered page contained none of `GULU`, `PAIBONA`,
+  `ACUTOMER` or `ACUT OMER`: a district user must not map the country by probing names
+- that manager gets a 404 on a national batch's report, its `errors.csv` and its commit
+- a `district_viewer` gets a 403 on all four routes, and no rail entry
+
+The file and the flow:
+
+- a file missing `last_name` is refused whole, with no batch created
+- the template round-trips as a file with no rows, and its example row is skipped when
+  rows are added beneath it
+- an `.xlsx` and a CSV of the same rows produce identical verdicts and identical records
+- a warned row imports, and is skipped when the box is ticked
+- discard marks the batch and keeps its rows; a second decision on a decided batch is
+  refused
+- an upload with no CSRF token is 403
+
+At commit:
+
+- every imported CHW has its own `chw.create` audit row; the batch has one `import.upload`
+  and one `import.commit`
+- a row that passed validation and then lost a NIN race is marked `failed`, quarantined
+  with the reason, and its neighbours still import — the flash says so
+- **a batch committed twice at once imports each row once.** Before the claim existed this
+  was measured creating 2,033 records from a 1,200-row file; it now grows the register by
+  exactly the file's row count, and the second attempt is refused in milliseconds
 - a claim older than the lease is taken over, and the batch commits normally
+
+In the browser, at 1400px and 420px: the report's tiles, the candidate list, the decision
+panel disappearing once decided, no horizontal scroll, and no script on the page at all —
+`app.css` is the only resource the CSP has to allow.
