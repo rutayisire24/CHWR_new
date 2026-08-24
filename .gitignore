@@ -1,0 +1,4 @@
+seed/out/
+*.db
+.env
+/chwr-server
