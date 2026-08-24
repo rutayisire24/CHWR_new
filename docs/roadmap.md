@@ -4,23 +4,30 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phase 1 complete. Phase 2 (auth) is next, and nothing in it is started.**
+**Phases 1 and 2 complete. Phase 3 (CHW CRUD) is next, and nothing in it is started.**
 
 The database is real and populated: 84,635 hierarchy rows and 7,895 facilities, applied by
-the binary and probed with 39 rejection cases. The Go side is a skeleton — it configures
-itself, migrates, serves `/healthz` and shuts down cleanly. There is no login, no CHW
-record, no HTML template and no `Scope` type yet.
+the binary and probed with 39 rejection cases. Authentication is in and exercised end to
+end: argon2id passwords, Postgres-backed sessions, CSRF on every mutating form, the
+capability matrix in middleware, and a `Scope` argument on every store method. What is
+missing is the register itself — no CHW record, no import, no list UI.
 
 | | State |
 |---|---|
 | `migrations/` 0001–0004 | applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
-| `cmd/server`, `internal/{config,db,http}` | skeleton: migrate, serve, health, graceful shutdown |
-| `internal/{domain,store,auth,importer}`, `internal/web` | **empty — phases 2 onward** |
+| `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
+| `internal/domain` | `User`, `Role`, `UserStatus`, sentinel errors, `ValidationError` |
+| `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
+| `internal/store` | users, sessions, audit, locations — every method takes a `Scope` |
+| `internal/http` | login, logout, forced first-login reset, user admin, audit view, dashboard |
+| `internal/web` | layout + seven pages, one stylesheet, embedded and parsed at startup |
+| `internal/importer` | **empty — phase 6** |
+| CHW record, list UI, export | **empty — phases 3 onward** |
 
-Immediate next steps, in order: `internal/domain` entities and the `Scope` type,
-argon2id hashing, the sessions store, CSRF middleware, then the RBAC middleware that
-phases 3+ depend on.
+Immediate next steps, in order: the `CHW` domain entity and `internal/store/chws.go`,
+the create and edit forms with the cascading location selects, deactivation with a
+reason, and `audit.RecordTx` inside each mutation's transaction.
 
 ## Decisions locked
 
@@ -51,17 +58,26 @@ Full rationale, including rejected alternatives, is in [decisions.md](decisions.
 - Cookie sessions (sha256-hashed in DB, raw token never stored), CSRF tokens on all mutating forms
 
 ```
-cmd/server/main.go                  config, migrate, serve, graceful shutdown
+cmd/server/main.go                  config, migrate, serve, admin bootstrap, shutdown
 internal/config/                    env parsing, all problems reported at once
 internal/db/                        pgxpool + goose over the embedded migrations
-internal/http/                      router; /healthz pings the pool
-internal/{domain,store,auth,importer}/   not started
-internal/web/{templates,static}/    not started
+internal/domain/                    entities and sentinel errors, no I/O
+internal/auth/                      Scope, capabilities, argon2id, sessions, CSRF, middleware
+internal/store/                     SQL, one file per aggregate, every method takes a Scope
+internal/http/                      router, handlers, form decoding, flashes
+internal/web/{templates,static}/    layout + pages, one stylesheet, embedded
+internal/importer/                  not started (phase 6)
 migrations/                         *.sql + embed.go (go:embed)
 ```
 
 Configuration: `DATABASE_URL` (required), `ADDR` (`:8080`), `ENV` (`dev`|`prod`),
-`SHUTDOWN_TIMEOUT` (`15s`).
+`SHUTDOWN_TIMEOUT` (`15s`). `ENV=prod` is what puts `Secure` on the session, CSRF and
+flash cookies.
+
+Sessions expire 12 hours after issue and 2 hours after the last request, whichever comes
+first. Passwords must be at least 12 characters mixing letters with a digit or symbol;
+length carries the strength, because composition rules push staff toward predictable
+substitutions.
 
 ## Permissions
 
@@ -74,15 +90,18 @@ district user unrepresentable in the database.
 
 1. **Skeleton + geography** — config, pool, embedded migrations, hierarchy seeder,
    facility loader + quarantine report *(done)*
-2. **Auth** — argon2id, sessions, CSRF, RBAC middleware, `Scope` plumbing
+2. **Auth** — argon2id, sessions, CSRF, RBAC middleware, `Scope` plumbing *(done)*
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation
 4. **Optional attributes** — profile form, tools and service-domain junctions
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination
 6. **Import + export** — CSV importer with per-row error report, scoped CSV export
-7. **Deploy** — Docker, backups, first admin bootstrap
+7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
+   `-create-admin`)
 
-Geography is phase 1 because nothing else is testable without it. Phase 1 is complete:
-hierarchy seeder, facility loader, constraint suite and Go skeleton. Phase 2 (auth) is next.
+Geography is phase 1 because nothing else is testable without it. Phases 1 and 2 are
+complete — hierarchy, facilities, constraint suite, and the whole authentication and
+authorization layer. Phase 3 (CHW CRUD) is next, and it is the first phase that writes to
+the register itself.
 
 ## Source data
 
@@ -124,6 +143,29 @@ re-verified through it end to end from a dropped database: `goose` reaches versi
 second run is a no-op, the hierarchy loads 84,635 rows in ~3s, facilities load 7,895 of
 7,907, and the constraint suite reports 39 blocked / 0 leaked.
 
+Phase 2 was exercised against the running server, not just unit-tested. Confirmed by
+request:
+
+- a wrong password, an unknown email and a disabled account all return the same 401 and
+  the same message; the unknown-email path still pays for one argon2id verification
+- a POST without the CSRF field is refused with 403 before the handler runs
+- a freshly provisioned account is held on `/account/password` — every other path
+  redirects there — until it chooses its own password
+- weak, mismatched and wrong-current passwords are each refused with a field message
+- a `district_manager` gets 403 on `/users`, sees no Users link, and reads only their own
+  district's audit rows
+- a national role offered a district, and a district role offered none, are both refused
+  with a field message before the CHECK constraint is reached
+- `MGR@example.org` collides with `mgr@example.org` — `citext` uniqueness holds
+- disabling an account deletes its sessions in the same transaction; the browser holding
+  one is bounced to `/login` on its next request
+- the last active national admin cannot be demoted or disabled, and no account can
+  disable itself
+- a session idled past 2 hours, and one past its 12-hour expiry, are both refused and the
+  cookie is cleared
+- `audit_log` holds `auth.login_failed`, `auth.login`, `auth.password_change`,
+  `user.create` and `user.status`, each stamped with the actor's district
+
 Reproduce from the repo root:
 
 ```bash
@@ -134,6 +176,9 @@ psql -d chwr -f seed/load_hierarchy.sql
 python3 seed/extract_facilities.py
 psql -d chwr -f seed/load_facilities.sql
 psql -d chwr -f seed/verify_constraints.sql
+go test ./...
+go run ./cmd/server -create-admin you@example.org -name "Your Name"
+go run ./cmd/server                              # sign in at http://localhost:8080/login
 ```
 
 ## Known empty-on-import fields

@@ -1,0 +1,29 @@
+{{define "title"}}Users · CHW Registry{{end}}
+
+{{define "content"}}
+<div class="row-between">
+  <h1>User accounts</h1>
+  <a class="button" href="/users/new">Add user</a>
+</div>
+
+<table class="grid">
+  <thead>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th>District</th><th>Last sign-in</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .Page.Users}}
+    <tr class="{{if ne .Status "active"}}dim{{end}}">
+      <td>{{.FullName}}</td>
+      <td>{{.Email}}</td>
+      <td>{{.Role.Label}}</td>
+      <td>{{if .DistrictName}}{{.DistrictName}}{{else}}—{{end}}</td>
+      <td>{{optdate .LastLoginAt}}</td>
+      <td><span class="pill {{.Status}}">{{.Status}}</span>{{if .MustReset}} <span class="pill warn">reset due</span>{{end}}</td>
+      <td class="actions"><a href="/users/{{.ID}}">Edit</a></td>
+    </tr>
+  {{else}}
+    <tr><td colspan="7" class="muted">No accounts yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

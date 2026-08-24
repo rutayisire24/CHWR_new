@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{block "title" .}}Community Health Worker Registry{{end}}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+{{if .User}}
+<header class="topbar">
+  <a class="brand" href="/">CHW Registry</a>
+  <nav>
+    <a href="/">Dashboard</a>
+    {{if .Nav.Users}}<a href="/users">Users</a>{{end}}
+    {{if .Nav.Audit}}<a href="/audit">Audit</a>{{end}}
+  </nav>
+  <div class="who">
+    <span class="name">{{.User.FullName}}</span>
+    <span class="role">{{.User.Role.Label}}{{if .User.DistrictName}} · {{.User.DistrictName}}{{end}}</span>
+    <form method="post" action="/logout">
+      {{template "csrf" .}}
+      <button class="linkish" type="submit">Sign out</button>
+    </form>
+  </div>
+</header>
+{{end}}
+
+<main class="{{if .User}}app{{else}}bare{{end}}">
+  {{if .Flash}}<p class="flash {{.Flash.Kind}}">{{.Flash.Message}}</p>{{end}}
+  {{block "content" .}}{{end}}
+</main>
+
+<footer class="foot">Ministry of Health · National Community Health Worker Registry</footer>
+</body>
+</html>
+
+{{define "csrf"}}<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">{{end}}
+
+{{define "field-error"}}{{if .}}<span class="field-error">{{.}}</span>{{end}}{{end}}

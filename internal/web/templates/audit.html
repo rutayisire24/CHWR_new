@@ -1,0 +1,22 @@
+{{define "title"}}Audit · CHW Registry{{end}}
+
+{{define "content"}}
+<h1>Audit trail</h1>
+<p class="muted">Most recent {{len .Page.Entries}} entries{{if .User.Role.District}} for {{.User.DistrictName}} district{{end}}.</p>
+
+<table class="grid">
+  <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th></tr></thead>
+  <tbody>
+  {{range .Page.Entries}}
+    <tr>
+      <td>{{datetime .CreatedAt}}</td>
+      <td>{{if .ActorEmail}}{{.ActorEmail}}{{else}}—{{end}}</td>
+      <td><code>{{.Action}}</code></td>
+      <td>{{.Entity}}{{if .EntityID}} #{{.EntityID}}{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="4" class="muted">Nothing recorded yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

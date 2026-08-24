@@ -22,9 +22,9 @@ internal/config/     env parsing
 internal/db/         pool, embedded migrations
 internal/domain/     entities, no I/O
 internal/store/      SQL; every method takes a Scope
-internal/auth/       password, session, RBAC middleware
+internal/auth/       Scope, capabilities, argon2id, sessions, CSRF, middleware
 internal/http/       handlers, routing, form decoding
-internal/importer/   CSV/ODK ingest
+internal/importer/   CSV/ODK ingest (not started)
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_chws, 0004_facilities_mfl
 seed/                hierarchy extraction + load
@@ -55,6 +55,9 @@ These are enforced in the schema, not just in application code. Do not work arou
 9. **A CHW's facility is in the CHW's own district.** `chw_profiles.facility_id` is an
    optional attachment, not a placement, and triggers refuse it in both directions — a
    cross-district attach, and a transfer that would strand one.
+10. **The raw session token is never stored.** The cookie carries it; only its SHA-256
+   reaches `sessions.token_hash`. Revocation is a `DELETE`, which is the whole reason
+   sessions are rows and not JWTs.
 
 ## Hierarchy
 
@@ -97,12 +100,28 @@ goose annotations (`-- +goose Up`, and `StatementBegin/End` around plpgsql bodie
 `\copy` performs no variable interpolation — the seeder uses literal paths relative to the
 repo root. Run it from there.
 
+## Auth
+
+Accounts are provisioned by a `national_admin` (or `-create-admin` for the first one)
+with a temporary password and `must_reset` set; every route redirects to
+`/account/password` until the user chooses their own. Sessions last 12 hours, or 2 hours
+idle. Passwords are argon2id (64 MiB, t=3, p=4), minimum 12 characters mixing letters
+with a digit or symbol.
+
+Two store methods take no `Scope`, both documented at their definitions and both
+pre-authentication: `Users.Credentials` (login) and `Sessions.Authenticate` (the call
+that produces the principal a `Scope` is derived from). Nothing else may be added to that
+list.
+
 ## Conventions
 
 - Plain SQL in `internal/store`, one file per aggregate. No query builders.
 - Handlers decode, authorize, delegate, render. No SQL in `internal/http`.
 - Errors wrap with `fmt.Errorf("...: %w", err)`; sentinel errors live in `internal/domain`.
-- Templates are parsed once at startup and embedded with `go:embed`.
+- Templates are parsed once at startup and embedded with `go:embed`; every page is
+  `layout.html` plus its own file, and rendering buffers before writing the status.
+- Enums and `citext` are cast to `text` in the projection, so pgx needs no type
+  registration; parameters cast the other way (`$1::user_role`).
 - Migrations are append-only. Never edit one that has been applied.
 - Verify schema changes against a real database before claiming they work.
 

@@ -1,0 +1,25 @@
+{{define "title"}}Sign in · CHW Registry{{end}}
+
+{{define "content"}}
+<div class="card narrow">
+  <h1>National CHW Registry</h1>
+  <p class="muted">Sign in with the account your administrator issued.</p>
+
+  <form method="post" action="/login" autocomplete="on">
+    {{template "csrf" .}}
+    {{with .Page.Next}}<input type="hidden" name="next" value="{{.}}">{{end}}
+
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required autofocus
+           autocomplete="username" value="{{.Page.Email}}">
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required
+           autocomplete="current-password">
+
+    {{if .Page.Error}}<p class="form-error">{{.Page.Error}}</p>{{end}}
+
+    <button type="submit">Sign in</button>
+  </form>
+</div>
+{{end}}

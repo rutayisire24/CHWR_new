@@ -67,6 +67,36 @@ JWTs were meant to avoid.
 **`audit_log` doubles as change history.** Before/after JSONB on every mutation makes a
 separate versioning table unnecessary in v1.
 
+**Two session deadlines, not one.** A session dies 12 hours after issue or 2 hours idle.
+The absolute deadline bounds a stolen cookie's usefulness; the idle one covers the real
+failure mode in a district office, which is a shared machine left signed in. A single
+long expiry would have to choose between the two.
+
+**Length over composition in the password policy.** Twelve characters mixing letters with
+one digit or symbol. Character-class rules produce `Password1!` — they push staff toward
+predictable substitutions while feeling strict. The admin-facing forms suggest a random
+password so the path of least resistance is a strong one.
+
+**argon2id at 64 MiB, t=3, p=4.** RFC 9106's second recommended profile. Hashes carry
+their own parameters in the PHC string, so raising the cost later re-hashes on next login
+instead of invalidating stored passwords.
+
+**A failed login pays for a hash it does not need.** An unknown email is verified against
+a throwaway hash generated at startup, so timing does not separate "no such account" from
+"wrong password". The registry's users are named public servants; an enumerable login
+form is a staff list.
+
+**CSRF as a double-submit cookie, not a session-stored token.** The token lives in an
+HttpOnly cookie and in a hidden field on every mutating form. A cross-site post can reach
+the endpoint but cannot read the cookie to fill the field. It needs no per-session storage
+and no extra round trip, and the token is rotated at login and logout so one captured
+before authentication cannot be replayed after it.
+
+**The first admin is a flag, not a migration.** `-create-admin` provisions one account
+and prints a one-use password. A seeded default admin in a migration is a known password
+in a public repository; a bootstrap web route is an unauthenticated privilege escalation
+for as long as somebody forgets to remove it.
+
 **No `chw_assessments` snapshot table in v1.** Most optional attributes are survey answers
 at a point in time and will drift. A snapshot table is real complexity and there may never
 be a second survey round. `chw_profiles.updated_at` plus the audit log make history

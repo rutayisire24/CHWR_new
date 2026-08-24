@@ -1,0 +1,25 @@
+{{define "title"}}Dashboard · CHW Registry{{end}}
+
+{{define "content"}}
+<h1>Dashboard</h1>
+<p class="muted">
+  Signed in as {{.User.Email}} — {{.User.Role.Label}}{{if .User.DistrictName}}, {{.User.DistrictName}} district{{end}}.
+</p>
+
+<div class="tiles">
+  <div class="tile">
+    <span class="figure">{{.Page.Locations}}</span>
+    <span class="caption">administrative units</span>
+  </div>
+  <div class="tile">
+    <span class="figure">{{.Page.Facilities}}</span>
+    <span class="caption">health facilities</span>
+  </div>
+  <div class="tile">
+    <span class="figure">{{.Page.CHWs}}</span>
+    <span class="caption">community health workers{{if not .User.Role.District}} nationally{{end}}</span>
+  </div>
+</div>
+
+<p class="muted">CHW records arrive in phase 3. Geography and accounts are in place.</p>
+{{end}}

@@ -1,0 +1,68 @@
+{{define "title"}}{{if .Page.User.ID}}Edit user{{else}}Add user{{end}} · CHW Registry{{end}}
+
+{{define "content"}}
+<h1>{{if .Page.User.ID}}Edit {{.Page.User.FullName}}{{else}}Add a user{{end}}</h1>
+
+<form method="post" action="{{.Page.Action}}" class="card">
+  {{template "csrf" .}}
+
+  <label for="full_name">Full name</label>
+  <input id="full_name" name="full_name" required value="{{.Page.User.FullName}}">
+  {{template "field-error" .Page.Errors.full_name}}
+
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" required value="{{.Page.User.Email}}"
+         {{if .Page.User.ID}}readonly{{end}}>
+  {{template "field-error" .Page.Errors.email}}
+
+  <label for="role">Role</label>
+  <select id="role" name="role" required>
+    {{range .Page.Roles}}
+    <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+    {{end}}
+  </select>
+  {{template "field-error" .Page.Errors.role}}
+
+  <label for="district_id">District</label>
+  <select id="district_id" name="district_id">
+    <option value="">— national role, no district —</option>
+    {{range .Page.Districts}}
+    <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Name}}</option>
+    {{end}}
+  </select>
+  <span class="hint">Required for district roles; must be empty for national roles.</span>
+  {{template "field-error" .Page.Errors.district_id}}
+
+  {{if not .Page.User.ID}}
+  <label for="password">Temporary password</label>
+  <input id="password" name="password" required value="{{.Page.Suggested}}">
+  <span class="hint">Hand this to the user. They must change it at first sign-in.</span>
+  {{template "field-error" .Page.Errors.password}}
+  {{end}}
+
+  <button type="submit">{{if .Page.User.ID}}Save changes{{else}}Create account{{end}}</button>
+  <a class="cancel" href="/users">Cancel</a>
+</form>
+
+{{if .Page.User.ID}}
+<div class="card danger">
+  <h2>Account actions</h2>
+  <p class="muted">Disabling an account ends every session it holds immediately.
+    Resetting issues a temporary password and forces a change at next sign-in.</p>
+
+  <form method="post" action="/users/{{.Page.User.ID}}/reset" class="inline">
+    {{template "csrf" .}}
+    <input name="password" required value="{{.Page.Suggested}}" aria-label="Temporary password">
+    <button type="submit">Reset password</button>
+  </form>
+
+  <form method="post" action="/users/{{.Page.User.ID}}/status" class="inline">
+    {{template "csrf" .}}
+    <input type="hidden" name="status" value="{{if eq .Page.User.Status "active"}}disabled{{else}}active{{end}}">
+    <button type="submit" class="{{if eq .Page.User.Status "active"}}warn{{end}}">
+      {{if eq .Page.User.Status "active"}}Disable account{{else}}Re-enable account{{end}}
+    </button>
+  </form>
+</div>
+{{end}}
+{{end}}

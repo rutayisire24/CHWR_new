@@ -69,6 +69,33 @@ WHERE path LIKE (SELECT path FROM locations WHERE id = $1) || '%'
 
 ## Sessions
 
-Server-side, in Postgres. The cookie carries a random token; only its SHA-256 lands in
-`sessions.token_hash`. JWTs were rejected because staff departures require instant
-revocation — see [decisions.md](decisions.md).
+Server-side, in Postgres. The cookie carries a random 256-bit token; only its SHA-256
+lands in `sessions.token_hash`. JWTs were rejected because staff departures require
+instant revocation — see [decisions.md](decisions.md).
+
+A session dies 12 hours after it was issued or 2 hours after its last request, whichever
+comes first; `Sessions.Authenticate` enforces both in the same statement that refreshes
+`last_seen_at`, and joins `users` on `status = 'active'`, so disabling an account ends it
+mid-session even before the row is deleted. Disabling deletes the rows anyway, in the
+same transaction as the status change. Changing a password deletes every session but the
+current one — a password change is how a user responds to a suspected compromise, so it
+has to evict the intruder.
+
+## Implementation
+
+| Concern | Where |
+|---|---|
+| Capability matrix | `internal/auth/capability.go` — mirrors the table above |
+| `Scope` | `internal/auth/scope.go`; `Filter` returns the `AND district_id = $n` fragment |
+| Session lookup | `auth.LoadUser`, backed by `store.Sessions` through an interface, so `auth` never imports `store` |
+| Route guards | `auth.RequireAuth`, `auth.RequireCapability(cap, pages)` in `internal/http/router.go` |
+| CSRF | `auth.CSRF` — double-submit cookie, rotated at login and logout |
+| Forced reset | `RequireAuth` pins a `must_reset` user to `/account/password` |
+
+Two store methods take no `Scope`, both pre-authentication and both documented as such:
+`Users.Credentials`, which the login handler uses, and `Sessions.Authenticate`, which is
+the call that produces the principal a `Scope` is derived from. That list does not grow.
+
+Handler-level safeguards that the schema cannot express: an account cannot disable
+itself, and the last active `national_admin` cannot be demoted or disabled — otherwise
+nobody can provision accounts and recovery needs a database console.
