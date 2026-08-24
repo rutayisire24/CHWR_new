@@ -10,6 +10,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -89,6 +91,39 @@ func pageName(path string) string {
 }
 
 var funcs = template.FuncMap{
+	// deref answers a *bool in a template, where `if p.Flag` would be true for
+	// any non-nil pointer — including one pointing at false. The profile
+	// columns are all nullable, so "not asked" and "no" are different answers
+	// and the distinction has to survive into the markup.
+	"deref": func(b *bool) bool { return b != nil && *b },
+	// ugx groups thousands. Amounts run to six figures and are read off a
+	// screen by someone checking them against a payment list.
+	"ugx": func(n *int32) string {
+		if n == nil {
+			return "not recorded"
+		}
+		digits := strconv.FormatInt(int64(*n), 10)
+		var b strings.Builder
+		for i, r := range digits {
+			if i > 0 && (len(digits)-i)%3 == 0 {
+				b.WriteByte(',')
+			}
+			b.WriteRune(r)
+		}
+		return b.String()
+	},
+	// yesno renders a nullable answer as it was given, including not having
+	// been given.
+	"yesno": func(b *bool) string {
+		switch {
+		case b == nil:
+			return "not recorded"
+		case *b:
+			return "yes"
+		default:
+			return "no"
+		}
+	},
 	"date": func(t time.Time) string {
 		if t.IsZero() {
 			return "—"
@@ -100,6 +135,14 @@ var funcs = template.FuncMap{
 			return "—"
 		}
 		return t.Format("2 Jan 2006 15:04")
+	},
+	// month renders a year+month date, which is all supervision captures: the
+	// stored day is always the first and means nothing.
+	"month": func(t *time.Time) string {
+		if t == nil {
+			return "—"
+		}
+		return t.Format("January 2006")
 	},
 	"optdate": func(t *time.Time) string {
 		if t == nil {

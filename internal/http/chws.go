@@ -55,6 +55,9 @@ type chwFormPage struct {
 type chwShowPage struct {
 	CHW       domain.CHW
 	Placement []domain.Place
+	Profile   domain.Profile
+	Tools     []domain.CHWTool
+	Domains   []domain.CHWServiceDomain
 	CanEdit   bool
 }
 
@@ -110,10 +113,28 @@ func (s *Server) chwShow(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	profile, err := s.store.Profiles.Get(r.Context(), sc, id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	tools, err := s.store.Profiles.Tools(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	domains, err := s.store.Profiles.ServiceDomains(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 
 	s.render(w, r, http.StatusOK, "chw_show", chwShowPage{
 		CHW:       chw,
 		Placement: placement,
+		Profile:   profile,
+		Tools:     tools,
+		Domains:   domains,
 		CanEdit:   auth.Can(auth.MustUser(r.Context()).Role, auth.CapCHWUpdate),
 	})
 }
@@ -205,6 +226,12 @@ func (s *Server) chwUpdate(w http.ResponseWriter, r *http.Request) {
 	sc := auth.ScopeFrom(r.Context())
 
 	in, age, v := s.decodeCHW(r, sc)
+	if !v.Any() {
+		if err := s.checkTransfer(r, sc, id, in.LocationID, v); err != nil {
+			s.notFoundOrFail(w, r, err)
+			return
+		}
+	}
 	if v.Any() {
 		draft := draftCHW(in)
 		draft.ID = id
@@ -222,6 +249,36 @@ func (s *Server) chwUpdate(w http.ResponseWriter, r *http.Request) {
 
 	setFlash(w, s.secure(), "ok", "Saved changes to "+chw.FullName()+".")
 	http.Redirect(w, r, chwPath(chw.ID), http.StatusSeeOther)
+}
+
+// checkTransfer refuses a move to another district while the CHW is still
+// attached to a facility in the old one. chws_check_facility_after_move()
+// raises on exactly this, which is right — a transfer must reassign the
+// facility in the same transaction rather than have the column silently
+// nulled — but a raise reaches the operator as a 500. This turns it into an
+// instruction they can act on.
+func (s *Server) checkTransfer(r *http.Request, sc auth.Scope, id, newLocationID int64, v *domain.ValidationError) error {
+	before, err := s.store.CHWs.Get(r.Context(), sc, id)
+	if err != nil {
+		return err
+	}
+	_, newDistrictID, err := s.store.Locations.LevelOf(r.Context(), newLocationID)
+	if err != nil {
+		return err
+	}
+	if newDistrictID == before.DistrictID {
+		return nil
+	}
+
+	profile, err := s.store.Profiles.Get(r.Context(), sc, id)
+	if err != nil {
+		return err
+	}
+	if profile.FacilityID != nil {
+		v.Add("location", "This CHW reports to "+profile.FacilityName+
+			", which is in their current district. Clear or change the supervising facility on their profile before moving them.")
+	}
+	return nil
 }
 
 // chwDeactivate retires a CHW. The reason is required by the handler: the

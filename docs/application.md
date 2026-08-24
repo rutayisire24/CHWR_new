@@ -53,6 +53,7 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `GET /chws/{id}` | `chw.view` | detail, with the ancestor breadcrumb |
 | `GET POST /chws/new` | `chw.create` | |
 | `GET /chws/{id}/edit`, `POST /chws/{id}` | `chw.update` | |
+| `GET POST /chws/{id}/profile` | `chw.update` | the optional attributes, tools and service domains |
 | `POST /chws/{id}/deactivate` | `chw.deactivate` | reason required by the handler |
 | `POST /chws/{id}/reactivate` | `chw.deactivate` | |
 | `GET /api/locations` | `chw.view` | `?level=&under=`, JSON, feeds the cascade |
@@ -74,6 +75,12 @@ Validation happens three times over, deliberately:
 | Handler | `domain.ValidationError` collects per-field messages; the form redisplays what was typed |
 | Schema | CHECKs and triggers — the actual guarantee |
 
+Two schema rules the profile makes reachable are pre-checked in the handler purely so the
+operator gets an instruction instead of a 500: a supervising facility must be in the CHW's
+own district, and a CHW who still reports to a facility cannot be moved to another
+district until that attachment is changed. Both triggers stay exactly as they are — the
+pre-check is a message, not the enforcement.
+
 The handler layer exists because a CHECK violation is a 500, not a field message. It
 never replaces the schema: `decodeCHW` checks a placement's level against the cadre, and
 `chws_set_placement` still refuses the same case if the check is ever wrong.
@@ -92,6 +99,34 @@ template that fails halfway does not leave a half-written 200 on the wire.
 Every template receives the same envelope: `.User`, `.Nav`, `.CSRFToken`, `.Flash`, and
 `.Page` for whatever the handler supplies. Flashes are a one-shot cookie, read and
 expired in the same response.
+
+## The profile form
+
+Every column on `chw_profiles` is nullable, and the form has to keep **"no" and "not
+asked" apart** — an imported record answers none of these questions, and recording a "no"
+it never gave would be a fabrication. Yes/no questions are therefore three radios, the
+Go side carries `*bool`, and templates use the `deref` function rather than `{{if .Flag}}`,
+which would be true for any non-nil pointer including one pointing at false.
+
+The branches follow the source form: a question is asked, and its follow-ups appear only
+for the answer that makes them meaningful. `profile.js` hides a branch **and disables its
+fields**, because a disabled field is not submitted — which is what keeps a hidden branch
+from posting the answer to a question nobody asked, and what keeps
+`phone_branch_exclusive` and `incentive_details_require_yes` from ever seeing a crossing.
+
+The handler assumes none of that. It re-derives every branch server-side: a primary phone
+is read only when the CHW owns one, an incentive amount only when they receive one, a
+supervision month only when supervision happened. A post that claims otherwise is
+corrected to the safe reading rather than rejected, because the only way to produce one is
+to tamper with the form, and a message about it would mean nothing to the person reading.
+
+Two interlocks work the same way, in the UI for the operator and in the handler for the
+data: a tool's condition is only asked about a tool the CHW holds, and training is a
+subset of what they provide (`trained_implies_provides`).
+
+The junction sets are **replaced, not diffed**. They are the answer to a multi-select, so
+the submitted set is the new state and an unticked box means "no" — a diff would only add
+a way for the form and the table to disagree.
 
 ## The cascading selects
 

@@ -37,6 +37,7 @@ const (
 	ActionCHWUpdate      = "chw.update"
 	ActionCHWDeactivate  = "chw.deactivate"
 	ActionCHWReactivate  = "chw.reactivate"
+	ActionProfileUpdate  = "chw.profile_update"
 )
 
 // Entry is one audit row. before and after are marshalled to JSONB; leave them

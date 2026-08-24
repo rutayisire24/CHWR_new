@@ -28,6 +28,74 @@
   </dl>
 </div>
 
+<div class="card">
+  <div class="row-between">
+    <h2>Profile</h2>
+    {{if .Page.CanEdit}}<a href="/chws/{{.Page.CHW.ID}}/profile">{{if .Page.Profile.Answered}}Edit{{else}}Add{{end}} profile</a>{{end}}
+  </div>
+
+  {{if .Page.Profile.Answered}}
+  <dl class="detail">
+    <dt>Phone</dt>
+    <dd>
+      {{if .Page.Profile.Phone}}{{.Page.Profile.Phone}}
+        {{if deref .Page.Profile.OwnsPhone}}<span class="muted">own phone{{if deref .Page.Profile.PhoneForReporting}}, used for reporting{{end}}</span>
+        {{else}}<span class="muted">alternative number</span>{{end}}
+      {{else}}<span class="muted">owns a phone: {{yesno .Page.Profile.OwnsPhone}}</span>{{end}}
+    </dd>
+    <dt>Supervising facility</dt>
+    <dd>{{if .Page.Profile.FacilityName}}{{.Page.Profile.FacilityName}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    <dt>Serving since</dt>
+    <dd>{{if .Page.Profile.ServiceStartYear}}{{.Page.Profile.ServiceStartYear}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    <dt>Households served</dt>
+    <dd>{{if .Page.Profile.HouseholdsServed}}{{.Page.Profile.HouseholdsServed}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    <dt>Education</dt>
+    <dd>{{if .Page.Profile.Education}}{{.Page.Profile.Education.Label}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    <dt>English</dt>
+    <dd>
+      {{if .Page.Profile.SpeaksEnglish}}{{.Page.Profile.EnglishSummary}}
+      {{else}}<span class="muted">none recorded</span>{{end}}
+    </dd>
+    <dt>Other languages</dt>
+    <dd>{{if .Page.Profile.OtherLanguagesRaw}}{{.Page.Profile.OtherLanguagesRaw}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    <dt>Incentive</dt>
+    <dd>
+      {{if deref .Page.Profile.ReceivesIncentive}}
+        {{if .Page.Profile.IncentiveAmountUGX}}UGX {{ugx .Page.Profile.IncentiveAmountUGX}}{{else}}amount not recorded{{end}}
+        {{if .Page.Profile.IncentiveFrequency}}<span class="muted">{{.Page.Profile.IncentiveFrequency.Label}}</span>{{end}}
+      {{else}}<span class="muted">{{yesno .Page.Profile.ReceivesIncentive}}</span>{{end}}
+    </dd>
+    <dt>Last supervised</dt>
+    <dd>
+      {{if .Page.Profile.LastSupervisedOn}}{{month .Page.Profile.LastSupervisedOn}}
+      {{else}}<span class="muted">supervision received: {{yesno .Page.Profile.ReceivedSupervision}}</span>{{end}}
+    </dd>
+  </dl>
+
+  <h3>Tools</h3>
+  {{if .Page.Tools}}
+  <ul class="taglist">
+    {{range .Page.Tools}}{{if .Held}}
+    <li class="tag {{if and .Functional (not (deref .Functional))}}broken{{end}}">{{.Label}}{{if .Functional}} — {{if deref .Functional}}working{{else}}broken{{end}}{{end}}</li>
+    {{end}}{{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+
+  <h3>Services</h3>
+  {{if .Page.Domains}}
+  <ul class="taglist">
+    {{range .Page.Domains}}{{if .Provides}}
+    <li class="tag {{if .Trained}}trained{{end}}">{{.Label}}{{if .Trained}} — trained{{end}}</li>
+    {{end}}{{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+
+  {{else}}
+  <p class="muted">Nothing recorded yet. The ODK export answers none of these fields; they
+    fill in through this form.</p>
+  {{end}}
+</div>
+
 {{if not .Page.CHW.Active}}
 <div class="card">
   <h2>Deactivated</h2>

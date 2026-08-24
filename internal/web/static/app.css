@@ -187,3 +187,30 @@ select:disabled { background: var(--wash); color: var(--ink-soft); cursor: not-a
 
 h1 .pill { vertical-align: middle; margin-left: 0.5rem; font-size: 0.75rem; }
 .tile a { color: inherit; }
+
+/* --- profile form ------------------------------------------------------- */
+
+.branch {
+  margin: 0.5rem 0 0.25rem; padding-left: 1rem;
+  border-left: 3px solid var(--line);
+}
+.branch[hidden] { display: none; }
+
+.grid.compact th, .grid.compact td { padding: 0.4rem 0.8rem; }
+.grid.compact input[type=checkbox] { width: auto; margin: 0; }
+.grid.compact .radio { font-size: 0.875rem; }
+.grid.compact .condition { display: flex; gap: 0.9rem; }
+.grid.compact .condition.muted { opacity: 0.5; }
+
+.taglist { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; margin: 0.5rem 0 1rem; }
+.tag {
+  padding: 0.2rem 0.6rem; border-radius: var(--radius); font-size: 0.8125rem;
+  background: var(--wash); border: 1px solid var(--line); color: var(--ink-soft);
+}
+.tag.trained { background: #eef7f1; border-color: #cfe6d9; color: var(--green-dark); }
+.tag.broken { background: var(--red-wash); border-color: #e6cfcf; color: var(--red); }
+
+dl.detail + h3, .card h3 {
+  margin: 1.25rem 0 0; font-size: 0.8125rem; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--ink-soft);
+}

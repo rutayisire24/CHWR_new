@@ -102,9 +102,15 @@ repo root. Run it from there.
 
 ## The register
 
-`chws` is the core record; `chw_profiles` and the junctions are phase 4 and have no UI
-yet. Placement is one `location_id` whose level the cadre decides, and `district_id` is
-derived from it — the form never posts a district for the record, only for the cascade.
+`chws` is the core record; `chw_profiles` and the two junctions hold the optional survey
+attributes. Placement is one `location_id` whose level the cadre decides, and
+`district_id` is derived from it — the form never posts a district for the record, only
+for the cascade.
+
+Every profile column is nullable, and **"no" and "not asked" are different answers**: the
+Go side carries `*bool`, templates use `deref`, and an imported record that answered
+nothing must not come back as a record that answered no. Junction sets are replaced on
+save, not diffed — they are the answer to a multi-select.
 
 The location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is

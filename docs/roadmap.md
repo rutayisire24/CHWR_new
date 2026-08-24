@@ -4,31 +4,30 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1–3 complete. Phase 4 (optional attributes) is next, and nothing in it is
-started.**
+**Phases 1–4 complete. Phase 5 (list UI) is next, and nothing in it is started.**
 
-The register works end to end: sign in, add a CHW, place them in the hierarchy, edit,
-deactivate with a reason, reactivate — every mutation audited in its own transaction and
-every read scoped. What is missing is everything hanging off the core record: the profile
-attributes, the tool and service-domain junctions, search and paging, and bulk import.
+Every field the ODK form collects now has somewhere to go and a way in: the core record,
+the profile attributes, the tool checklist and the service-domain grid. What is missing
+is finding a record among many — the register lists the hundred most recently changed and
+nothing else — and bulk import.
 
 | | State |
 |---|---|
 | `migrations/` 0001–0004 | applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
-| `internal/domain` | `User`, `CHW`, `Cadre`, `Sex`, statuses, `Level`, sentinel errors |
+| `internal/domain` | `User`, `CHW`, `Profile`, the enums, `Level`, sentinel errors |
 | `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
-| `internal/store` | users, sessions, audit, locations, chws — every method takes a `Scope` |
-| `internal/http` | auth, user admin, audit view, dashboard, CHW CRUD, the location JSON feed |
-| `internal/web` | layout + ten pages, one stylesheet, the cascading-select script |
-| `chw_profiles`, junctions | **schema exists, no UI — phase 4** |
+| `internal/store` | users, sessions, audit, locations, chws, profiles — every method takes a `Scope` |
+| `internal/http` | auth, user admin, audit, dashboard, CHW CRUD, profiles, the location feed |
+| `internal/web` | layout + eleven pages, one stylesheet, two scripts |
 | Search, filters, paging | **phase 5** |
 | `internal/importer` | **empty — phase 6** |
+| `chw_languages` | **empty by design — the vocabulary fills from the importer's parsing in phase 6** |
 
-Immediate next steps, in order: the profile form (phone branch, education, English
-proficiency, incentive, supervision), then the tool and service-domain junctions with the
-`trained_implies_provides` rule expressed in the UI rather than only in the CHECK.
+Immediate next steps, in order: name and NIN search over `chws_name_trgm`, cadre / status /
+location filters, keyset pagination, and the scoped CSV export that shares the same filter
+type.
 
 ## Decisions locked
 
@@ -98,15 +97,16 @@ district user unrepresentable in the database.
    facility loader + quarantine report *(done)*
 2. **Auth** — argon2id, sessions, CSRF, RBAC middleware, `Scope` plumbing *(done)*
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
-4. **Optional attributes** — profile form, tools and service-domain junctions
+4. **Optional attributes** — profile form, tools and service-domain junctions *(done)*
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination
 6. **Import + export** — CSV importer with per-row error report, scoped CSV export
 7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
    `-create-admin`)
 
-Geography is phase 1 because nothing else is testable without it. Phases 1–3 are
+Geography is phase 1 because nothing else is testable without it. Phases 1–4 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization
-layer, and the core register record. Phase 4 (optional attributes) is next.
+layer, the core register record and every optional attribute around it. Phase 5 (list UI)
+is next — the register holds records now, and needs to be searchable.
 
 ## Source data
 
@@ -196,6 +196,26 @@ Phase 3 was exercised the same way, against the populated hierarchy:
   village select; opening an existing record rebuilds the whole chain from the server's
   prefill, with no console errors
 
+Phase 4 was exercised the same way. Each of the profile CHECKs was probed by posting the
+combination it forbids, past the JavaScript that hides it:
+
+- `0772 123-456` stores as `772123456`, `25,000` as `25000`, and June 2026 as `2026-06-01`
+- answering "no" to owning a phone while posting a primary number and a reporting flag
+  stores the alternate only — `phone_branch_exclusive` never sees the crossing
+- an incentive amount and frequency posted with "no", and a supervision month posted with
+  "no", are both dropped rather than stored or rejected
+- training posted for a service that is not provided does not appear at all
+- a facility in another district is a field message naming the CHW's district, not the
+  500 the trigger alone would produce
+- moving a CHW who still reports to a facility in their old district is refused with an
+  instruction to reassign it first; clearing the facility lets the same move through
+- a district manager 404s on another district's profile, both reading and writing; a
+  national viewer 403s on the form and sees no edit link
+- `audit_log` carries the whole profile plus both junction sets as before/after JSONB
+- in the browser: branches stay hidden and *disabled* until their question is answered
+  yes, a tool's condition unlocks only once the tool is held, and unticking a service
+  clears its training box
+
 Reproduce from the repo root:
 
 ```bash
@@ -210,6 +230,9 @@ go test ./...
 go run ./cmd/server -create-admin you@example.org -name "Your Name"
 go run ./cmd/server                              # sign in at http://localhost:8080/login
 ```
+
+The cascading selects and the profile branches need a browser, not curl. Selenium is on
+`:4444` and reaches the app on the docker gateway address, not `127.0.0.1`.
 
 ## Known empty-on-import fields
 

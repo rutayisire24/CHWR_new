@@ -112,6 +112,27 @@ scoped in twice: the update will not match a CHW outside their district, and a p
 that would carry one out is rolled back. A transfer is a two-district event, and the
 receiving district is not theirs to decide.
 
+**"Not asked" is a third answer, everywhere.** Every `chw_profiles` column is nullable
+because the ODK export answers none of them. Yes/no questions are three radios and `*bool`
+in Go, so an unanswered question survives as unanswered. Collapsing it to false would
+turn a record nobody has surveyed into a record that answered no to everything, which is
+a fabrication the register would then report on.
+
+**Hidden branches are disabled, not just hidden.** A hidden field still submits its value.
+Disabling it is what makes the JavaScript agree with `phone_branch_exclusive` and
+`incentive_details_require_yes` rather than merely look like it does. The handler
+re-derives every branch anyway; the client-side half is for the operator, not for the
+data.
+
+**A tampered profile post is corrected, not rejected.** Training on an unoffered service,
+an incentive amount with a "no" — the only way to produce these is to bypass the form, and
+a field message about a combination the user never saw would mean nothing. They are read
+the safe way and stored, with the CHECK still behind them.
+
+**Junction sets are replaced on save.** `chw_tools` and `chw_service_domains` answer
+multi-selects, so the submitted set is the new state. Diffing would add a way for the form
+and the table to disagree, to gain nothing.
+
 **The first admin is a flag, not a migration.** `-create-admin` provisions one account
 and prints a one-use password. A seeded default admin in a migration is a known password
 in a public repository; a bootstrap web route is an unauthenticated privilege escalation

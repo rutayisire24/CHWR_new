@@ -1,0 +1,222 @@
+{{define "title"}}Profile · {{.Page.CHW.FullName}} · CHW Registry{{end}}
+
+{{define "content"}}
+<h1>Profile — {{.Page.CHW.FullName}}</h1>
+<p class="muted">{{.Page.CHW.Cadre.Label}}, {{.Page.CHW.LocationName}}, {{.Page.CHW.DistrictName}} district.
+  Every answer here is optional: a record imported from the ODK export may answer none of them.</p>
+
+<form method="post" action="/chws/{{.Page.CHW.ID}}/profile" class="card" id="profile-form">
+  {{template "csrf" .}}
+
+  <h2 class="section">Phone</h2>
+  <label>Does the CHW own a phone?</label>
+  <div class="radios" data-branch="owns_phone">
+    <label class="radio"><input type="radio" name="owns_phone" value="yes"
+      {{if and .Page.Profile.OwnsPhone (deref .Page.Profile.OwnsPhone)}}checked{{end}}> Yes</label>
+    <label class="radio"><input type="radio" name="owns_phone" value="no"
+      {{if and .Page.Profile.OwnsPhone (not (deref .Page.Profile.OwnsPhone))}}checked{{end}}> No</label>
+    <label class="radio"><input type="radio" name="owns_phone" value=""
+      {{if not .Page.Profile.OwnsPhone}}checked{{end}}> Not asked</label>
+  </div>
+
+  <div class="branch" data-when="owns_phone=yes">
+    <div class="two-up">
+      <div>
+        <label for="phone_primary">Phone number</label>
+        <input id="phone_primary" name="phone_primary" inputmode="numeric"
+               value="{{.Page.Profile.PhonePrimary}}" placeholder="772123456">
+        <span class="hint">Nine digits, no country code.</span>
+        {{template "field-error" .Page.Errors.phone_primary}}
+      </div>
+      <div>
+        <label>Used for reporting?</label>
+        <div class="radios">
+          <label class="radio"><input type="radio" name="phone_for_reporting" value="yes"
+            {{if and .Page.Profile.PhoneForReporting (deref .Page.Profile.PhoneForReporting)}}checked{{end}}> Yes</label>
+          <label class="radio"><input type="radio" name="phone_for_reporting" value="no"
+            {{if not (deref .Page.Profile.PhoneForReporting)}}checked{{end}}> No</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="branch" data-when="owns_phone=no">
+    <label for="phone_alternate">Alternative number to reach them on</label>
+    <input id="phone_alternate" name="phone_alternate" inputmode="numeric"
+           value="{{.Page.Profile.PhoneAlternate}}" placeholder="772123456">
+    <span class="hint">Someone else's phone. Optional.</span>
+    {{template "field-error" .Page.Errors.phone_alternate}}
+  </div>
+
+  <h2 class="section">Service</h2>
+  <div class="two-up">
+    <div>
+      <label for="facility_id">Supervising facility</label>
+      <select id="facility_id" name="facility_id">
+        <option value="">— none recorded —</option>
+        {{range .Page.Facilities}}
+        <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      <span class="hint">{{.Page.CHW.DistrictName}} district only — a CHW cannot report across districts.</span>
+      {{template "field-error" .Page.Errors.facility_id}}
+    </div>
+    <div>
+      <label for="service_start_year">Year they started</label>
+      <input id="service_start_year" name="service_start_year" inputmode="numeric"
+             value="{{if .Page.Profile.ServiceStartYear}}{{.Page.Profile.ServiceStartYear}}{{end}}">
+      {{template "field-error" .Page.Errors.service_start_year}}
+    </div>
+  </div>
+
+  <div class="two-up">
+    <div>
+      <label for="households_served">Households served</label>
+      <input id="households_served" name="households_served" inputmode="numeric"
+             value="{{if .Page.Profile.HouseholdsServed}}{{.Page.Profile.HouseholdsServed}}{{end}}">
+      <span class="hint">Between 3 and 100,000.</span>
+      {{template "field-error" .Page.Errors.households_served}}
+    </div>
+    <div>
+      <label for="education">Highest level of education</label>
+      <select id="education" name="education">
+        <option value="">— not recorded —</option>
+        {{range .Page.Educations}}
+        <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" .Page.Errors.education}}
+    </div>
+  </div>
+
+  <h2 class="section">Languages</h2>
+  <label>English proficiency</label>
+  <input type="hidden" name="english_asked" value="1">
+  <div class="radios">
+    <label class="radio"><input type="checkbox" name="english_speak" value="yes"
+      {{if deref .Page.Profile.EnglishSpeak}}checked{{end}}> Speaks</label>
+    <label class="radio"><input type="checkbox" name="english_read" value="yes"
+      {{if deref .Page.Profile.EnglishRead}}checked{{end}}> Reads</label>
+    <label class="radio"><input type="checkbox" name="english_write" value="yes"
+      {{if deref .Page.Profile.EnglishWrite}}checked{{end}}> Writes</label>
+  </div>
+  <span class="hint">Leave all three clear for none.</span>
+
+  <label for="other_languages_raw">Other languages</label>
+  <input id="other_languages_raw" name="other_languages_raw"
+         value="{{.Page.Profile.OtherLanguagesRaw}}" placeholder="Separate with commas">
+  <span class="hint">Kept as typed. There is no language vocabulary to pick from yet.</span>
+
+  <h2 class="section">Incentive</h2>
+  <label>Do they receive an incentive?</label>
+  <div class="radios" data-branch="receives_incentive">
+    <label class="radio"><input type="radio" name="receives_incentive" value="yes"
+      {{if and .Page.Profile.ReceivesIncentive (deref .Page.Profile.ReceivesIncentive)}}checked{{end}}> Yes</label>
+    <label class="radio"><input type="radio" name="receives_incentive" value="no"
+      {{if and .Page.Profile.ReceivesIncentive (not (deref .Page.Profile.ReceivesIncentive))}}checked{{end}}> No</label>
+    <label class="radio"><input type="radio" name="receives_incentive" value=""
+      {{if not .Page.Profile.ReceivesIncentive}}checked{{end}}> Not asked</label>
+  </div>
+
+  <div class="branch two-up" data-when="receives_incentive=yes">
+    <div>
+      <label for="incentive_frequency">How often</label>
+      <select id="incentive_frequency" name="incentive_frequency">
+        <option value="">— not recorded —</option>
+        {{range .Page.Frequencies}}
+        <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      {{template "field-error" .Page.Errors.incentive_frequency}}
+    </div>
+    <div>
+      <label for="incentive_amount_ugx">Amount (UGX)</label>
+      <input id="incentive_amount_ugx" name="incentive_amount_ugx" inputmode="numeric"
+             value="{{if .Page.Profile.IncentiveAmountUGX}}{{.Page.Profile.IncentiveAmountUGX}}{{end}}">
+      <span class="hint">1,000 to 500,000.</span>
+      {{template "field-error" .Page.Errors.incentive_amount_ugx}}
+    </div>
+  </div>
+
+  <h2 class="section">Supervision</h2>
+  <label>Have they received support supervision?</label>
+  <div class="radios" data-branch="received_supervision">
+    <label class="radio"><input type="radio" name="received_supervision" value="yes"
+      {{if and .Page.Profile.ReceivedSupervision (deref .Page.Profile.ReceivedSupervision)}}checked{{end}}> Yes</label>
+    <label class="radio"><input type="radio" name="received_supervision" value="no"
+      {{if and .Page.Profile.ReceivedSupervision (not (deref .Page.Profile.ReceivedSupervision))}}checked{{end}}> No</label>
+    <label class="radio"><input type="radio" name="received_supervision" value=""
+      {{if not .Page.Profile.ReceivedSupervision}}checked{{end}}> Not asked</label>
+  </div>
+
+  <div class="branch two-up" data-when="received_supervision=yes">
+    <div>
+      <label for="supervised_month">Most recent — month</label>
+      <select id="supervised_month" name="supervised_month">
+        <option value="">— not recorded —</option>
+        {{range .Page.Months}}
+        <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label for="supervised_year">Year</label>
+      <select id="supervised_year" name="supervised_year">
+        <option value="">— not recorded —</option>
+        {{$on := .Page.Profile.LastSupervisedOn}}
+        {{range .Page.Years}}
+        <option value="{{.}}" {{if and $on (eq $on.Year .)}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+  </div>
+  <span class="hint">Only the month is recorded — the day is not collected.</span>
+  {{template "field-error" .Page.Errors.last_supervised_on}}
+
+  <h2 class="section">Tools held</h2>
+  <table class="grid compact">
+    <thead><tr><th>Tool</th><th>Held</th><th>Working?</th></tr></thead>
+    <tbody>
+    {{range .Page.Tools}}
+      <tr>
+        <td>{{.Label}}</td>
+        <td><input type="checkbox" name="tool" value="{{.ID}}" {{if .Held}}checked{{end}}
+                   data-tool="{{.ID}}"></td>
+        <td class="condition">
+          <label class="radio"><input type="radio" name="tool_functional_{{.ID}}" value="yes"
+            {{if deref .Functional}}checked{{end}} data-for-tool="{{.ID}}"> Working</label>
+          <label class="radio"><input type="radio" name="tool_functional_{{.ID}}" value="no"
+            {{if and .Functional (not (deref .Functional))}}checked{{end}} data-for-tool="{{.ID}}"> Broken</label>
+          <label class="radio"><input type="radio" name="tool_functional_{{.ID}}" value=""
+            {{if not .Functional}}checked{{end}} data-for-tool="{{.ID}}"> Not asked</label>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <span class="hint">No tools at all is simply nothing ticked.</span>
+
+  <h2 class="section">Services and training</h2>
+  <p class="hint">Training is a subset of what they provide: a CHW cannot be trained on a
+    service they do not offer.</p>
+  <table class="grid compact">
+    <thead><tr><th>Service domain</th><th>Provides</th><th>Trained in the last 2 years</th></tr></thead>
+    <tbody>
+    {{range .Page.Domains}}
+      <tr>
+        <td>{{.Label}}</td>
+        <td><input type="checkbox" name="provides" value="{{.ID}}" {{if .Provides}}checked{{end}}
+                   data-domain="{{.ID}}"></td>
+        <td><input type="checkbox" name="trained" value="{{.ID}}" {{if .Trained}}checked{{end}}
+                   data-trained="{{.ID}}" {{if not .Provides}}disabled{{end}}></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+
+  <button type="submit">Save profile</button>
+  <a class="cancel" href="/chws/{{.Page.CHW.ID}}">Cancel</a>
+</form>
+
+<script src="/static/profile.js" defer></script>
+{{end}}
