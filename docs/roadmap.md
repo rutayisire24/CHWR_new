@@ -89,8 +89,8 @@ hierarchy seeder, facility loader, constraint suite and Go skeleton. Phase 2 (au
 Full profiling results, defect inventory and reconciliation notes are in
 [data-sources.md](data-sources.md). In brief: the hierarchy comes from
 `data/Village-Admin Units 06-08-2026.xlsm` (clean, official codes, districts downward),
-regions and facilities come from the ODK workbook, and the ODK hierarchy is unusable
-because it omits the county tier.
+regions come from the checked-in `data/district_region.tsv`, facilities from the MFL
+workbook, and the ODK hierarchy is unusable because it omits the county tier.
 
 | Level | Count |
 |---|---|
@@ -114,6 +114,8 @@ Schema applied to PostgreSQL 18 and probed, not just written:
   [data-model.md](data-model.md) for the full list
 - facilities load 7,895 of 7,907 rows across all 146 districts, 12 quarantined, none
   unresolvable; cross-district CHW attachment refused in both directions
+- the whole path rebuilds from a dropped database and a deleted `seed/out/` using only
+  checked-in files: every count identical, every district under its region
 - `path` materialization and `district_id` derivation confirmed on real deep paths
 - `locations` totals 33 MB
 
@@ -127,7 +129,7 @@ Reproduce from the repo root:
 ```bash
 createdb chwr && export DATABASE_URL=postgres:///chwr
 go run ./cmd/server -migrate
-python3 seed/extract_units.py "<National CHWR.xlsx>"
+python3 seed/extract_units.py
 psql -d chwr -f seed/load_hierarchy.sql
 python3 seed/extract_facilities.py
 psql -d chwr -f seed/load_facilities.sql

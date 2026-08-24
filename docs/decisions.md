@@ -73,6 +73,12 @@ be a second survey round. `chw_profiles.updated_at` plus the audit log make hist
 recoverable, and the audit log could backfill snapshots later. The trigger to build it is
 a second survey round being scheduled — not before.
 
+**The district-to-region map is checked in, not extracted.** Regions were originally read
+out of the ODK workbook's `choices` sheet, which meant a clean clone could not rebuild the
+hierarchy without a file the repository does not carry. `data/district_region.tsv` replaces
+it. The two were compared before the switch: identical on all 146 districts and all 15
+regions, differing only in row order.
+
 **Facilities parented to district, not subcounty.** The MFL's `subcounty` column resolves
 against the hierarchy for 3,696 of 7,907 rows; 4,201 miss and 10 are ambiguous, because the
 column holds Town Councils, City Divisions and newer units the admin-units file does not

@@ -4,7 +4,7 @@
 
 ```bash
 go run ./cmd/server -migrate                           # schema first, to version 4
-python3 seed/extract_units.py "<National CHWR.xlsx>"   # writes seed/out/*.tsv
+python3 seed/extract_units.py                          # writes seed/out/*.tsv
 psql -d chwr -f seed/load_hierarchy.sql                # from the repo root
 ```
 
@@ -12,7 +12,8 @@ The schema comes from the binary, not from psql: `migrations/*.sql` are embedded
 applied by goose at startup, so an empty database and a running server are one step apart.
 
 `extract_units.py` reads `data/Village-Admin Units 06-08-2026.xlsm` for the hierarchy and
-the ODK workbook for regions, emitting three TSVs:
+`data/district_region.tsv` for regions — both checked in, so the load needs no file the
+repository does not carry. It emits three TSVs:
 
 | File | Contents |
 |---|---|

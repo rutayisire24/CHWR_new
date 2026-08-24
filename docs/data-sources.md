@@ -1,15 +1,29 @@
 # Source data
 
-Three workbooks feed the registry. The first two disagree, and the disagreement matters.
+Four sources feed the registry. Two of them disagree, and the disagreement matters.
 
 | Source | Supplies | Quality |
 |---|---|---|
 | `data/Village-Admin Units 06-08-2026.xlsm` | district > county > subcounty > parish > village, with official codes | clean |
-| National CHWR ODK XLSForm | 15 regions, district-to-region map, all CHW field definitions | defective hierarchy, sound field definitions |
+| `data/district_region.tsv` | the 15 regions and all 146 district-to-region pairings | clean |
 | `data/MFL Updated - 21 feb.xlsx` | 7,907 health facilities | clean at district level, unusable below it |
+| National CHWR ODK XLSForm | all CHW field definitions | defective hierarchy, sound field definitions |
 
-The ODK workbook's own facility list (7,896 rows, parented by a `subcountyfilter`
-column holding mostly district slugs) is superseded by the MFL and no longer loaded.
+**Everything the loaders need is checked in.** The ODK workbook is documentation of the
+form's semantics now, not an input: its region map was replaced by
+`data/district_region.tsv` and its facility list (7,896 rows, parented by a
+`subcountyfilter` column holding mostly district slugs) by the MFL.
+
+## District-to-region map
+
+A plain 146-line TSV, `district<TAB>region`, supplied by the project owner. It was
+checked against the map previously extracted from the ODK `choices` sheet: **the same 146
+districts, the same 15 regions, and not one disagreement on a pairing** — the files differ
+only in row order. Adopting it changes no loaded data and removes the last reason to hold
+the ODK workbook.
+
+It spells two districts the ODK way — `Luwero` and `Sembabule` — so the hierarchy loader's
+two existing aliases still apply.
 
 ## Admin units workbook — authoritative
 

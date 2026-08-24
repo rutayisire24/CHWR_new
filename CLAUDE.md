@@ -28,7 +28,7 @@ internal/importer/   CSV/ODK ingest
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_chws, 0004_facilities_mfl
 seed/                hierarchy extraction + load
-data/                source workbooks (checked in)
+data/                source workbooks and the district-to-region map (checked in)
 docs/                detailed reference — see docs/README.md
 ```
 
@@ -82,7 +82,7 @@ manages users.
 createdb chwr
 export DATABASE_URL=postgres:///chwr
 go run ./cmd/server -migrate                     # goose, embedded; idempotent
-python3 seed/extract_units.py data/*.xlsx        # writes seed/out/
+python3 seed/extract_units.py                   # writes seed/out/
 psql -d chwr -f seed/load_hierarchy.sql          # run from repo root; ~3s
 python3 seed/extract_facilities.py               # MFL -> seed/out/facilities.tsv
 psql -d chwr -f seed/load_facilities.sql         # 7,895 loaded, 12 quarantined

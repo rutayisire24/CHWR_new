@@ -1,7 +1,7 @@
 -- Loads the national administrative hierarchy into `locations`.
 --
 -- Run seed/extract_units.py first, then:
---     python3 seed/extract_units.py <odk_workbook.xlsx> seed/out
+--     python3 seed/extract_units.py                  # writes seed/out/*.tsv
 --     psql -d chwr -f seed/load_hierarchy.sql        # from the repo root
 --
 -- \copy performs no variable interpolation of any kind, so the paths below are
@@ -12,7 +12,7 @@
 --  10716 parishes / 71207 villages), zero losses, zero code_path mismatches.
 --
 -- The two UPDATEs reconcile district spellings between the admin-units file
--- and the ODK region map; every other district matches by normalized name.
+-- and data/district_region.tsv; every other district matches by normalized name.
 
 CREATE TEMP TABLE stg(district_code text,district_name text,ea_code text,ea_name text,
   scounty_code text,scounty_name text,parish_code text,parish_name text,
