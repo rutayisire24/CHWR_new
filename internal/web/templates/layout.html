@@ -6,15 +6,15 @@
   <title>{{block "title" .}}Community Health Worker Registry{{end}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<body class="{{if .User}}has-nav{{else}}no-nav{{end}}">
 {{if .User}}
-<header class="topbar">
+<aside class="sidenav">
   <a class="brand" href="/">CHW Registry</a>
   <nav>
-    <a href="/">Dashboard</a>
-    {{if .Nav.CHWs}}<a href="/chws">Register</a>{{end}}
-    {{if .Nav.Users}}<a href="/users">Users</a>{{end}}
-    {{if .Nav.Audit}}<a href="/audit">Audit</a>{{end}}
+    <a href="/" class="{{if eq .Nav.Section "/"}}on{{end}}">Dashboard</a>
+    {{if .Nav.CHWs}}<a href="/chws" class="{{if eq .Nav.Section "/chws"}}on{{end}}">Register</a>{{end}}
+    {{if .Nav.Users}}<a href="/users" class="{{if eq .Nav.Section "/users"}}on{{end}}">Users</a>{{end}}
+    {{if .Nav.Audit}}<a href="/audit" class="{{if eq .Nav.Section "/audit"}}on{{end}}">Audit</a>{{end}}
   </nav>
   <div class="who">
     <span class="name">{{.User.FullName}}</span>
@@ -24,15 +24,17 @@
       <button class="linkish" type="submit">Sign out</button>
     </form>
   </div>
-</header>
+</aside>
 {{end}}
 
-<main class="{{if .User}}app{{else}}bare{{end}}">
-  {{if .Flash}}<p class="flash {{.Flash.Kind}}">{{.Flash.Message}}</p>{{end}}
-  {{block "content" .}}{{end}}
-</main>
+<div class="shell">
+  <main class="{{if .User}}app{{else}}bare{{end}}">
+    {{if .Flash}}<p class="flash {{.Flash.Kind}}">{{.Flash.Message}}</p>{{end}}
+    {{block "content" .}}{{end}}
+  </main>
 
-<footer class="foot">Ministry of Health · National Community Health Worker Registry</footer>
+  <footer class="foot">Ministry of Health · National Community Health Worker Registry</footer>
+</div>
 </body>
 </html>
 

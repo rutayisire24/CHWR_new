@@ -39,9 +39,19 @@ type page struct {
 // nav is which sections the signed-in user may reach, resolved once so
 // templates ask a boolean rather than re-deriving the capability matrix.
 type nav struct {
-	CHWs  bool
-	Users bool
-	Audit bool
+	CHWs    bool
+	Users   bool
+	Audit   bool
+	Section string // first path segment, so /chws/42 still marks Register
+}
+
+// section reduces a path to its first segment: a CHW detail page marks the
+// same rail entry as the listing it was reached from.
+func section(path string) string {
+	if i := strings.Index(strings.TrimPrefix(path, "/"), "/"); i >= 0 {
+		return path[:i+1]
+	}
+	return path
 }
 
 // render fills in the chrome and writes the page. A render failure is logged
@@ -55,9 +65,10 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if u, ok := auth.UserFrom(r.Context()); ok {
 		p.User = &u
 		p.Nav = nav{
-			CHWs:  auth.Can(u.Role, auth.CapCHWView),
-			Users: auth.Can(u.Role, auth.CapUserManage),
-			Audit: auth.Can(u.Role, auth.CapAuditView),
+			CHWs:    auth.Can(u.Role, auth.CapCHWView),
+			Users:   auth.Can(u.Role, auth.CapUserManage),
+			Audit:   auth.Can(u.Role, auth.CapAuditView),
+			Section: section(r.URL.Path),
 		}
 	}
 

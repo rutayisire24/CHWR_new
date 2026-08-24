@@ -1,59 +1,122 @@
 /* National CHW Registry — one stylesheet, no build step, no framework. */
 
+/* "Registry ink" — the rail is bound-ledger navy, every interactive surface is
+   one service blue, and the neutrals are cooled to sit with them. Status stays
+   deliberately outside the brand: green now means only "this CHW is active",
+   which it could not while the chrome was also green. */
 :root {
-  --ink: #16211c;
-  --ink-soft: #5c6b64;
-  --line: #d9e0dc;
+  --navy: #0e2b45;
+  --navy-deep: #0a2135;
+  --navy-line: rgba(255, 255, 255, 0.16);
+  --navy-hover: rgba(255, 255, 255, 0.10);
+  --navy-hi: #1c3f5c;
+
+  --blue: #1a5fa8;
+  --blue-dark: #144a80;
+  --blue-wash: #eaf1f9;
+
+  --ink: #141d27;
+  --ink-soft: #566675;
+  --line: #d6dee6;
   --paper: #ffffff;
-  --wash: #f4f6f5;
-  --green: #1f6b46;
-  --green-dark: #175436;
+  --wash: #f1f4f8;
+
+  --ok: #1a6b45;
+  --ok-wash: #e9f4ee;
+  --ok-line: #c9e3d5;
   --amber: #8a5a00;
   --amber-wash: #fdf3e0;
-  --red: #a02020;
-  --red-wash: #fbeceb;
+  --amber-line: #ecd9b0;
+  --red: #a1242c;
+  --red-wash: #fbecec;
+  --red-line: #e8cccd;
+
   --radius: 6px;
+  --rail: 15rem;
 }
 
 * { box-sizing: border-box; }
+
+/* Radios and checkboxes follow the palette rather than the browser's own blue. */
+input[type=radio], input[type=checkbox] { accent-color: var(--blue); }
 
 body {
   margin: 0;
   font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--ink);
   background: var(--wash);
-  display: flex;
-  flex-direction: column;
   min-height: 100vh;
 }
 
-/* --- top bar ------------------------------------------------------------ */
+/* The signed-in shell is a fixed rail plus a scrolling column; the login page
+   has no rail, so .shell simply fills the viewport. */
+.shell { display: flex; flex-direction: column; min-height: 100vh; }
+body.has-nav .shell { margin-left: var(--rail); }
 
-.topbar {
+/* --- side rail ---------------------------------------------------------- */
+
+.sidenav {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: var(--rail);
   display: flex;
-  align-items: center;
-  gap: 2rem;
-  padding: 0.75rem 1.5rem;
-  background: var(--green);
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.25rem 1rem;
+  background: var(--navy);
   color: #fff;
+  overflow-y: auto;
 }
-.topbar .brand { font-weight: 700; letter-spacing: 0.01em; }
-.topbar a { color: #fff; text-decoration: none; }
-.topbar nav { display: flex; gap: 1.25rem; }
-.topbar nav a { opacity: 0.9; }
-.topbar nav a:hover { opacity: 1; text-decoration: underline; }
-.topbar .who { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; font-size: 0.875rem; }
-.topbar .who .role { opacity: 0.8; }
+.sidenav .brand {
+  display: block; font-weight: 700; font-size: 1.0625rem; letter-spacing: 0.01em;
+  padding-bottom: 1.25rem; border-bottom: 1px solid var(--navy-line);
+}
+.sidenav a { color: #fff; text-decoration: none; }
+.sidenav nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.sidenav nav a {
+  opacity: 0.9; padding: 0.45rem 0.6rem; border-radius: var(--radius);
+}
+.sidenav nav a:hover { opacity: 1; background: var(--navy-hover); }
+/* The rail is the only place that says where you are. The current section is
+   one filled block — no rule, no second colour. */
+.sidenav nav a.on {
+  opacity: 1; font-weight: 600;
+  background: var(--navy-hi);
+}
+.sidenav .who {
+  margin-top: auto; display: flex; flex-direction: column; align-items: flex-start;
+  gap: 0.35rem; font-size: 0.875rem; padding: 1rem 0.6rem 0;
+  border-top: 1px solid var(--navy-line);
+}
+.sidenav .who .name { font-weight: 600; }
+.sidenav .who .role { opacity: 0.8; font-size: 0.8125rem; }
+.sidenav .who form { margin-top: 0.35rem; }
 .linkish {
   background: none; border: 1px solid rgba(255,255,255,0.5); color: #fff;
   border-radius: var(--radius); padding: 0.25rem 0.6rem; cursor: pointer; font: inherit;
 }
 .linkish:hover { background: rgba(255,255,255,0.15); }
 
+/* Below tablet width the rail gives up its column and rides along the top. */
+@media (max-width: 52rem) {
+  .sidenav {
+    position: static; width: auto; flex-direction: row; align-items: center;
+    flex-wrap: wrap; gap: 0.75rem 1.5rem; padding: 0.75rem 1.25rem;
+  }
+  .sidenav .brand { padding-bottom: 0; border-bottom: 0; }
+  .sidenav nav { flex-direction: row; gap: 0.5rem; }
+  .sidenav .who {
+    margin-top: 0; margin-left: auto; flex-direction: row; align-items: center;
+    gap: 0.75rem; padding: 0; border-top: 0;
+  }
+  .sidenav .who form { margin-top: 0; }
+  body.has-nav .shell { margin-left: 0; }
+}
+
 /* --- page --------------------------------------------------------------- */
 
 main { flex: 1; }
-main.app { padding: 2rem 1.5rem; max-width: 68rem; margin: 0 auto; width: 100%; }
+main.app { padding: 2rem 2rem; max-width: 72rem; width: 100%; }
 main.bare { display: grid; place-items: center; padding: 3rem 1.5rem; }
 
 h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
@@ -70,7 +133,7 @@ h2 { font-size: 1.1rem; margin: 0 0 0.5rem; }
   margin-bottom: 1.5rem;
 }
 .card.narrow { width: min(26rem, 100%); }
-.card.danger { border-color: #e6cfcf; }
+.card.danger { border-color: var(--red-line); }
 
 /* --- forms -------------------------------------------------------------- */
 
@@ -79,17 +142,17 @@ input, select {
   width: 100%; padding: 0.5rem 0.6rem; font: inherit; color: var(--ink);
   background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
 }
-input:focus, select:focus { outline: 2px solid var(--green); outline-offset: 1px; border-color: var(--green); }
+input:focus, select:focus { outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue); }
 input[readonly] { background: var(--wash); color: var(--ink-soft); }
 
 button {
   margin-top: 1.1rem; padding: 0.55rem 1.1rem; font: inherit; font-weight: 600;
-  color: #fff; background: var(--green); border: 0; border-radius: var(--radius); cursor: pointer;
+  color: #fff; background: var(--blue); border: 0; border-radius: var(--radius); cursor: pointer;
 }
-button:hover { background: var(--green-dark); }
+button:hover { background: var(--blue-dark); }
 button.warn { background: var(--red); }
 .button {
-  display: inline-block; padding: 0.5rem 1rem; background: var(--green); color: #fff;
+  display: inline-block; padding: 0.5rem 1rem; background: var(--blue); color: #fff;
   border-radius: var(--radius); text-decoration: none; font-weight: 600; font-size: 0.9375rem;
 }
 .cancel { margin-left: 1rem; color: var(--ink-soft); }
@@ -100,15 +163,15 @@ form.inline button { margin-top: 0; }
 .field-error { display: block; color: var(--red); font-size: 0.8125rem; margin-top: 0.25rem; }
 .form-error {
   margin: 1rem 0 0; padding: 0.6rem 0.8rem; background: var(--red-wash);
-  border: 1px solid #e6cfcf; border-radius: var(--radius); color: var(--red); font-size: 0.9375rem;
+  border: 1px solid var(--red-line); border-radius: var(--radius); color: var(--red); font-size: 0.9375rem;
 }
 .flash {
   padding: 0.6rem 0.9rem; border-radius: var(--radius); margin: 0 0 1.25rem;
   border: 1px solid var(--line); background: var(--paper);
 }
-.flash.ok { background: #eef7f1; border-color: #cfe6d9; color: var(--green-dark); }
-.flash.warn { background: var(--amber-wash); border-color: #ecd9b0; color: var(--amber); }
-.flash.error { background: var(--red-wash); border-color: #e6cfcf; color: var(--red); }
+.flash.ok { background: var(--ok-wash); border-color: var(--ok-line); color: var(--ok); }
+.flash.warn { background: var(--amber-wash); border-color: var(--amber-line); color: var(--amber); }
+.flash.error { background: var(--red-wash); border-color: var(--red-line); color: var(--red); }
 
 /* --- tables ------------------------------------------------------------- */
 
@@ -117,10 +180,14 @@ form.inline button { margin-top: 0; }
   border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
   margin-top: 1rem;
 }
-.grid th, .grid td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); }
+.grid th, .grid td {
+  text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
 .grid th { background: var(--wash); font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-soft); }
 .grid tr:last-child td { border-bottom: 0; }
 .grid tr.dim td { color: var(--ink-soft); }
+.grid tbody tr:hover td { background: var(--blue-wash); }
 .grid .actions { text-align: right; }
 .grid code { font-size: 0.8125rem; }
 
@@ -128,7 +195,7 @@ form.inline button { margin-top: 0; }
   display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
   font-size: 0.75rem; font-weight: 600; text-transform: lowercase;
 }
-.pill.active { background: #eef7f1; color: var(--green-dark); }
+.pill.active { background: var(--ok-wash); color: var(--ok); }
 .pill.disabled { background: var(--wash); color: var(--ink-soft); }
 .pill.warn { background: var(--amber-wash); color: var(--amber); }
 
@@ -166,9 +233,9 @@ form.inline button { margin-top: 0; }
   margin-top: 1rem; font-size: 0.9375rem;
 }
 .button.ghost {
-  background: var(--paper); color: var(--green); border: 1px solid var(--line);
+  background: var(--paper); color: var(--blue); border: 1px solid var(--line);
 }
-.button.ghost:hover { border-color: var(--green); }
+.button.ghost:hover { border-color: var(--blue); }
 
 .crumbs { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin: 0 0 1.25rem; }
 .crumb { font-size: 0.875rem; }
@@ -195,14 +262,15 @@ h2.section {
 
 select:disabled { background: var(--wash); color: var(--ink-soft); cursor: not-allowed; }
 
-.card.warnbox { border-color: #ecd9b0; background: var(--amber-wash); }
+.card.warnbox { border-color: var(--amber-line); background: var(--amber-wash); }
 .card.warnbox h2 { color: var(--amber); }
 .card.warnbox ul { margin: 0.5rem 0; padding-left: 1.25rem; }
 
 .pill.inactive { background: var(--wash); color: var(--ink-soft); }
 
 h1 .pill { vertical-align: middle; margin-left: 0.5rem; font-size: 0.75rem; }
-.tile a { color: inherit; }
+.tile a { color: inherit; text-decoration: none; }
+.tile a:hover { color: var(--blue); }
 
 /* --- profile form ------------------------------------------------------- */
 
@@ -223,8 +291,8 @@ h1 .pill { vertical-align: middle; margin-left: 0.5rem; font-size: 0.75rem; }
   padding: 0.2rem 0.6rem; border-radius: var(--radius); font-size: 0.8125rem;
   background: var(--wash); border: 1px solid var(--line); color: var(--ink-soft);
 }
-.tag.trained { background: #eef7f1; border-color: #cfe6d9; color: var(--green-dark); }
-.tag.broken { background: var(--red-wash); border-color: #e6cfcf; color: var(--red); }
+.tag.trained { background: var(--ok-wash); border-color: var(--ok-line); color: var(--ok); }
+.tag.broken { background: var(--red-wash); border-color: var(--red-line); color: var(--red); }
 
 dl.detail + h3, .card h3 {
   margin: 1.25rem 0 0; font-size: 0.8125rem; text-transform: uppercase;
