@@ -106,6 +106,19 @@ expired in the same response.
 `Scope`. `internal/store/stats.go` holds every query; the handler runs them and marshals
 one payload for the canvases.
 
+**The lede is one hero figure and three tiles.** Total CHWs, with an active/inactive
+meter; then VHTs, CHEWs, and the areas reached out of the areas that exist. Every tile is
+a count of the register itself, and each links into the listing filtered to it.
+
+Completeness measures are deliberately *not* tiles. A "% of records carrying a NIN" or a
+"% supervised" reads as a fact about community health workers when it is a fact about the
+register's own filling-in, and a headline `0%` in particular reads as "nobody is
+supervised" when it means "almost nobody has been asked". Those measures live in the
+Record completeness chart, where the whole row of them sits together and the framing is
+explicit. Supervision is the sharpest case: the ODK form records it per service domain and
+carries no date, so `received_supervision` is NULL on every imported row and fills in only
+through the web UI — it will read near zero for as long as that stays true.
+
 **Scope reaches the charts, not just the tables.** Each query takes a `Scope` and puts it
 in its own `WHERE`, so a district manager's dashboard is their district's dashboard. It
 also *changes tier*: nationally the chart groups by region and the league table by

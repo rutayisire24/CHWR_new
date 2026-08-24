@@ -329,9 +329,6 @@ dl.detail + h3, .card h3 {
    allowed to be this large. */
 .lede { display: grid; grid-template-columns: minmax(15rem, 1fr) 2fr; gap: 1rem; margin: 1.25rem 0 1.5rem; }
 @media (max-width: 60rem) { .lede { grid-template-columns: 1fr; } }
-/* Two by two beside the hero, so the pair of columns ends level and the hero
-   does not stretch into a void. */
-@media (min-width: 60rem) { .lede .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .hero {
   background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);

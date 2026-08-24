@@ -54,7 +54,6 @@ type Totals struct {
 	CHEW      int64
 	Female    int64
 	Male      int64
-	WithNIN   int64
 	MedianAge float64
 }
 
@@ -64,25 +63,24 @@ type Totals struct {
 func (s *Stats) Totals(ctx context.Context, sc auth.Scope) (Totals, error) {
 	q := `
 	    SELECT count(*),
-	           count(*) FILTER (WHERE status = 'active'),
-	           count(*) FILTER (WHERE status = 'inactive'),
-	           count(*) FILTER (WHERE cadre  = 'vht'),
-	           count(*) FILTER (WHERE cadre  = 'chew'),
-	           count(*) FILTER (WHERE sex    = 'female'),
-	           count(*) FILTER (WHERE sex    = 'male'),
-	           count(*) FILTER (WHERE nin IS NOT NULL),
-	           coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY age_years), 0)
-	      FROM chws
+	           count(*) FILTER (WHERE c.status = 'active'),
+	           count(*) FILTER (WHERE c.status = 'inactive'),
+	           count(*) FILTER (WHERE c.cadre  = 'vht'),
+	           count(*) FILTER (WHERE c.cadre  = 'chew'),
+	           count(*) FILTER (WHERE c.sex    = 'female'),
+	           count(*) FILTER (WHERE c.sex    = 'male'),
+	           coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY c.age_years), 0)
+	      FROM chws c
 	     WHERE true`
 	var args []any
-	if frag, extra := sc.Filter("district_id", len(args)+1); frag != "" {
+	if frag, extra := sc.Filter("c.district_id", len(args)+1); frag != "" {
 		q += frag
 		args = append(args, extra...)
 	}
 
 	var t Totals
 	err := s.pool.QueryRow(ctx, q, args...).Scan(&t.Total, &t.Active, &t.Inactive,
-		&t.VHT, &t.CHEW, &t.Female, &t.Male, &t.WithNIN, &t.MedianAge)
+		&t.VHT, &t.CHEW, &t.Female, &t.Male, &t.MedianAge)
 	if err != nil {
 		return Totals{}, fmt.Errorf("count register: %w", err)
 	}

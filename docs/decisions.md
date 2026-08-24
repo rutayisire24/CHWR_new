@@ -200,6 +200,19 @@ allowed to have; showing only their own bar would be a one-bar chart. Rejected: 
 national dashboard gated behind the national roles, which leaves district managers with no
 overview at all.
 
+**Completeness measures are not dashboard tiles.** The tiles count the register — CHWs,
+VHTs, CHEWs, areas reached. A share like "20% of records carry a NIN" or "0.1%
+supervised" is a fact about how filled-in the register is, not about community health
+workers, and at tile size it loses the framing that says so. They live in the Record
+completeness chart instead, which states its own rule ("a recorded no counts; a field
+nobody was asked does not") and shows the whole row of fields together, so a low bar reads
+as a gap in capture rather than a finding about the field. Supervision was considered for
+a tile and rejected on the same ground plus a harder one: it is NULL on every imported row
+by construction (decision 7 — the form carries no supervision date), so the tile would
+read 0% indefinitely and be read as an operational failure rather than an unasked
+question. Rejected: keeping the NIN tile and adding a supervision one beside it, which
+would have made two of four tiles measure paperwork rather than people.
+
 **Chart.js is vendored, not linked.** 208 KB in `internal/web/static/vendor/`, MIT,
 embedded in the binary like every other asset. A CDN would be a second origin the CSP
 would have to admit and a runtime dependency on somebody else's uptime, in a service that

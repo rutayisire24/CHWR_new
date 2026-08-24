@@ -46,12 +46,6 @@
       {{template "meter" dict "N" $p.Reach.Covered "Total" $p.Reach.Total}}
       <span class="sub">of {{num $p.Reach.Total}} with at least one CHW</span>
     </div>
-    <div class="tile">
-      <span class="caption">National ID recorded</span>
-      <span class="figure">{{num $t.WithNIN}}</span>
-      {{template "meter" dict "N" $t.WithNIN "Total" $t.Total "Dim" true}}
-      <span class="sub">{{share $t.WithNIN $t.Total}} of records carry a NIN</span>
-    </div>
   </div>
 </section>
 

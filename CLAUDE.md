@@ -135,6 +135,13 @@ it**: nationally the chart groups by region and the league table by district; in
 district those become subcounty and parish. Every query lives in `internal/store/stats.go`
 and takes a `Scope` like any other read.
 
+The tiles count the register — CHWs, VHTs, CHEWs, areas reached. **Completeness measures
+are not tiles**: a "% carrying a NIN" or "% supervised" is a fact about how filled-in the
+register is, not about CHWs, and a headline `0%` reads as an operational failure rather
+than an unasked question. They belong to the Record completeness chart, which states that
+distinction. Supervision is NULL on every imported row by construction, so it will read
+near zero until it is captured through the UI.
+
 Grouping reads the ancestor id out of `locations.path` with `split_part` rather than
 prefix-joining 84,635 locations; `segment()` maps a level to its position and is tested,
 because an off-by-one would group by the wrong tier and still draw a chart. `Areas` and
