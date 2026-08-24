@@ -21,6 +21,7 @@ lookup plus a scope predicate.
 | `chw.create` | yes | — | own district | — |
 | `chw.update` | yes | — | own district | — |
 | `chw.deactivate` | yes | — | own district | — |
+| `chw.import` | all | — | own district | — |
 | `user.manage` | yes | — | — | — |
 | `audit.view` | all | — | own district | — |
 | `export` | all | all | own district | own district |
@@ -92,6 +93,7 @@ has to evict the intruder.
 | CSRF | `auth.CSRF` — double-submit cookie, rotated at login and logout |
 | Forced reset | `RequireAuth` pins a `must_reset` user to `/account/password` |
 | CHW routes | `chw.view` reads `/chws` and `/api/locations`; `chw.create` / `chw.update` / `chw.deactivate` gate the writes |
+| Bulk import | `chw.import` gates every `/imports` route. It is its own capability rather than `chw.create` so that restricting bulk upload later is one line, and so that an upload reads as itself in the audit log. A batch is scoped by `import_batches.district_id`, recorded at upload: another district's report, its error file and its commit are all a 404 |
 
 Two store methods take no `Scope`, both pre-authentication and both documented as such:
 `Users.Credentials`, which the login handler uses, and `Sessions.Authenticate`, which is

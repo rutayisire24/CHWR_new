@@ -13,6 +13,7 @@
   <nav>
     <a href="/" class="{{if eq .Nav.Section "/"}}on{{end}}">Dashboard</a>
     {{if .Nav.CHWs}}<a href="/chws" class="{{if eq .Nav.Section "/chws"}}on{{end}}">Register</a>{{end}}
+    {{if .Nav.Imports}}<a href="/imports" class="{{if eq .Nav.Section "/imports"}}on{{end}}">Import</a>{{end}}
     {{if .Nav.Users}}<a href="/users" class="{{if eq .Nav.Section "/users"}}on{{end}}">Users</a>{{end}}
     {{if .Nav.Audit}}<a href="/audit" class="{{if eq .Nav.Section "/audit"}}on{{end}}">Audit</a>{{end}}
   </nav>

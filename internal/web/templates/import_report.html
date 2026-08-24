@@ -1,0 +1,117 @@
+{{define "title"}}{{.Page.Batch.Filename}} · Import · CHW Registry{{end}}
+
+{{define "content"}}
+{{$b := .Page.Batch}}
+<p class="crumb"><a href="/imports">Bulk import</a></p>
+
+<div class="row-between">
+  <h1>{{$b.Filename}}</h1>
+  <span class="pill {{if $b.Pending}}warn{{end}}">{{$b.Status.Label}}</span>
+</div>
+
+<p class="muted">
+  Uploaded {{$b.CreatedAt.Format "2 January 2006, 15:04"}} by {{$b.UploaderName}}{{if $b.DistrictName}}, for {{$b.DistrictName}}{{end}}.
+  {{if $b.CommittedAt}}Imported {{$b.CommittedAt.Format "2 January 2006, 15:04"}}.{{end}}
+</p>
+
+<div class="tiles">
+  <div class="tile"><span class="figure">{{num $b.Total}}</span><span class="caption">Rows read</span></div>
+  <div class="tile"><span class="figure">{{num $b.Ready}}</span><span class="caption">Ready</span></div>
+  <div class="tile"><span class="figure">{{num $b.Warning}}</span><span class="caption">With a warning</span></div>
+  <div class="tile"><span class="figure">{{num $b.Rejected}}</span><span class="caption">Refused</span></div>
+  {{if eq $b.Status "committed"}}
+  <div class="tile"><span class="figure">{{num $b.Imported}}</span><span class="caption">On the register</span></div>
+  {{end}}
+</div>
+
+{{if .Page.Unknown}}
+<p class="note">
+  These columns are not part of the register and were not stored:
+  {{range $i, $c := .Page.Unknown}}{{if gt $i 0}}, {{end}}<code>{{$c}}</code>{{end}}.
+</p>
+{{end}}
+
+{{if and $b.Pending .Page.CanWrite}}
+<div class="panel decide">
+  <h2>Decide</h2>
+  {{if $b.Committable}}
+    <p>
+      {{num $b.Acceptable}} {{if eq $b.Acceptable 1}}row is{{else}}rows are{{end}} ready to add to the register.
+      {{if gt $b.Rejected 0}}The {{num $b.Rejected}} refused {{if eq $b.Rejected 1}}row{{else}}rows{{end}} will not be imported — download the error file, fix them, and upload that file again.{{end}}
+    </p>
+    <form method="post" action="/imports/{{$b.ID}}/commit">
+      {{template "csrf" .}}
+      {{if gt $b.Warning 0}}
+      <label class="check">
+        <input type="checkbox" name="skip_duplicates" value="1">
+        Skip the {{num $b.Warning}} {{if eq $b.Warning 1}}row{{else}}rows{{end}} warned as a possible duplicate
+      </label>
+      {{end}}
+      <button type="submit">Add {{num $b.Acceptable}} to the register</button>
+    </form>
+  {{else}}
+    <p>No row in this file can be imported. Fix the reasons below and upload it again.</p>
+  {{end}}
+
+  <form method="post" action="/imports/{{$b.ID}}/discard" class="quiet">
+    {{template "csrf" .}}
+    <button class="linkish" type="submit">Discard this upload</button>
+    <span class="hint">The rows stay on the record; nothing is added to the register.</span>
+  </form>
+</div>
+{{end}}
+
+{{if gt $b.Rejected 0}}
+<div class="row-between">
+  <h2>Refused rows</h2>
+  <a class="button ghost" href="/imports/{{$b.ID}}/errors.csv">Download the error file</a>
+</div>
+<p class="muted">
+  The error file carries every refused row with your own columns and the reason beside it.
+  Fix those rows and upload that file again.
+</p>
+{{template "rowtable" dict "Rows" .Page.Refused "Total" $b.Rejected "Shown" .Page.Shown}}
+{{end}}
+
+{{if .Page.Warned}}
+<h2>Warnings</h2>
+<p class="muted">
+  These are imported unless you say otherwise. Two people in one village genuinely can
+  share a name, so this is a check, not a refusal.
+</p>
+{{template "rowtable" dict "Rows" .Page.Warned "Total" $b.Warning "Shown" .Page.Shown}}
+{{end}}
+
+{{if and (eq $b.Rejected 0) (not .Page.Warned)}}
+<p class="note good">Every row in this file was read without a problem.</p>
+{{end}}
+{{end}}
+
+{{define "rowtable"}}
+<table class="grid rows">
+  <thead><tr><th>Line</th><th>Row</th><th>Reason</th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+    <tr>
+      <td>{{.Number}}</td>
+      <td>{{if .Name}}{{.Name}}{{else}}<span class="muted">—</span>{{end}}</td>
+      <td>
+        {{range .Problems}}
+          <div class="reason">
+            {{if .Field}}<code>{{.Field}}</code>{{end}} {{.Message}}
+            {{if .Candidates}}
+            <ul class="candidates">
+              {{range .Candidates}}<li>{{.Name}}{{if .Path}} — {{.Path}}{{end}} · code <code>{{.Code}}</code></li>{{end}}
+            </ul>
+            {{end}}
+          </div>
+        {{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{if gt .Total .Shown}}
+<p class="muted">Showing the first {{num .Shown}} of {{num .Total}}. The error file has all of them.</p>
+{{end}}
+{{end}}

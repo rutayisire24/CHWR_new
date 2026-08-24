@@ -62,6 +62,13 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `POST /chws/{id}/deactivate` | `chw.deactivate` | reason required by the handler |
 | `POST /chws/{id}/reactivate` | `chw.deactivate` | |
 | `GET /api/locations` | `chw.view` | `?level=&under=`, JSON, feeds the cascade |
+| `GET /imports` | `chw.import` | upload form, column reference, recent batches (scoped, pending first) |
+| `GET /imports/template.csv` | `chw.import` | blank template; a district user's carries their district |
+| `POST /imports` | `chw.import` | multipart; validates and stages. Writes nothing to `chws` |
+| `GET /imports/{id}` | `chw.import` | the report: tallies, refusals with reasons, the decision |
+| `GET /imports/{id}/errors.csv` | `chw.import` | every refused row, the file's own columns plus `error` |
+| `POST /imports/{id}/commit` | `chw.import` | `?skip_duplicates` — writes the ready rows |
+| `POST /imports/{id}/discard` | `chw.import` | marks the batch; the staged rows stay |
 | `GET /users`, `/users/new`, `/users/{id}` and their posts | `user.manage` | national admin only |
 | `POST /users/{id}/status`, `/users/{id}/reset` | `user.manage` | |
 | `GET /audit` | `audit.view` | scoped: a district manager reads their district's slice |

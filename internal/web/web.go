@@ -92,6 +92,22 @@ func pageName(path string) string {
 
 // group inserts thousands separators. Figures on the dashboard run to five
 // digits and are read at a glance, where 24573 and 245730 look alike.
+//
+// It takes any integer because templates call it with both: a store count is
+// int64, an import batch's tally is int, and html/template will not convert
+// between them on the way in.
+func groupAny(v any) string {
+	switch n := v.(type) {
+	case int:
+		return group(int64(n))
+	case int32:
+		return group(int64(n))
+	case int64:
+		return group(n)
+	}
+	return fmt.Sprint(v)
+}
+
 func group(n int64) string {
 	sign := ""
 	if n < 0 {
@@ -110,7 +126,7 @@ func group(n int64) string {
 
 var funcs = template.FuncMap{
 	// num groups thousands in a plain count.
-	"num": group,
+	"num": groupAny,
 	// lower folds a Label() for use mid-sentence.
 	"lower": strings.ToLower,
 	// plural covers the six level names — Districts, Subcounties, Parishes,

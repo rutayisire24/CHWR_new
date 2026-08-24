@@ -86,6 +86,14 @@ func TestCapabilityMatrix(t *testing.T) {
 		{domain.RoleDistrictViewer, CapExport, true},
 		{domain.RoleDistrictViewer, CapCHWDeactivate, false},
 
+		// Bulk import is the two roles that may create a CHW, and no others:
+		// a viewer must not be able to write the register a thousand rows at
+		// a time when they cannot write it one at a time.
+		{domain.RoleNationalAdmin, CapImport, true},
+		{domain.RoleDistrictManager, CapImport, true},
+		{domain.RoleNationalViewer, CapImport, false},
+		{domain.RoleDistrictViewer, CapImport, false},
+
 		{domain.RoleNationalAdmin, CapAuditView, true},
 		{domain.RoleNationalViewer, CapAuditView, false},
 		{domain.RoleDistrictManager, CapAuditView, true},

@@ -11,6 +11,7 @@ const (
 	CapCHWCreate     Capability = "chw.create"
 	CapCHWUpdate     Capability = "chw.update"
 	CapCHWDeactivate Capability = "chw.deactivate"
+	CapImport        Capability = "chw.import"
 	CapUserManage    Capability = "user.manage"
 	CapAuditView     Capability = "audit.view"
 	CapExport        Capability = "export"
@@ -23,7 +24,7 @@ var matrix = map[domain.Role]map[Capability]bool{
 	domain.RoleNationalAdmin: {
 		CapCHWView: true, CapCHWCreate: true, CapCHWUpdate: true,
 		CapCHWDeactivate: true, CapUserManage: true, CapAuditView: true,
-		CapExport: true,
+		CapExport: true, CapImport: true,
 	},
 	domain.RoleNationalViewer: {
 		CapCHWView: true, CapExport: true,
@@ -31,6 +32,7 @@ var matrix = map[domain.Role]map[Capability]bool{
 	domain.RoleDistrictManager: {
 		CapCHWView: true, CapCHWCreate: true, CapCHWUpdate: true,
 		CapCHWDeactivate: true, CapAuditView: true, CapExport: true,
+		CapImport: true,
 	},
 	domain.RoleDistrictViewer: {
 		CapCHWView: true, CapExport: true,

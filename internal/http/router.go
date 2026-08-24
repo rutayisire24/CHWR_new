@@ -82,6 +82,20 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("POST /chws/{id}/deactivate", editCHWs(auth.CapCHWDeactivate, s.chwDeactivate))
 	mux.Handle("POST /chws/{id}/reactivate", editCHWs(auth.CapCHWDeactivate, s.chwReactivate))
 
+	// Bulk import. Its own capability rather than chw.create: an upload is a
+	// different act from adding one CHW, and the Scope inside every store call
+	// is what keeps a district manager's file to their own district.
+	mayImport := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(auth.CapImport, pages)(h))
+	}
+	mux.Handle("GET /imports", mayImport(s.importsList))
+	mux.Handle("GET /imports/template.csv", mayImport(s.importTemplate))
+	mux.Handle("POST /imports", mayImport(s.importUpload))
+	mux.Handle("GET /imports/{id}", mayImport(s.importShow))
+	mux.Handle("GET /imports/{id}/errors.csv", mayImport(s.importErrors))
+	mux.Handle("POST /imports/{id}/commit", mayImport(s.importCommit))
+	mux.Handle("POST /imports/{id}/discard", mayImport(s.importDiscard))
+
 	// Feeds the cascading selects. Read-only, and scoped like every other read.
 	mux.Handle("GET /api/locations", viewCHWs(s.locationsJSON))
 
