@@ -151,4 +151,9 @@ type Place struct {
 	ID    int64
 	Level Level
 	Name  string
+	// Code is the official segment code, empty for a region. Identity in
+	// locations is (parent_id, code) and never name, so this is what an
+	// operator puts in an import's location_code column to settle a name two
+	// siblings share.
+	Code string
 }

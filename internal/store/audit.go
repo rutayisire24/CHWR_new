@@ -38,6 +38,11 @@ const (
 	ActionCHWDeactivate  = "chw.deactivate"
 	ActionCHWReactivate  = "chw.reactivate"
 	ActionProfileUpdate  = "chw.profile_update"
+	// Bulk import. The batch's own decisions; the CHWs it creates each write
+	// their own chw.create row, because that is the register's change history.
+	ActionImportUpload  = "import.upload"
+	ActionImportCommit  = "import.commit"
+	ActionImportDiscard = "import.discard"
 )
 
 // Entry is one audit row. before and after are marshalled to JSONB; leave them

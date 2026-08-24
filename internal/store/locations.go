@@ -102,7 +102,7 @@ func (l *Locations) Descendants(ctx context.Context, sc auth.Scope, ancestorID i
 // the detail page to show where a CHW actually sits.
 func (l *Locations) Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]domain.Place, error) {
 	const q = `
-	    SELECT a.id, a.level::text, a.name
+	    SELECT a.id, a.level::text, a.name, coalesce(a.code,'')
 	      FROM locations c
 	      JOIN locations a ON c.path LIKE a.path || '%'
 	     WHERE c.id = $1
@@ -118,7 +118,7 @@ func (l *Locations) Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]d
 	for rows.Next() {
 		var p domain.Place
 		var level string
-		if err := rows.Scan(&p.ID, &level, &p.Name); err != nil {
+		if err := rows.Scan(&p.ID, &level, &p.Name, &p.Code); err != nil {
 			return nil, fmt.Errorf("scan ancestor: %w", err)
 		}
 		p.Level = domain.Level(level)
@@ -150,6 +150,61 @@ func (l *Locations) LevelOf(ctx context.Context, id int64) (domain.Level, int64,
 		return "", 0, fmt.Errorf("level of location %d: %w", id, translate(err))
 	}
 	return domain.Level(level), districtID, nil
+}
+
+// ChildrenAt lists the locations of one level beneath an ancestor, with their
+// codes, for the bulk importer to match a spreadsheet's names against.
+//
+// It is Descendants' shape without the ordering or the display type: the
+// importer wants every sibling of that level so it can tell a match from an
+// ambiguity, and it wants the code, because the code is the identity a
+// quarantined row is resolved by.
+func (l *Locations) ChildrenAt(ctx context.Context, sc auth.Scope, ancestorID int64, level domain.Level) ([]domain.Place, error) {
+	if ok, err := l.insideScope(ctx, sc, ancestorID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, fmt.Errorf("children of %d: %w", ancestorID, domain.ErrNotFound)
+	}
+
+	const q = `
+	    SELECT c.id, c.level::text, c.name, coalesce(c.code,'')
+	      FROM locations c
+	      JOIN locations a ON c.path LIKE a.path || '%'
+	     WHERE a.id = $1 AND c.level = $2::location_level AND c.active`
+
+	rows, err := l.pool.Query(ctx, q, ancestorID, string(level))
+	if err != nil {
+		return nil, fmt.Errorf("list %s under %d: %w", level, ancestorID, translate(err))
+	}
+	defer rows.Close()
+
+	var out []domain.Place
+	for rows.Next() {
+		var p domain.Place
+		var lvl string
+		if err := rows.Scan(&p.ID, &lvl, &p.Name, &p.Code); err != nil {
+			return nil, fmt.Errorf("scan location: %w", err)
+		}
+		p.Level = domain.Level(lvl)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ByCode resolves the official concatenated code path — the identity the
+// admin-units workbook carries and the escape hatch from a name two villages
+// share. It takes no Scope on purpose: the caller checks the resolved
+// location's district itself, so that a code outside the caller's district is
+// answered as out of scope rather than as a code that does not exist. Which of
+// those two the report may say is the caller's decision, not this method's.
+func (l *Locations) ByCode(ctx context.Context, code string) (int64, error) {
+	var id int64
+	err := l.pool.QueryRow(ctx,
+		`SELECT id FROM locations WHERE code_path = $1`, code).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("location with code %q: %w", code, translate(err))
+	}
+	return id, nil
 }
 
 // insideScope reports whether a location is the user's district or sits under

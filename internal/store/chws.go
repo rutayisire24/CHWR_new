@@ -82,6 +82,29 @@ func (s *CHWs) Get(ctx context.Context, sc auth.Scope, id int64) (domain.CHW, er
 	return c, nil
 }
 
+// ByNIN returns the CHW carrying a NIN, ErrNotFound when none does.
+//
+// The Scope here is the caller's, and a NIN held in another district comes back
+// as ErrNotFound — which is exactly right for the register's own reads, and
+// exactly wrong for the importer's duplicate check, since the unique index is
+// national. The bulk importer therefore asks nationally and reports the
+// collision without naming where it is; see docs/import.md.
+func (s *CHWs) ByNIN(ctx context.Context, sc auth.Scope, nin string) (domain.CHW, error) {
+	q := `SELECT ` + chwColumns + chwFrom + ` WHERE c.nin = $1`
+	args := []any{nin}
+
+	if frag, extra := sc.Filter("c.district_id", len(args)+1); frag != "" {
+		q += frag
+		args = append(args, extra...)
+	}
+
+	c, err := scanCHW(s.pool.QueryRow(ctx, q, args...))
+	if err != nil {
+		return domain.CHW{}, fmt.Errorf("get chw by nin: %w", translate(err))
+	}
+	return c, nil
+}
+
 // Filter narrows a listing. The zero Filter is "everything in the scope",
 // which is what the register shows when nobody has typed anything.
 type Filter struct {
@@ -289,10 +312,6 @@ func (s *CHWs) Matching(ctx context.Context, sc auth.Scope, f Filter) (int64, er
 }
 
 // Create inserts a CHW and its audit row in one transaction.
-//
-// The scope is enforced after the insert rather than before it: district_id is
-// derived by trigger from the path, so the authoritative value does not exist
-// until the row does. An out-of-scope placement is rolled back.
 func (s *CHWs) Create(ctx context.Context, sc auth.Scope, actor domain.User, in CHWInput, ip netip.Addr) (domain.CHW, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -300,6 +319,28 @@ func (s *CHWs) Create(ctx context.Context, sc auth.Scope, actor domain.User, in 
 	}
 	defer tx.Rollback(ctx)
 
+	c, err := s.CreateTx(ctx, tx, sc, actor, in, ip)
+	if err != nil {
+		return domain.CHW{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.CHW{}, fmt.Errorf("create chw: %w", err)
+	}
+	return c, nil
+}
+
+// CreateTx inserts a CHW and its audit row into a caller's transaction, the
+// same arrangement Audit.RecordTx offers for the same reason: the bulk importer
+// marks its staged row in the same transaction that creates the CHW, so a
+// process that dies mid-commit cannot leave a register record whose import row
+// still reads "ready" and would be created a second time on the next attempt.
+//
+// The scope is enforced after the insert rather than before it: district_id is
+// derived by trigger from the path, so the authoritative value does not exist
+// until the row does. An out-of-scope placement is rolled back — which is what
+// stops a district user importing into another district even if every check
+// above this one is wrong.
+func (s *CHWs) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor domain.User, in CHWInput, ip netip.Addr) (domain.CHW, error) {
 	const q = `
 	    WITH inserted AS (
 	        INSERT INTO chws (nin, first_name, last_name, sex, cadre, age_years,
@@ -324,9 +365,6 @@ func (s *CHWs) Create(ctx context.Context, sc auth.Scope, actor domain.User, in 
 
 	if err := s.auditTx(ctx, tx, actor, ActionCHWCreate, c, nil, auditCHW(c), ip); err != nil {
 		return domain.CHW{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return domain.CHW{}, fmt.Errorf("create chw: %w", err)
 	}
 	return c, nil
 }
