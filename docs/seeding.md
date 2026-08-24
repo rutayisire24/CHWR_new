@@ -3,7 +3,7 @@
 ## Hierarchy
 
 ```bash
-go run ./cmd/server -migrate                           # schema first, to version 3
+go run ./cmd/server -migrate                           # schema first, to version 4
 python3 seed/extract_units.py "<National CHWR.xlsx>"   # writes seed/out/*.tsv
 psql -d chwr -f seed/load_hierarchy.sql                # from the repo root
 ```

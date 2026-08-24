@@ -70,9 +70,11 @@ district-to-region mapping come from the ODK `district` list's `regionfilter` co
 | `LUWEERO` | `luwero` |
 | `SSEMBABULE` | `sembabule` |
 
-**Facilities.** 7,896 rows. The parent column is named `subcountyfilter`, but 7,846 of its
-values are district slugs and only 21 resemble subcounty names. Facilities load as
-district-level; the 21 outliers go to `import_quarantine` rather than being guessed at.
+**Facilities — no longer used.** 7,896 rows whose parent column is named `subcountyfilter`
+but holds district slugs for 7,846 of them, with only 21 resembling subcounty names. The
+MFL supersedes this list entirely: it covers the same ground with facility level and
+ownership attached, and every one of its rows resolves to a district. See the MFL section
+below.
 
 **All CHW field definitions** — constraints, choice lists and branching logic. These are
 sound and are documented in [odk-mapping.md](odk-mapping.md).

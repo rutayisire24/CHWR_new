@@ -117,10 +117,10 @@ Schema applied to PostgreSQL 18 and probed, not just written:
 - `path` materialization and `district_id` derivation confirmed on real deep paths
 - `locations` totals 33 MB
 
-Since the Go skeleton landed, the same schema is applied by the binary rather than by
-psql, and re-verified through it: `goose` brings an empty database to version 3, a second
-run is a no-op, the hierarchy still loads 84,635 rows in ~3s, and the constraint suite
-still reports 36 blocked / 0 leaked.
+Since the Go skeleton landed, the schema is applied by the binary rather than by psql, and
+re-verified through it end to end from a dropped database: `goose` reaches version 4, a
+second run is a no-op, the hierarchy loads 84,635 rows in ~3s, facilities load 7,895 of
+7,907, and the constraint suite reports 39 blocked / 0 leaked.
 
 Reproduce from the repo root:
 
