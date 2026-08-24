@@ -27,9 +27,14 @@ Middleware is applied outermost first, in `internal/http/router.go`:
 1. **`securityHeaders`** — CSP, `nosniff`, `DENY`, `Referrer-Policy`. The CSP is strict
    (`default-src 'self'`) because every script and stylesheet is our own file on our own
    origin. `fetch` to `/api/locations` is covered by the same `'self'`.
-2. **`auth.CSRF`** — issues the double-submit token, calls `ParseForm`, and rejects a
+2. **`auth.CSRF`** — issues the double-submit token, parses the body, and rejects a
    mutating request whose `csrf_token` field does not match the cookie. Handlers can read
-   `r.PostForm` directly because this middleware has already parsed it.
+   `r.PostForm` directly because this middleware has already parsed it. A
+   `multipart/form-data` body takes `ParseMultipartForm` rather than `ParseForm`, which
+   does not read one: without that branch the token field of a file upload would look
+   missing and every upload would be refused with a 403 before its handler ran. Multipart
+   bodies are capped at `auth.MaxMultipartBytes` and their temp files are removed by the
+   middleware, so no handler can forget to.
 3. **`auth.LoadUser`** — resolves the session cookie to a user and attaches it to the
    request context. It never rejects; public routes pass through it too.
 4. **`auth.RequireAuth`** — rejects requests without a user, and pins a `must_reset` user
