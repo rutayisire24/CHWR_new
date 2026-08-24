@@ -298,3 +298,129 @@ dl.detail + h3, .card h3 {
   margin: 1.25rem 0 0; font-size: 0.8125rem; text-transform: uppercase;
   letter-spacing: 0.04em; color: var(--ink-soft);
 }
+
+/* --- dashboard: data visualisation --------------------------------------- */
+
+/* One palette for every chart on the site, chosen by the job the colour does
+   rather than by taste, and validated against the card surface (#fff) with the
+   six checks: worst adjacent pair is CVD ΔE 23.4 / normal-vision ΔE 35.1, and
+   both identity slots clear 3:1 against the surface.
+
+   Slot 1 is the brand blue itself, so a chart reads as part of the register
+   rather than beside it. Slot 2 is the only second identity used anywhere; no
+   chart here carries more than two. `--viz-part` is a lighter step of slot 1,
+   for a whole and its part (services offered vs recently trained on) — a second
+   hue there would claim they are different things. `--viz-dim` is the
+   de-emphasis grey: it means "not this", never a category of its own.
+
+   Status green/amber/red stay out of the charts entirely. `--ok` means one
+   thing on this site — this CHW is active — and a chart that borrowed it for a
+   series would spend that meaning. */
+:root {
+  --viz-1:    #1a5fa8;
+  --viz-2:    #eb6834;
+  --viz-part: #86b6ef;
+  --viz-dim:  #7d8b99;
+  --viz-grid: #e6ebf1;
+  --viz-axis: #c3ccd6;
+}
+
+/* The lede: one hero figure, then the tiles. Exactly one number on the page is
+   allowed to be this large. */
+.lede { display: grid; grid-template-columns: minmax(15rem, 1fr) 2fr; gap: 1rem; margin: 1.25rem 0 1.5rem; }
+@media (max-width: 60rem) { .lede { grid-template-columns: 1fr; } }
+/* Two by two beside the hero, so the pair of columns ends level and the hero
+   does not stretch into a void. */
+@media (min-width: 60rem) { .lede .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.hero {
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1.25rem; display: flex; flex-direction: column; justify-content: center; gap: 0.4rem;
+}
+.hero .caption { color: var(--ink-soft); font-size: 0.875rem; }
+/* Proportional figures, not tabular: at this size equal-width digits make a
+   number look loose. Tabular is for columns that have to line up. */
+.hero .figure { font-size: 3rem; font-weight: 700; line-height: 1.05; font-variant-numeric: normal; }
+.hero .split { color: var(--ink-soft); font-size: 0.8125rem; }
+.hero .go { font-size: 0.875rem; margin-top: 0.5rem; }
+.hero .split strong { color: var(--ink); font-weight: 600; }
+
+.tiles { margin: 0; }
+.tile .figure { font-variant-numeric: normal; }
+.tile .caption + .figure { margin-top: -0.1rem; }
+.tile .sub { color: var(--ink-soft); font-size: 0.8125rem; }
+
+/* Meter. The fill carries the share; the track is a lighter step of the same
+   ramp, so the whole bar reads as one scale. Drawn in SVG because the width is
+   data and the content security policy allows no inline style attribute. */
+.meter { display: block; width: 100%; height: 6px; margin: 0.35rem 0 0.15rem; }
+.meter .track { fill: var(--blue-wash); }
+.meter .fill  { fill: var(--viz-1); }
+.meter.dim .fill { fill: var(--viz-dim); }
+
+/* --- chart cards --------------------------------------------------------- */
+
+/* align-items: start, so a short card ends where its content ends instead of
+   stretching to the tallest in the row. */
+.viz-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1rem; margin-bottom: 1.5rem; align-items: start; }
+.viz-grid > .viz { grid-column: span 12; }
+@media (min-width: 62rem) {
+  .viz-grid > .span-7 { grid-column: span 7; }
+  .viz-grid > .span-6 { grid-column: span 6; }
+  .viz-grid > .span-5 { grid-column: span 5; }
+}
+
+.viz {
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 1.25rem 1.25rem 1rem; display: flex; flex-direction: column;
+}
+.viz h2 { font-size: 1rem; margin: 0; }
+.viz .note { color: var(--ink-soft); font-size: 0.8125rem; margin: 0.15rem 0 0.75rem; }
+.viz h3.subhead {
+  font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--ink-soft); margin: 0.75rem 0 0.4rem;
+}
+
+/* Legend is always present for two or more series and never optional: colour
+   alone is not an identity channel. The swatch carries the colour; the words
+   stay in ink, because a light hue is illegible as text. */
+.legend { display: flex; flex-wrap: wrap; gap: 0.9rem; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--ink-soft); }
+.legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.legend i { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
+.legend .k1 { background: var(--viz-1); }
+.legend .k2 { background: var(--viz-2); }
+.legend .kp { background: var(--viz-part); }
+.legend .kd { background: var(--viz-dim); }
+
+/* The container carries the height so the x-axis band is inside the card and
+   never gets its own scrollbar. */
+.plot { position: relative; width: 100%; }
+.plot.h-xs { height: 7rem; }
+.plot.h-sm { height: 16rem; }
+.plot.h-md { height: 21rem; }
+.plot.h-lg { height: 26rem; }
+
+/* Every chart has a table twin. It is the same numbers, reachable without a
+   pointer, a canvas or a colour. */
+.viz-table { margin-top: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.5rem; }
+.viz-table summary { cursor: pointer; font-size: 0.8125rem; color: var(--ink-soft); }
+.viz-table summary:hover { color: var(--blue); }
+.viz-table .grid { margin-top: 0.6rem; border: 0; }
+.viz-table .grid th, .viz-table .grid td { padding: 0.3rem 0.5rem; font-size: 0.8125rem; }
+.viz-table .num { text-align: right; }
+
+.viz .empty {
+  margin: 0; padding: 2rem 1rem; text-align: center; color: var(--ink-soft);
+  font-size: 0.875rem; background: var(--wash); border-radius: var(--radius);
+}
+
+/* Inline bar in a table cell — the ranking is easier to see than to read, and
+   the number stays beside it. */
+.bar { display: block; width: 100%; height: 8px; }
+.bar rect { fill: var(--viz-1); }
+td.withbar { min-width: 7rem; }
+
+.viz-foot { color: var(--ink-soft); font-size: 0.8125rem; margin: 0.75rem 0 0; }
+.context { display: flex; flex-wrap: wrap; gap: 1.75rem; color: var(--ink-soft); font-size: 0.875rem; margin: 2rem 0 1.5rem; }
+.context b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+h2.spaced { margin-top: 2rem; }

@@ -282,3 +282,47 @@ func TestPageURL(t *testing.T) {
 		t.Errorf("pageURL with no cursor = %q, want empty", got)
 	}
 }
+
+// A bar and a table row both link back into the register. The listing takes one
+// location field per tier and uses the deepest one filled in, so the field name
+// has to match the tier the chart is actually grouped by.
+func TestAreaHref(t *testing.T) {
+	cases := []struct {
+		level domain.Level
+		want  string
+	}{
+		{domain.LevelDistrict, "/chws?district_id=42"},
+		{domain.LevelSubcounty, "/chws?subcounty_id=42"},
+		{domain.LevelParish, "/chws?parish_id=42"},
+		{domain.LevelVillage, "/chws?village_id=42"},
+		// The listing has no region filter, so a region bar links nowhere
+		// rather than to a URL that quietly ignores its own parameter.
+		{domain.LevelRegion, ""},
+		{domain.LevelCounty, ""},
+	}
+	for _, c := range cases {
+		if got := areaHref(c.level, 42); got != c.want {
+			t.Errorf("areaHref(%s, 42) = %q, want %q", c.level, got, c.want)
+		}
+	}
+}
+
+// The completeness bars are shares, and an empty register is the one case that
+// has to survive: no records is not the same as no answers.
+func TestPct(t *testing.T) {
+	cases := []struct {
+		n, total int64
+		want     float64
+	}{
+		{4881, 24573, 19.9},
+		{24573, 24573, 100},
+		{0, 24573, 0},
+		{1, 24573, 0}, // rounds to a tenth; the count itself is in the table
+		{5, 0, 0},     // an empty register divides by nothing, not by zero
+	}
+	for _, c := range cases {
+		if got := pct(c.n, c.total); got != c.want {
+			t.Errorf("pct(%d, %d) = %v, want %v", c.n, c.total, got, c.want)
+		}
+	}
+}

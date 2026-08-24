@@ -193,6 +193,38 @@ so everything loads and `facilities (district_id, ownership)` is indexed for the
 **Quarantine over silent truncation.** A half-loaded register is worse than a rejected
 row, because nobody knows what is missing.
 
+**The dashboard changes tier with the scope, rather than showing the country greyed out.**
+A district manager sees the same charts grouped by subcounty and parish. Showing them the
+national region chart with 14 bars they cannot open would be a menu of things they are not
+allowed to have; showing only their own bar would be a one-bar chart. Rejected: a single
+national dashboard gated behind the national roles, which leaves district managers with no
+overview at all.
+
+**Chart.js is vendored, not linked.** 208 KB in `internal/web/static/vendor/`, MIT,
+embedded in the binary like every other asset. A CDN would be a second origin the CSP
+would have to admit and a runtime dependency on somebody else's uptime, in a service that
+otherwise ships as one file. Rejected: hand-rolled SVG charts — the tooltip, hit-testing
+and axis work is exactly the part a library has already done, and the vendored file costs
+nothing at runtime.
+
+**Chart figures travel in a JSON data block, not an inline script.** The CSP has no
+`unsafe-inline` and is not going to acquire one to draw a chart. A
+`<script type="application/json">` is never executed, so it is not gated by `script-src`;
+`json.Marshal` escapes `<`, which is what makes it safe to put arbitrary register data
+there. The same policy rules out the `style` attribute, so the meters and the inline table
+bars are SVG, where a data-driven `width` is a presentational attribute.
+
+**Every chart ships a server-rendered table of its own numbers.** In a `<details>` under
+the canvas. It is the accessibility twin — nothing is reachable only by hover or only by
+colour — and it means the dashboard degrades to a readable page with JavaScript off,
+which the rest of the site already does.
+
+**Charts carry at most two colours, and never a status colour.** The register's own
+palette already spends green on "this CHW is active". A series in that green would take
+the meaning back. Magnitude comparisons are one hue; whole-and-part is two steps of one
+hue; the only two-identity charts are sex (blue/orange) and active/inactive, which is
+emphasis — one hue plus the de-emphasis grey — rather than two identities.
+
 ## Known costs
 
 **`last_supervised_on` is NULL on every imported row.** The form records supervision per

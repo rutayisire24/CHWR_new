@@ -25,6 +25,7 @@ type Store struct {
 	Locations *Locations
 	CHWs      *CHWs
 	Profiles  *Profiles
+	Stats     *Stats
 }
 
 // New builds every store over the shared pool.
@@ -36,6 +37,7 @@ func New(pool *pgxpool.Pool) *Store {
 		Locations: &Locations{pool: pool},
 		CHWs:      &CHWs{pool: pool},
 		Profiles:  &Profiles{pool: pool},
+		Stats:     &Stats{pool: pool},
 	}
 }
 

@@ -19,9 +19,9 @@ getting a scoped slice back out.
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
 | `internal/domain` | `User`, `CHW`, `Profile`, the enums, `Level`, sentinel errors |
 | `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
-| `internal/store` | users, sessions, audit, locations, chws, profiles — every method takes a `Scope` |
-| `internal/http` | auth, user admin, audit, dashboard, CHW CRUD, profiles, search and paging |
-| `internal/web` | layout + eleven pages, one stylesheet, two scripts |
+| `internal/store` | users, sessions, audit, locations, chws, profiles, stats — every method takes a `Scope` |
+| `internal/http` | auth, user admin, audit, dashboard (scoped stats + charts), CHW CRUD, profiles, search and paging |
+| `internal/web` | layout + eleven pages, one stylesheet, three scripts, Chart.js vendored |
 | `internal/importer` | **empty — phase 6** |
 | CSV export | **phase 6 — it shares `store.Filter` with the listing** |
 | `chw_languages` | **empty by design — fills from the importer's parsing in phase 6** |

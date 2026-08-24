@@ -90,7 +90,92 @@ func pageName(path string) string {
 	return base[:len(base)-len(".html")]
 }
 
+// group inserts thousands separators. Figures on the dashboard run to five
+// digits and are read at a glance, where 24573 and 245730 look alike.
+func group(n int64) string {
+	sign := ""
+	if n < 0 {
+		sign, n = "-", -n
+	}
+	digits := strconv.FormatInt(n, 10)
+	var b strings.Builder
+	for i, r := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	return sign + b.String()
+}
+
 var funcs = template.FuncMap{
+	// num groups thousands in a plain count.
+	"num": group,
+	// lower folds a Label() for use mid-sentence.
+	"lower": strings.ToLower,
+	// plural covers the six level names — Districts, Subcounties, Parishes,
+	// Villages, Counties, Regions — rather than pinning an "s" on the end and
+	// producing "Subcountys" on a district manager's dashboard.
+	"plural": func(word string) string {
+		switch {
+		case word == "":
+			return word
+		case strings.HasSuffix(word, "y") && !strings.ContainsRune("aeiouAEIOU", rune(word[len(word)-2])):
+			return word[:len(word)-1] + "ies"
+		case strings.HasSuffix(word, "s"), strings.HasSuffix(word, "x"), strings.HasSuffix(word, "z"),
+			strings.HasSuffix(word, "ch"), strings.HasSuffix(word, "sh"):
+			return word + "es"
+		default:
+			return word + "s"
+		}
+	},
+	// dict builds a map inline, so a sub-template can take more than one
+	// argument. Odd arguments are a template bug and fail the render rather
+	// than silently dropping a value.
+	"dict": func(kv ...any) (map[string]any, error) {
+		if len(kv)%2 != 0 {
+			return nil, fmt.Errorf("dict: odd argument count %d", len(kv))
+		}
+		m := make(map[string]any, len(kv)/2)
+		for i := 0; i < len(kv); i += 2 {
+			k, ok := kv[i].(string)
+			if !ok {
+				return nil, fmt.Errorf("dict: key %d is not a string", i)
+			}
+			m[k] = kv[i+1]
+		}
+		return m, nil
+	},
+	// share renders n out of total as a percentage. An empty denominator is
+	// "—", not 0%: nothing measured is not the same as nothing found.
+	"share": func(n, total int64) string {
+		if total == 0 {
+			return "—"
+		}
+		p := float64(n) / float64(total) * 100
+		switch {
+		case p > 0 && p < 0.1:
+			return "<0.1%"
+		case p >= 10:
+			return strconv.FormatFloat(p, 'f', 0, 64) + "%"
+		default:
+			return strconv.FormatFloat(p, 'f', 1, 64) + "%"
+		}
+	},
+	// pctwidth is the same ratio as an SVG width, for the meters and the inline
+	// bars in the league table — the width is data, and the content security
+	// policy allows no inline style attribute to carry it. Clamped, so a
+	// rounding error cannot overflow its track.
+	"pctwidth": func(n, total int64) string {
+		if total <= 0 {
+			return "0%"
+		}
+		p := float64(n) / float64(total) * 100
+		if p > 100 {
+			p = 100
+		}
+		return strconv.FormatFloat(p, 'f', 2, 64) + "%"
+	},
 	// deref answers a *bool in a template, where `if p.Flag` would be true for
 	// any non-nil pointer — including one pointing at false. The profile
 	// columns are all nullable, so "not asked" and "no" are different answers

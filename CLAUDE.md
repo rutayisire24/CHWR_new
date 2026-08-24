@@ -11,7 +11,8 @@ Server-rendered. No SPA, no framework, no ORM, no JS build step.
 - Go 1.24 (`net/http` stdlib routing, 1.22+ patterns) — no web framework
 - PostgreSQL 18 via `pgx/v5` with hand-written SQL — no ORM
 - `goose` migrations, embedded in the binary
-- `html/template` + vanilla CSS; vanilla JS only for the cascading location selects
+- `html/template` + vanilla CSS; vanilla JS for the cascading location selects and the
+  dashboard charts, which use Chart.js vendored into `internal/web/static/vendor/`
 - Cookie sessions stored in Postgres, argon2id passwords, CSRF on all mutating forms
 
 ## Layout
@@ -126,6 +127,30 @@ CHW mutations run in a transaction that also writes their `audit_log` row
 (`store.Audit.RecordTx`), which is what makes invariant 6 structural rather than
 remembered. Duplicate NIN refuses; a duplicate name at the same location warns and
 proceeds on a second submit.
+
+## The dashboard
+
+`GET /` summarises the same register through the same `Scope`, and **changes tier with
+it**: nationally the chart groups by region and the league table by district; inside a
+district those become subcounty and parish. Every query lives in `internal/store/stats.go`
+and takes a `Scope` like any other read.
+
+Grouping reads the ancestor id out of `locations.path` with `split_part` rather than
+prefix-joining 84,635 locations; `segment()` maps a level to its position and is tested,
+because an off-by-one would group by the wrong tier and still draw a chart. `Areas` and
+`Reach` join outward from `locations`, so an area with nobody in it is a row and counts
+against coverage.
+
+Charts are Chart.js, vendored — no CDN, and the CSP would refuse one. Figures reach the
+page in a `<script type="application/json">` block, which is never executed and so is not
+gated by `script-src`. The same policy forbids the `style` attribute, so any width that is
+data (the meters, the league table bars) is drawn in SVG. Every chart carries a
+server-rendered `<details>` table of its own numbers: the accessibility twin, and the
+no-JavaScript rendering.
+
+The `--viz-*` palette in `app.css` is assigned by the job the colour does. No chart uses
+more than two identities, and the status colours stay out of charts entirely — green here
+means "this CHW is active" and nothing else.
 
 ## Auth
 

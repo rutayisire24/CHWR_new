@@ -47,7 +47,7 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `GET /static/…` | public | embedded assets |
 | `GET POST /login` | public | same message and cost for unknown email, wrong password and disabled account |
 | `POST /logout` | signed in | deletes the session row, rotates the CSRF token |
-| `GET /{$}` | signed in | dashboard |
+| `GET /{$}` | signed in | dashboard: scoped counts, five charts, two tables |
 | `GET POST /account/password` | signed in | self-service change; the only way past a forced reset |
 | `GET /chws` | `chw.view` | listing: `?q=`, `?cadre=`, `?status=`, a location id, `?after=` / `?before=` |
 | `GET /chws/{id}` | `chw.view` | detail, with the ancestor breadcrumb |
@@ -99,6 +99,57 @@ template that fails halfway does not leave a half-written 200 on the wire.
 Every template receives the same envelope: `.User`, `.Nav`, `.CSRFToken`, `.Flash`, and
 `.Page` for whatever the handler supplies. Flashes are a one-shot cookie, read and
 expired in the same response.
+
+## The dashboard
+
+`GET /` is a read-only summary of the same register the listing shows, through the same
+`Scope`. `internal/store/stats.go` holds every query; the handler runs them and marshals
+one payload for the canvases.
+
+**Scope reaches the charts, not just the tables.** Each query takes a `Scope` and puts it
+in its own `WHERE`, so a district manager's dashboard is their district's dashboard. It
+also *changes tier*: nationally the chart groups by region and the league table by
+district; inside a district those become subcounty and parish. The country's regions say
+nothing to someone who can only open one district.
+
+**Grouping reads the ancestor out of `locations.path`.** `path` is
+`/region/district/county/subcounty/parish/village/`, so `split_part(l.path, '/', n)` is
+the ancestor id at any tier — one hash join over the register instead of a prefix join
+against all 84,635 locations. `segment()` maps a `Level` to `n` and is unit-tested,
+because an off-by-one there would not fail: it would group by the wrong tier and still
+draw a chart.
+
+**Zero-filled from the hierarchy side.** `Areas` and `Reach` join outward from
+`locations`, not inward from `chws`, so a district with nobody in it is a row and counts
+against coverage. That is the finding, not a row to omit.
+
+**Completeness counts answers, not yeses.** Every profile column is nullable and "no" and
+"not asked" are different answers, so the completeness bars count records carrying an
+answer of any kind. The two junction tables are folded to one row per CHW and joined
+rather than probed with `EXISTS` per row — the same answer for about a fortieth of the
+work at 24,000 records.
+
+### Charts
+
+Chart.js is vendored under `internal/web/static/vendor/` — no CDN, no build step, and the
+CSP would refuse both. The figures reach the page inside a
+`<script type="application/json">` block: a data block, never executed, so the policy that
+forbids inline script is not bent to draw a chart. `json.Marshal` escapes `<` to `\u003c`,
+so the payload cannot close the element it sits in.
+
+The CSP also forbids the `style` attribute, which means a width that *is* data cannot be
+carried by one. The meters and the league table's inline bars are therefore SVG, where
+`width` is a presentational attribute.
+
+Every chart card carries a `<details>` table of the same numbers, server-rendered. That is
+the accessibility twin — no value is reachable only by hovering a canvas — and it doubles
+as the no-JavaScript rendering.
+
+The palette lives in `app.css` as `--viz-*`, assigned by the job the colour does:
+identity, magnitude, whole-and-part, or de-emphasis. Slot 1 is the brand blue itself. No
+chart carries more than two identities, and the status green/amber/red stay out entirely —
+on this site green means one thing, "this CHW is active", and a chart that borrowed it for
+a series would spend that meaning.
 
 ## Searching and paging the register
 

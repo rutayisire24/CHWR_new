@@ -1,26 +1,255 @@
 {{define "title"}}Dashboard · CHW Registry{{end}}
 
+{{define "meter"}}
+<svg class="meter{{if .Dim}} dim{{end}}" viewBox="0 0 100 6" preserveAspectRatio="none" role="img"
+     aria-label="{{share .N .Total}} of {{num .Total}}">
+  <rect class="track" x="0" y="0" width="100%" height="6"></rect>
+  <rect class="fill"  x="0" y="0" width="{{pctwidth .N .Total}}" height="6"></rect>
+</svg>
+{{end}}
+
 {{define "content"}}
+{{$p := .Page}}{{$t := .Page.Totals}}
 <h1>Dashboard</h1>
 <p class="muted">
-  Signed in as {{.User.Email}} — {{.User.Role.Label}}{{if .User.DistrictName}}, {{.User.DistrictName}} district{{end}}.
+  {{.User.Role.Label}}{{if .User.DistrictName}}, {{.User.DistrictName}} district{{else}} · the whole country{{end}}.
+  Every figure below is the slice you may open.
 </p>
 
-<div class="tiles">
-  <div class="tile">
-    <span class="figure">{{.Page.Locations}}</span>
-    <span class="caption">administrative units</span>
+<!-- The lede: one hero figure and the numbers that qualify it. -->
+<section class="lede">
+  <div class="hero">
+    <span class="caption">Community health workers</span>
+    <span class="figure">{{num $t.Total}}</span>
+    {{template "meter" dict "N" $t.Active "Total" $t.Total}}
+    <span class="split">
+      <strong>{{num $t.Active}}</strong> active · <strong>{{num $t.Inactive}}</strong> inactive ·
+      median age <strong>{{printf "%.0f" $t.MedianAge}}</strong>
+    </span>
+    <span class="go"><a href="/chws">Open the register &rsaquo;</a></span>
   </div>
-  <div class="tile">
-    <span class="figure">{{.Page.Facilities}}</span>
-    <span class="caption">health facilities</span>
+
+  <div class="tiles">
+    <div class="tile">
+      <span class="caption">VHTs · village level</span>
+      <span class="figure"><a href="/chws?cadre=vht">{{num $t.VHT}}</a></span>
+      <span class="sub">{{share $t.VHT $t.Total}} of the register</span>
+    </div>
+    <div class="tile">
+      <span class="caption">CHEWs · parish level</span>
+      <span class="figure"><a href="/chws?cadre=chew">{{num $t.CHEW}}</a></span>
+      <span class="sub">{{share $t.CHEW $t.Total}} of the register</span>
+    </div>
+    <div class="tile">
+      <span class="caption">{{plural $p.Reach.Level.Label}} reached</span>
+      <span class="figure">{{num $p.Reach.Covered}}</span>
+      {{template "meter" dict "N" $p.Reach.Covered "Total" $p.Reach.Total}}
+      <span class="sub">of {{num $p.Reach.Total}} with at least one CHW</span>
+    </div>
+    <div class="tile">
+      <span class="caption">National ID recorded</span>
+      <span class="figure">{{num $t.WithNIN}}</span>
+      {{template "meter" dict "N" $t.WithNIN "Total" $t.Total "Dim" true}}
+      <span class="sub">{{share $t.WithNIN $t.Total}} of records carry a NIN</span>
+    </div>
   </div>
-  <div class="tile">
-    <span class="figure"><a href="/chws">{{.Page.CHWs}}</a></span>
-    <span class="caption">community health workers{{if not .User.Role.District}} nationally{{end}}</span>
-  </div>
+</section>
+
+<div class="viz-grid">
+  <!-- Where they are. Nominal areas ranked by size: one series, one colour. -->
+  <section class="viz span-7">
+    <h2>Community health workers by {{lower $p.AreaLevel.Label}}</h2>
+    <p class="note">
+      {{if eq $p.AreaLevel.Label "Region"}}All 15 regions, densest first. A bar opens nothing — the district table below links through.
+      {{else}}The {{len $p.Areas}} busiest subcounties in {{.User.DistrictName}}. Select a bar to open that subcounty in the register.{{end}}
+    </p>
+    <div class="plot h-lg"><canvas id="chart-areas"></canvas></div>
+    <details class="viz-table">
+      <summary>Show the numbers</summary>
+      <table class="grid">
+        <thead><tr><th>{{$p.AreaLevel.Label}}</th><th class="num">CHWs</th><th class="num">Active</th><th class="num">VHT</th><th class="num">CHEW</th></tr></thead>
+        <tbody>
+        {{range $p.Areas}}
+          <tr><td>{{if .Href}}<a href="{{.Href}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td class="num">{{num .Total}}</td><td class="num">{{num .Active}}</td>
+              <td class="num">{{num .VHT}}</td><td class="num">{{num .CHEW}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </details>
+  </section>
+
+  <!-- Who they are: the distribution is the point, so nothing is direct-labelled. -->
+  <section class="viz span-5">
+    <h2>Age distribution</h2>
+    <p class="note">
+      Five-year bands over {{num $p.AgesKnown}} recorded ages. Age is a snapshot of when it was
+      captured, not a birth date, so this ages with the register.
+    </p>
+    <div class="plot h-md"><canvas id="chart-ages"></canvas></div>
+    <details class="viz-table">
+      <summary>Show the numbers</summary>
+      <table class="grid">
+        <thead><tr><th>Age band</th><th class="num">CHWs</th><th class="num">Share</th></tr></thead>
+        <tbody>
+        {{range $p.Ages}}<tr><td>{{.Label}}</td><td class="num">{{num .Count}}</td><td class="num">{{share .Count $p.AgesKnown}}</td></tr>{{end}}
+        </tbody>
+      </table>
+    </details>
+  </section>
+
+  <!-- The mix, not the size: a 347-strong cadre beside a 24,000-strong one has
+       no readable absolute scale. The counts stay in the table. -->
+  <section class="viz span-5">
+    <h2>Composition, by cadre</h2>
+    <p class="note">
+      Share within each cadre. The two differ by more than an order of magnitude in
+      size, so this compares composition rather than headcount; the counts are in the table.
+    </p>
+
+    <h3 class="subhead">Sex</h3>
+    <div class="legend">
+      <span><i class="k1"></i>Female</span>
+      <span><i class="k2"></i>Male</span>
+    </div>
+    <div class="plot h-xs"><canvas id="chart-sex"></canvas></div>
+
+    <h3 class="subhead">Register status</h3>
+    <div class="legend">
+      <span><i class="k1"></i>Active</span>
+      <span><i class="kd"></i>Inactive</span>
+    </div>
+    <div class="plot h-xs"><canvas id="chart-status"></canvas></div>
+
+    <details class="viz-table">
+      <summary>Show the numbers</summary>
+      <table class="grid">
+        <thead><tr><th>Cadre</th><th class="num">Female</th><th class="num">Male</th><th class="num">Active</th><th class="num">Inactive</th></tr></thead>
+        <tbody>
+        {{range $p.Cadres}}
+          <tr><td>{{.Cadre.Label}}</td><td class="num">{{num .Female}}</td><td class="num">{{num .Male}}</td>
+              <td class="num">{{num .Active}}</td><td class="num">{{num .Inactive}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </details>
+  </section>
+
+  <!-- Data quality. "No" and "not asked" are different answers, so this counts
+       records carrying an answer of any kind, not records that answered yes. -->
+  <section class="viz span-7">
+    <h2>Record completeness</h2>
+    <p class="note">
+      Share of the {{num $t.Total}} records carrying an answer for each field. A recorded
+      &ldquo;no&rdquo; counts; a field nobody was asked does not.
+    </p>
+    <div class="plot h-lg"><canvas id="chart-fields"></canvas></div>
+    <details class="viz-table">
+      <summary>Show the numbers</summary>
+      <table class="grid">
+        <thead><tr><th>Field</th><th class="num">Recorded</th><th class="num">Share</th></tr></thead>
+        <tbody>
+        {{range $p.Fields}}<tr><td>{{.Label}}</td><td class="num">{{num .Have}}</td><td class="num">{{share .Have $t.Total}}</td></tr>{{end}}
+        </tbody>
+      </table>
+    </details>
+  </section>
+
+  <!-- A whole and its part: trained is a subset of provides by constraint. -->
+  <section class="viz">
+    <h2>Service domains offered</h2>
+    <p class="note">
+      What the register says CHWs do, and where the training is recent. Being trained
+      implies offering the service, so the darker segment is part of the bar, not beside it.
+      {{if $p.AnyService}}Drawn from the records that answered the question at all:
+      <strong>{{num $p.ServicesFrom}}</strong> of {{num $t.Total}} ({{share $p.ServicesFrom $t.Total}}),
+      not from the whole register.{{end}}
+    </p>
+    {{if $p.AnyService}}
+    <div class="legend">
+      <span><i class="k1"></i>Trained in the last 2 years</span>
+      <span><i class="kp"></i>Offered, not recently trained</span>
+    </div>
+    <div class="plot h-lg"><canvas id="chart-services"></canvas></div>
+    <details class="viz-table">
+      <summary>Show the numbers</summary>
+      <table class="grid">
+        <thead><tr><th>Service domain</th><th class="num">Offers</th><th class="num">Trained (2 yrs)</th><th class="num">Share of answered</th></tr></thead>
+        <tbody>
+        {{range $p.Services}}<tr><td>{{.Label}}</td><td class="num">{{num .Provides}}</td><td class="num">{{num .Trained}}</td><td class="num">{{share .Provides $p.ServicesFrom}}</td></tr>{{end}}
+        </tbody>
+      </table>
+    </details>
+    {{else}}
+    <p class="empty">
+      No service domains recorded yet in this scope. They arrive with the profile form on
+      each record, and in bulk once import runs.
+    </p>
+    {{end}}
+  </section>
 </div>
 
-<p class="muted">Bulk import and the searchable register listing arrive in later phases;
-records can be added and maintained one at a time from <a href="/chws">the register</a>.</p>
+<!-- The league table. The chart above ranks the tier over this one; this is
+     where a name becomes a link into the register. -->
+<h2>Busiest {{lower (plural $p.LeagueLevel.Label)}}</h2>
+<p class="muted">Top {{len $p.League}} by headcount{{if eq $p.LeagueLevel.Label "District"}}, of {{num $p.Reach.Total}} districts{{end}}. Each name opens the register filtered to it.</p>
+<table class="grid">
+  <thead>
+    <tr>
+      <th>{{$p.LeagueLevel.Label}}</th>
+      <th>{{if eq $p.LeagueLevel.Label "District"}}Region{{else}}Subcounty{{end}}</th>
+      <th class="num">CHWs</th>
+      <th></th>
+      <th class="num">VHT</th>
+      <th class="num">CHEW</th>
+      <th class="num">Active</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range $p.League}}
+    <tr>
+      <td><a href="{{.Href}}">{{.Name}}</a></td>
+      <td class="muted">{{.Parent}}</td>
+      <td class="num">{{num .Total}}</td>
+      <td class="withbar">
+        <svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="presentation">
+          <rect x="0" y="0" width="{{pctwidth .Total $p.LeagueTop}}" height="8"></rect>
+        </svg>
+      </td>
+      <td class="num">{{num .VHT}}</td>
+      <td class="num">{{num .CHEW}}</td>
+      <td class="num">{{share .Active .Total}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+
+{{if $p.CanAudit}}
+<h2 class="spaced">Recent changes</h2>
+<p class="muted">The last {{len $p.Recent}} entries in the audit log. <a href="/audit">See all</a>.</p>
+<table class="grid">
+  <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th></tr></thead>
+  <tbody>
+  {{range $p.Recent}}
+    <tr>
+      <td>{{datetime .CreatedAt}}</td>
+      <td>{{if .ActorEmail}}{{.ActorEmail}}{{else}}—{{end}}</td>
+      <td><code>{{.Action}}</code></td>
+      <td>{{if and (eq .Entity "chw") .EntityID}}<a href="/chws/{{.EntityID}}">CHW #{{.EntityID}}</a>{{else}}{{.Entity}}{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="4" class="muted">Nothing recorded yet.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+<p class="context">
+  <span>Administrative units <b>{{num $p.Locations}}</b></span>
+  <span>Health facilities <b>{{num $p.Facilities}}</b></span>
+  <span>Hierarchy region &rsaquo; district &rsaquo; county &rsaquo; subcounty &rsaquo; parish &rsaquo; village</span>
+</p>
+
+<script type="application/json" id="dashboard-data">{{$p.Charts}}</script>
+<script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/dashboard.js" defer></script>
 {{end}}
