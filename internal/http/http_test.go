@@ -67,30 +67,6 @@ func TestDeepestLocation(t *testing.T) {
 	}
 }
 
-// The NIN regex is the source form's own constraint, repeated so a typo is a
-// field message rather than a CHECK violation.
-func TestNINPattern(t *testing.T) {
-	valid := []string{"CM90210987654X", "CF12345678901A"}
-	invalid := []string{
-		"",                // absent is handled before the pattern
-		"CM9021098765X",   // thirteen
-		"CM902109876543X", // fifteen
-		"C190210987654X",  // digit in the first two
-		"CM902109876543",  // no trailing letter
-		"cm90210987654x",  // lower case: the handler uppercases first
-	}
-	for _, nin := range valid {
-		if !ninPattern.MatchString(nin) {
-			t.Errorf("ninPattern rejected %q", nin)
-		}
-	}
-	for _, nin := range invalid {
-		if ninPattern.MatchString(nin) {
-			t.Errorf("ninPattern accepted %q", nin)
-		}
-	}
-}
-
 // People type phone numbers the way they say them. The stored form is the nine
 // digits the schema's CHECK insists on.
 func TestDigitsOnly(t *testing.T) {

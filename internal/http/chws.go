@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -12,11 +11,6 @@ import (
 	"chwr/internal/domain"
 	"chwr/internal/store"
 )
-
-// ninPattern is the form's own constraint, repeated here so a typo comes back
-// as a field message rather than a CHECK violation. The schema is still the
-// enforcement.
-var ninPattern = regexp.MustCompile(`^[A-Z]{2}[A-Z0-9]{11}[A-Z]$`)
 
 type chwsPage struct {
 	CHWs     []domain.CHW
@@ -489,14 +483,14 @@ func (s *Server) decodeCHW(r *http.Request, sc auth.Scope) (store.CHWInput, stri
 	if !in.Cadre.Valid() {
 		v.Add("cadre", "Choose a cadre.")
 	}
-	if in.NIN != "" && !ninPattern.MatchString(in.NIN) {
+	if in.NIN != "" && !domain.ValidNIN(in.NIN) {
 		v.Add("nin", "A NIN is 14 characters: two letters, eleven letters or digits, then a letter.")
 	}
 
 	age := trimmed(r, "age_years")
 	if age != "" {
 		n, err := strconv.Atoi(age)
-		if err != nil || n < 18 || n > 99 {
+		if err != nil || !domain.ValidAge(n) {
 			v.Add("age_years", "Age must be a whole number between 18 and 99, or left blank.")
 		} else {
 			years := int16(n)
