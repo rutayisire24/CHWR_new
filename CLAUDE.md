@@ -144,5 +144,6 @@ list.
 
 ## Documentation
 
-`docs/README.md` indexes the detail: data model, RBAC, data sources and their quirks, the
-ODK field mapping, seeding, decision log, and roadmap.
+`docs/README.md` indexes the detail: data model, the application layer (middleware,
+routes, forms, the cascade), RBAC, data sources and their quirks, the ODK field mapping,
+seeding, decision log, and roadmap.

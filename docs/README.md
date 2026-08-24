@@ -3,6 +3,7 @@
 | Document | Contents |
 |---|---|
 | [data-model.md](data-model.md) | Tables, constraints, triggers, and why each exists |
+| [application.md](application.md) | Layering, middleware, routes, forms, templates, the cascade |
 | [rbac.md](rbac.md) | Roles, capability matrix, scope enforcement |
 | [data-sources.md](data-sources.md) | Source workbooks, profiling results, known defects |
 | [odk-mapping.md](odk-mapping.md) | Every ODK field mapped to its column, with semantics |
