@@ -474,3 +474,11 @@ h2.spaced { margin-top: 2rem; }
 }
 .candidates { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: 0.875rem; color: var(--ink-soft); }
 .candidates code { background: var(--blue-wash); color: var(--blue); }
+.decide .hint { color: var(--ink-soft); font-size: 0.8125rem; max-width: 34rem; margin: 0.6rem 0 0; }
+
+/* A batch's own states. Amber for one still awaiting a decision, because that
+   is the one asking for something. Blue and grey for the decided ones — green
+   stays reserved for "this CHW is active", and a committed upload is not that. */
+.pill.pending   { background: var(--amber-wash); color: var(--amber); }
+.pill.committed { background: var(--blue-wash);  color: var(--blue); }
+.pill.discarded { background: var(--wash);       color: var(--ink-soft); }

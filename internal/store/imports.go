@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -357,6 +358,56 @@ func (s *Imports) Quarantine(ctx context.Context, batchID int64, r domain.Import
 	return nil
 }
 
+// CommitLease is how long a claim stands before another attempt may take it.
+// It only has to outlast a commit — half a minute at the row cap — and be short
+// enough that a process killed mid-run does not wedge the batch for an
+// afternoon.
+const CommitLease = 15 * time.Minute
+
+// Claim takes the right to commit a batch, and reports whether it got it.
+//
+// Committing is a loop of one transaction per row, and at the cap it runs for
+// something over half a minute. Two runs walking the same batch both read the
+// same page of ready rows before either marks them, and both create the CHWs on
+// it — a double-clicked 1,200-row file was measured creating 2,033 records. One
+// conditional UPDATE is what makes that impossible: the second caller changes no
+// row and is told so.
+//
+// The claim is a lease rather than a flag. A process killed mid-commit would
+// otherwise hold the batch forever, and resuming is safe — the rows it managed
+// to import are marked, and a commit only walks the ones that are not.
+func (s *Imports) Claim(ctx context.Context, sc auth.Scope, id int64) (bool, error) {
+	q := `
+	    UPDATE import_batches b SET committing_at = now()
+	     WHERE b.id = $1
+	       AND b.status = 'pending'
+	       AND (b.committing_at IS NULL OR b.committing_at < now() - $2::interval)`
+	args := []any{id, CommitLease.String()}
+
+	if frag, extra := sc.Filter("b.district_id", len(args)+1); frag != "" {
+		q += frag
+		args = append(args, extra...)
+	}
+
+	tag, err := s.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return false, fmt.Errorf("claim batch %d: %w", id, translate(err))
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// Release gives the claim back, for a run that ended without committing the
+// batch. A run that finishes normally clears it in the same statement that
+// records the decision.
+func (s *Imports) Release(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE import_batches SET committing_at = NULL WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("release batch %d: %w", id, translate(err))
+	}
+	return nil
+}
+
 // Commit closes a batch once its rows have been written. The rows themselves
 // are created by the caller through CHWs.CreateTx — this records the decision
 // and the final tally, and writes the batch's audit row.
@@ -407,6 +458,7 @@ func (s *Imports) finish(ctx context.Context, sc auth.Scope, actor domain.User, 
 	        UPDATE import_batches b SET
 	            status = $2::import_batch_status,
 	            skip_duplicates = $3,
+	            committing_at = NULL,
 	            committed_at = CASE WHEN $2 = 'committed' THEN now() ELSE NULL END
 	        WHERE b.id = $1`
 	args := []any{id, string(status), skipDuplicates}

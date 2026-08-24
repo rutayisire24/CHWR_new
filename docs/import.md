@@ -346,10 +346,28 @@ tidying away the batch it came from.
 out. A file larger than that is a migration, not an import, and belongs on the seeder path
 in [seeding.md](seeding.md) where it can be checked against the source before it runs.
 
-Commit is synchronous. Ten thousand `Create` calls, each a transaction with its triggers
-and its audit row, is a matter of seconds; a background worker with a polling status page
-is machinery this does not yet need. If the cap ever rises, that is the change to make,
-and the batch table is already the place a worker would keep its state.
+Commit is synchronous, and it is not fast. Measured against the seeded hierarchy and a
+24,573-record register: **10,000 rows validate and stage in 4 seconds, and commit in 32** —
+about 3.2 ms a row. Roughly a quarter of that is `chws_set_placement` deriving the district
+by matching the path against all 146 districts, and the rest is the audit row, the row
+mark, and a transaction per record. Batching rows into shared transactions was measured as
+worth under a third of it, and would trade away the property that one bad row does not
+abort its neighbours, so the loop stays as it is.
+
+Two consequences, both of which are the design's to own rather than to hide:
+
+- **The page says so.** The commit button carries the rate, and the operator is told to
+  leave the page open. Thirty seconds of nothing is otherwise read as a hang.
+- **A batch is claimed before it is committed** (`import_batches.committing_at`,
+  migration 0007). This is not a nicety. Two runs walking one batch both read the same page
+  of `ready` rows before either marks them, and both write the CHWs on it: a
+  double-submitted 1,200-row file was measured creating **2,033 records**. The claim is a
+  lease rather than a flag so a process killed mid-commit does not wedge the batch — after
+  fifteen minutes another attempt may take it, and resuming is safe because a commit only
+  ever walks rows that are not yet marked.
+
+A background worker with a polling status page is the change to make if the cap rises, and
+the batch table is already where such a worker would keep its state.
 
 ## CSRF and multipart
 
@@ -407,3 +425,6 @@ case the design claims to handle:
   `chw.import`
 - an upload with no CSRF token is 403; with one it reaches the handler
 - an `.xlsx` and a CSV of the same 500 rows produce identical results
+- a batch committed twice at once imports each row once: the second attempt is refused in
+  milliseconds, writes nothing, and says why
+- a claim older than the lease is taken over, and the batch commits normally

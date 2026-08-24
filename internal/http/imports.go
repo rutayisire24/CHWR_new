@@ -341,14 +341,38 @@ func (s *Server) importCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// One commit at a time. The run takes tens of seconds at the row cap, and
+	// a page doing nothing for that long invites a second click; two runs
+	// walking the same batch would both create the CHWs on the rows neither had
+	// marked yet.
+	claimed, err := s.store.Imports.Claim(ctx, sc, batch.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !claimed {
+		setFlash(w, s.secure(), "warn",
+			"That upload is already being imported. This page will show the result when it finishes.")
+		http.Redirect(w, r, importPath(batch.ID), http.StatusSeeOther)
+		return
+	}
+
 	skipDuplicates := trimmed(r, "skip_duplicates") != ""
 	result, err := s.runCommit(ctx, sc, actor, batch, skipDuplicates, clientIP(r))
 	if err != nil {
+		// The rows already written stay written and stay marked; the batch goes
+		// back to pending so the rest can be picked up rather than stranded.
+		if release := s.store.Imports.Release(ctx, batch.ID); release != nil {
+			slog.Error("releasing import claim failed", "batch", batch.ID, "err", release)
+		}
 		s.fail(w, r, err)
 		return
 	}
 
 	if _, err := s.store.Imports.Commit(ctx, sc, actor, batch.ID, skipDuplicates, clientIP(r)); err != nil {
+		if release := s.store.Imports.Release(ctx, batch.ID); release != nil {
+			slog.Error("releasing import claim failed", "batch", batch.ID, "err", release)
+		}
 		s.fail(w, r, err)
 		return
 	}

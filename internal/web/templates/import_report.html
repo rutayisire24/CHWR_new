@@ -6,7 +6,7 @@
 
 <div class="row-between">
   <h1>{{$b.Filename}}</h1>
-  <span class="pill {{if $b.Pending}}warn{{end}}">{{$b.Status.Label}}</span>
+  <span class="pill {{$b.Status}}">{{$b.Status.Label}}</span>
 </div>
 
 <p class="muted">
@@ -48,6 +48,11 @@
       </label>
       {{end}}
       <button type="submit">Add {{num $b.Acceptable}} to the register</button>
+      <p class="hint">
+        Each record is written with its own history entry, so a large file takes a while —
+        around three seconds per thousand rows. Leave this page open. Clicking again does
+        not start a second import.
+      </p>
     </form>
   {{else}}
     <p>No row in this file can be imported. Fix the reasons below and upload it again.</p>
