@@ -12,6 +12,7 @@
   <a class="brand" href="/">CHW Registry</a>
   <nav>
     <a href="/">Dashboard</a>
+    {{if .Nav.CHWs}}<a href="/chws">Register</a>{{end}}
     {{if .Nav.Users}}<a href="/users">Users</a>{{end}}
     {{if .Nav.Audit}}<a href="/audit">Audit</a>{{end}}
   </nav>

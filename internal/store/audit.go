@@ -33,6 +33,10 @@ const (
 	ActionUserUpdate     = "user.update"
 	ActionUserStatus     = "user.status"
 	ActionUserReset      = "user.password_reset"
+	ActionCHWCreate      = "chw.create"
+	ActionCHWUpdate      = "chw.update"
+	ActionCHWDeactivate  = "chw.deactivate"
+	ActionCHWReactivate  = "chw.reactivate"
 )
 
 // Entry is one audit row. before and after are marshalled to JSONB; leave them

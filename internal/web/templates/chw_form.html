@@ -1,0 +1,122 @@
+{{define "title"}}{{if .Page.CHW.ID}}Edit CHW{{else}}Add CHW{{end}} · CHW Registry{{end}}
+
+{{define "content"}}
+<h1>{{if .Page.CHW.ID}}Edit {{.Page.CHW.FullName}}{{else}}Add a community health worker{{end}}</h1>
+
+{{if .Page.Duplicates}}
+<div class="card warnbox">
+  <h2>Already on the register?</h2>
+  <p>This name is already recorded at the same location:</p>
+  <ul>
+    {{range .Page.Duplicates}}
+    <li><a href="/chws/{{.ID}}">{{.FullName}}</a> — {{.Cadre.Label}}, {{.LocationName}},
+      {{if .NIN}}NIN <code>{{.NIN}}</code>{{else}}no NIN recorded{{end}}, {{.Status}}</li>
+    {{end}}
+  </ul>
+  <p class="muted">Two people in one village can genuinely share a name. Submit again to
+    add this record anyway, or open the existing one above.</p>
+</div>
+{{end}}
+
+<form method="post" action="{{.Page.Action}}" class="card" id="chw-form">
+  {{template "csrf" .}}
+  {{if .Page.Duplicates}}<input type="hidden" name="confirm_duplicate" value="1">{{end}}
+
+  <div class="two-up">
+    <div>
+      <label for="first_name">First name</label>
+      <input id="first_name" name="first_name" required value="{{.Page.CHW.FirstName}}">
+      {{template "field-error" .Page.Errors.first_name}}
+    </div>
+    <div>
+      <label for="last_name">Last name</label>
+      <input id="last_name" name="last_name" required value="{{.Page.CHW.LastName}}">
+      {{template "field-error" .Page.Errors.last_name}}
+    </div>
+  </div>
+
+  <label>Cadre</label>
+  <div class="radios">
+    {{range .Page.Cadres}}
+    <label class="radio">
+      <input type="radio" name="cadre" value="{{.Value}}" data-level="{{.Level}}"
+             {{if .Selected}}checked{{end}} required>
+      {{.Label}} <span class="muted">— placed at {{.Level}} level</span>
+    </label>
+    {{end}}
+  </div>
+  {{template "field-error" .Page.Errors.cadre}}
+
+  <label>Sex</label>
+  <div class="radios">
+    {{range .Page.Sexes}}
+    <label class="radio">
+      <input type="radio" name="sex" value="{{.Value}}" {{if .Selected}}checked{{end}} required>
+      {{.Label}}
+    </label>
+    {{end}}
+  </div>
+  {{template "field-error" .Page.Errors.sex}}
+
+  <div class="two-up">
+    <div>
+      <label for="age_years">Age</label>
+      <input id="age_years" name="age_years" inputmode="numeric" value="{{.Page.Age}}">
+      <span class="hint">18–99, or blank. Recorded as of today.</span>
+      {{template "field-error" .Page.Errors.age_years}}
+    </div>
+    <div>
+      <label for="nin">NIN or alternative number</label>
+      <input id="nin" name="nin" maxlength="14" value="{{.Page.CHW.NIN}}"
+             pattern="[A-Za-z]{2}[A-Za-z0-9]{11}[A-Za-z]">
+      <span class="hint">Optional. Must be unique where recorded.</span>
+      {{template "field-error" .Page.Errors.nin}}
+    </div>
+  </div>
+
+  <h2 class="section">Placement</h2>
+  <p class="hint">County is derived from the path and is not selected here.</p>
+
+  <div class="two-up">
+    <div>
+      <label for="district_id">District</label>
+      <select id="district_id" name="district_id" data-level="district" required>
+        <option value="">— choose —</option>
+        {{range .Page.Districts}}
+        <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label for="subcounty_id">Subcounty</label>
+      <select id="subcounty_id" name="subcounty_id" data-under="district_id"
+              data-level="subcounty" data-selected="{{index .Page.Prefill "subcounty"}}">
+        <option value="">— choose a district first —</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="two-up">
+    <div>
+      <label for="parish_id">Parish</label>
+      <select id="parish_id" name="parish_id" data-under="subcounty_id"
+              data-level="parish" data-selected="{{index .Page.Prefill "parish"}}">
+        <option value="">— choose a subcounty first —</option>
+      </select>
+    </div>
+    <div class="village-field">
+      <label for="village_id">Village</label>
+      <select id="village_id" name="village_id" data-under="parish_id"
+              data-level="village" data-selected="{{index .Page.Prefill "village"}}">
+        <option value="">— choose a parish first —</option>
+      </select>
+    </div>
+  </div>
+  {{template "field-error" .Page.Errors.location}}
+
+  <button type="submit">{{if .Page.CHW.ID}}Save changes{{else}}Add to register{{end}}</button>
+  <a class="cancel" href="{{if .Page.CHW.ID}}/chws/{{.Page.CHW.ID}}{{else}}/chws{{end}}">Cancel</a>
+</form>
+
+<script src="/static/locations.js" defer></script>
+{{end}}

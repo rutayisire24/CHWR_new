@@ -1,0 +1,41 @@
+{{define "title"}}Register · CHW Registry{{end}}
+
+{{define "content"}}
+<div class="row-between">
+  <h1>Community health workers</h1>
+  {{if .Page.CanEdit}}<a class="button" href="/chws/new">Add CHW</a>{{end}}
+</div>
+
+<p class="muted">
+  {{.Page.Active}} active, {{.Page.Inactive}} inactive{{if .User.Role.District}} in {{.User.DistrictName}}{{end}}.
+  Showing the {{len .Page.CHWs}} most recently changed — search, filters and paging arrive in phase 5.
+</p>
+
+<p class="filters">
+  <a class="chip {{if eq .Page.Status ""}}on{{end}}" href="/chws">All</a>
+  <a class="chip {{if eq .Page.Status "active"}}on{{end}}" href="/chws?status=active">Active</a>
+  <a class="chip {{if eq .Page.Status "inactive"}}on{{end}}" href="/chws?status=inactive">Inactive</a>
+</p>
+
+<table class="grid">
+  <thead>
+    <tr><th>Name</th><th>Cadre</th><th>Placement</th><th>District</th><th>NIN</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+  {{range .Page.CHWs}}
+    <tr class="{{if not .Active}}dim{{end}}">
+      <td><a href="/chws/{{.ID}}">{{.FullName}}</a></td>
+      <td>{{.Cadre.Label}}</td>
+      <td>{{.LocationName}}</td>
+      <td>{{.DistrictName}}</td>
+      <td>{{if .NIN}}<code>{{.NIN}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
+      <td><span class="pill {{.Status}}">{{.Status}}</span></td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6" class="muted">
+      No CHWs on the register yet.{{if .Page.CanEdit}} <a href="/chws/new">Add the first one</a>.{{end}}
+    </td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}

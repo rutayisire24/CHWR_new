@@ -1,0 +1,58 @@
+{{define "title"}}{{.Page.CHW.FullName}} · CHW Registry{{end}}
+
+{{define "content"}}
+<div class="row-between">
+  <h1>{{.Page.CHW.FullName}} <span class="pill {{.Page.CHW.Status}}">{{.Page.CHW.Status}}</span></h1>
+  {{if .Page.CanEdit}}<a class="button" href="/chws/{{.Page.CHW.ID}}/edit">Edit</a>{{end}}
+</div>
+
+<p class="crumbs">
+  {{range .Page.Placement}}<span class="crumb"><span class="lvl">{{.Level.Label}}</span> {{.Name}}</span>{{end}}
+</p>
+
+<div class="card">
+  <dl class="detail">
+    <dt>Cadre</dt><dd>{{.Page.CHW.Cadre.Label}}</dd>
+    <dt>Sex</dt><dd>{{.Page.CHW.Sex.Label}}</dd>
+    <dt>Age</dt>
+    <dd>
+      {{if .Page.CHW.AgeYears}}{{.Page.CHW.AgeYears}} years
+        <span class="muted">as recorded on {{date .Page.CHW.AgeCapturedOn}}</span>
+      {{else}}<span class="muted">not recorded</span>{{end}}
+    </dd>
+    <dt>NIN</dt>
+    <dd>{{if .Page.CHW.NIN}}<code>{{.Page.CHW.NIN}}</code>{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    <dt>Placement</dt><dd>{{.Page.CHW.LocationName}}, {{.Page.CHW.DistrictName}} district</dd>
+    <dt>Added</dt><dd>{{datetime .Page.CHW.CreatedAt}}</dd>
+    <dt>Last changed</dt><dd>{{datetime .Page.CHW.UpdatedAt}}</dd>
+  </dl>
+</div>
+
+{{if not .Page.CHW.Active}}
+<div class="card">
+  <h2>Deactivated</h2>
+  <p>{{optdate .Page.CHW.DeactivatedAt}} — {{.Page.CHW.DeactivationReason}}</p>
+  {{if .Page.CanEdit}}
+  <form method="post" action="/chws/{{.Page.CHW.ID}}/reactivate">
+    {{template "csrf" .}}
+    <button type="submit">Return to active service</button>
+  </form>
+  {{end}}
+</div>
+{{else if .Page.CanEdit}}
+<div class="card danger">
+  <h2>Deactivate</h2>
+  <p class="muted">CHWs are never deleted. Deactivating keeps the record and its history,
+    and records why they left.</p>
+  <form method="post" action="/chws/{{.Page.CHW.ID}}/deactivate">
+    {{template "csrf" .}}
+    <label for="reason">Reason</label>
+    <input id="reason" name="reason" required minlength="5"
+           placeholder="Relocated, retired, deceased, no longer serving…">
+    <button type="submit" class="warn">Deactivate</button>
+  </form>
+</div>
+{{end}}
+
+<p><a href="/chws">Back to the register</a></p>
+{{end}}

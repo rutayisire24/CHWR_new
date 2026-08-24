@@ -91,6 +91,7 @@ has to evict the intruder.
 | Route guards | `auth.RequireAuth`, `auth.RequireCapability(cap, pages)` in `internal/http/router.go` |
 | CSRF | `auth.CSRF` — double-submit cookie, rotated at login and logout |
 | Forced reset | `RequireAuth` pins a `must_reset` user to `/account/password` |
+| CHW routes | `chw.view` reads `/chws` and `/api/locations`; `chw.create` / `chw.update` / `chw.deactivate` gate the writes |
 
 Two store methods take no `Scope`, both pre-authentication and both documented as such:
 `Users.Credentials`, which the login handler uses, and `Sessions.Authenticate`, which is
@@ -99,3 +100,10 @@ the call that produces the principal a `Scope` is derived from. That list does n
 Handler-level safeguards that the schema cannot express: an account cannot disable
 itself, and the last active `national_admin` cannot be demoted or disabled — otherwise
 nobody can provision accounts and recovery needs a database console.
+
+Scoping a CHW write is two checks, not one, because `district_id` is derived by trigger
+and so does not exist until the row does. The placement's district is checked before the
+write, and the row's own `district_id` is checked inside the same transaction afterwards;
+a placement that would carry a CHW out of the writer's district is rolled back. The
+location feed answers "out of scope" and "no children" identically — an empty list — so a
+district user cannot map the country by probing ids.

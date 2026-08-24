@@ -100,6 +100,21 @@ goose annotations (`-- +goose Up`, and `StatementBegin/End` around plpgsql bodie
 `\copy` performs no variable interpolation — the seeder uses literal paths relative to the
 repo root. Run it from there.
 
+## The register
+
+`chws` is the core record; `chw_profiles` and the junctions are phase 4 and have no UI
+yet. Placement is one `location_id` whose level the cadre decides, and `district_id` is
+derived from it — the form never posts a district for the record, only for the cascade.
+
+The location selects cascade district > subcounty > parish > village against
+`GET /api/locations?level=&under=`, which is scoped like every other read. County is
+skipped in the UI and derived from the path.
+
+CHW mutations run in a transaction that also writes their `audit_log` row
+(`store.Audit.RecordTx`), which is what makes invariant 6 structural rather than
+remembered. Duplicate NIN refuses; a duplicate name at the same location warns and
+proceeds on a second submit.
+
 ## Auth
 
 Accounts are provisioned by a `national_admin` (or `-create-admin` for the first one)
@@ -123,7 +138,9 @@ list.
 - Enums and `citext` are cast to `text` in the projection, so pgx needs no type
   registration; parameters cast the other way (`$1::user_role`).
 - Migrations are append-only. Never edit one that has been applied.
-- Verify schema changes against a real database before claiming they work.
+- Verify schema changes against a real database before claiming they work. The
+  cascading selects need a browser, not curl: Selenium is on `:4444`, and the app is
+  reachable from it on the docker gateway rather than `127.0.0.1`.
 
 ## Documentation
 

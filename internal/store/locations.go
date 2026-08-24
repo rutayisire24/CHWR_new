@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"chwr/internal/auth"
+	"chwr/internal/domain"
 )
 
 // Locations reads the administrative hierarchy:
@@ -52,6 +53,124 @@ func (l *Locations) Districts(ctx context.Context, sc auth.Scope) ([]District, e
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+// Descendants lists the locations of one level beneath an ancestor, ordered by
+// name — the subcounties of a district, the parishes of a subcounty, the
+// villages of a parish. It is a prefix scan on the materialized path, which is
+// what lets the UI cascade district > subcounty > parish > village while
+// skipping the county tier the form never shows.
+//
+// County is still mandatory in the data: subcounty codes are unique only
+// within a county, and collapsing the tier lost 732 subcounties to collisions.
+// It is derived from the path for display rather than selected.
+func (l *Locations) Descendants(ctx context.Context, sc auth.Scope, ancestorID int64, level domain.Level) ([]District, error) {
+	// The scope check is on the ancestor, not on each row: a district user may
+	// walk anything inside their own district and nothing outside it.
+	if ok, err := l.insideScope(ctx, sc, ancestorID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, fmt.Errorf("descendants of %d: %w", ancestorID, domain.ErrNotFound)
+	}
+
+	const q = `
+	    SELECT c.id, c.name
+	      FROM locations c
+	      JOIN locations a ON c.path LIKE a.path || '%'
+	     WHERE a.id = $1 AND c.level = $2::location_level AND c.active
+	     ORDER BY c.name`
+
+	rows, err := l.pool.Query(ctx, q, ancestorID, string(level))
+	if err != nil {
+		return nil, fmt.Errorf("list %s under %d: %w", level, ancestorID, translate(err))
+	}
+	defer rows.Close()
+
+	var out []District
+	for rows.Next() {
+		var d District
+		if err := rows.Scan(&d.ID, &d.Name); err != nil {
+			return nil, fmt.Errorf("scan location: %w", err)
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// Ancestors returns a location's chain from region down to the location
+// itself. The CHW form uses it to prefill the cascading selects on edit, and
+// the detail page to show where a CHW actually sits.
+func (l *Locations) Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]domain.Place, error) {
+	const q = `
+	    SELECT a.id, a.level::text, a.name
+	      FROM locations c
+	      JOIN locations a ON c.path LIKE a.path || '%'
+	     WHERE c.id = $1
+	     ORDER BY length(a.path)`
+
+	rows, err := l.pool.Query(ctx, q, id)
+	if err != nil {
+		return nil, fmt.Errorf("ancestors of %d: %w", id, translate(err))
+	}
+	defer rows.Close()
+
+	var out []domain.Place
+	for rows.Next() {
+		var p domain.Place
+		var level string
+		if err := rows.Scan(&p.ID, &level, &p.Name); err != nil {
+			return nil, fmt.Errorf("scan ancestor: %w", err)
+		}
+		p.Level = domain.Level(level)
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("ancestors of %d: %w", id, domain.ErrNotFound)
+	}
+	return out, nil
+}
+
+// LevelOf reports a location's level, and the district it belongs to. The CHW
+// handlers use it to reject a placement whose level does not match the cadre
+// before the trigger has to, and to keep a district user from placing a CHW
+// outside their scope.
+func (l *Locations) LevelOf(ctx context.Context, id int64) (domain.Level, int64, error) {
+	const q = `
+	    SELECT c.level::text, coalesce(d.id, 0)
+	      FROM locations c
+	      LEFT JOIN locations d ON c.path LIKE d.path || '%' AND d.level = 'district'
+	     WHERE c.id = $1`
+
+	var level string
+	var districtID int64
+	if err := l.pool.QueryRow(ctx, q, id).Scan(&level, &districtID); err != nil {
+		return "", 0, fmt.Errorf("level of location %d: %w", id, translate(err))
+	}
+	return domain.Level(level), districtID, nil
+}
+
+// insideScope reports whether a location is the user's district or sits under
+// it. National scopes are inside everything.
+func (l *Locations) insideScope(ctx context.Context, sc auth.Scope, id int64) (bool, error) {
+	districtID, pinned := sc.DistrictID()
+	if !pinned {
+		return true, nil
+	}
+
+	const q = `
+	    SELECT EXISTS (
+	        SELECT 1 FROM locations c, locations d
+	         WHERE c.id = $1 AND d.id = $2 AND c.path LIKE d.path || '%'
+	    )`
+
+	var ok bool
+	if err := l.pool.QueryRow(ctx, q, id, districtID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("scope check on location %d: %w", id, translate(err))
+	}
+	return ok, nil
 }
 
 // Counts are the headline figures on the dashboard.

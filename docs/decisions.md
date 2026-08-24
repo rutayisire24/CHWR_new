@@ -92,6 +92,26 @@ the endpoint but cannot read the cookie to fill the field. It needs no per-sessi
 and no extra round trip, and the token is rotated at login and logout so one captured
 before authentication cannot be replayed after it.
 
+**Duplicate names warn, duplicate NINs refuse.** NIN is optional, so the partial unique
+index cannot catch a double entry of someone without one. `chws_dup_probe_idx` backs a
+soft probe on (location, name) that shows the matching records and proceeds on a second
+submit. Blocking would be wrong: two people in one village genuinely can share a name,
+and the register would rather hold a duplicate than lose a real CHW.
+
+**Deactivation demands a reason, in the handler.** The schema only insists that `status`
+and `deactivated_at` agree — a reason cannot be a CHECK without forbidding the NULL that
+active rows need. A deactivation with no stated reason is unauditable a year later, so
+the handler requires one.
+
+**`age_captured_on` is re-stamped only when the age changes.** Age is a snapshot, not a
+fact. Re-stamping on every save would claim a fresh snapshot for a record whose age
+nobody re-asked about, which is worse than a date that is honestly old.
+
+**Only national roles move a CHW between districts.** A district manager editing a CHW is
+scoped in twice: the update will not match a CHW outside their district, and a placement
+that would carry one out is rolled back. A transfer is a two-district event, and the
+receiving district is not theirs to decide.
+
 **The first admin is a flag, not a migration.** `-create-admin` provisions one account
 and prints a one-use password. A seeded default admin in a migration is a known password
 in a public repository; a bootstrap web route is an unauthenticated privilege escalation

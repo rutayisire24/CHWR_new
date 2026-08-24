@@ -143,3 +143,47 @@ form.inline button { margin-top: 0; }
 .tile .caption { color: var(--ink-soft); font-size: 0.875rem; }
 
 .foot { padding: 1.25rem 1.5rem; color: var(--ink-soft); font-size: 0.8125rem; text-align: center; }
+
+/* --- CHW register ------------------------------------------------------- */
+
+.filters { display: flex; gap: 0.5rem; margin: 1rem 0 0; }
+.chip {
+  padding: 0.25rem 0.75rem; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--paper); color: var(--ink-soft); text-decoration: none; font-size: 0.875rem;
+}
+.chip:hover { border-color: var(--green); color: var(--green); }
+.chip.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+
+.crumbs { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin: 0 0 1.25rem; }
+.crumb { font-size: 0.875rem; }
+.crumb .lvl {
+  color: var(--ink-soft); font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.04em; margin-right: 0.25rem;
+}
+
+dl.detail { display: grid; grid-template-columns: 11rem 1fr; gap: 0.5rem 1rem; margin: 0; }
+dl.detail dt { font-weight: 600; font-size: 0.875rem; color: var(--ink-soft); }
+dl.detail dd { margin: 0; }
+
+.two-up { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0 1.25rem; }
+.two-up > div > label:first-child { margin-top: 0.9rem; }
+
+h2.section {
+  margin: 1.75rem 0 0; padding-top: 1.25rem; border-top: 1px solid var(--line);
+  font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-soft);
+}
+
+.radios { display: flex; flex-wrap: wrap; gap: 1.25rem; margin: 0.35rem 0 0.25rem; }
+.radio { display: flex; align-items: center; gap: 0.4rem; font-weight: 400; margin: 0; }
+.radio input { width: auto; margin: 0; }
+
+select:disabled { background: var(--wash); color: var(--ink-soft); cursor: not-allowed; }
+
+.card.warnbox { border-color: #ecd9b0; background: var(--amber-wash); }
+.card.warnbox h2 { color: var(--amber); }
+.card.warnbox ul { margin: 0.5rem 0; padding-left: 1.25rem; }
+
+.pill.inactive { background: var(--wash); color: var(--ink-soft); }
+
+h1 .pill { vertical-align: middle; margin-left: 0.5rem; font-size: 0.75rem; }
+.tile a { color: inherit; }

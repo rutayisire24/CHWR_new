@@ -16,10 +16,11 @@
     <span class="caption">health facilities</span>
   </div>
   <div class="tile">
-    <span class="figure">{{.Page.CHWs}}</span>
+    <span class="figure"><a href="/chws">{{.Page.CHWs}}</a></span>
     <span class="caption">community health workers{{if not .User.Role.District}} nationally{{end}}</span>
   </div>
 </div>
 
-<p class="muted">CHW records arrive in phase 3. Geography and accounts are in place.</p>
+<p class="muted">Bulk import and the searchable register listing arrive in later phases;
+records can be added and maintained one at a time from <a href="/chws">the register</a>.</p>
 {{end}}

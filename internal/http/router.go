@@ -62,6 +62,27 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("POST /users/{id}/status", manageUsers(s.userStatus))
 	mux.Handle("POST /users/{id}/reset", manageUsers(s.userResetPassword))
 
+	// The register. Viewing is every role; writing needs the manage capability,
+	// and the Scope inside each store call is what keeps a district manager to
+	// their own district.
+	viewCHWs := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(auth.CapCHWView, pages)(h))
+	}
+	editCHWs := func(c auth.Capability, h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(c, pages)(h))
+	}
+	mux.Handle("GET /chws", viewCHWs(s.chwsList))
+	mux.Handle("GET /chws/new", editCHWs(auth.CapCHWCreate, s.chwNew))
+	mux.Handle("POST /chws/new", editCHWs(auth.CapCHWCreate, s.chwCreate))
+	mux.Handle("GET /chws/{id}", viewCHWs(s.chwShow))
+	mux.Handle("GET /chws/{id}/edit", editCHWs(auth.CapCHWUpdate, s.chwEdit))
+	mux.Handle("POST /chws/{id}", editCHWs(auth.CapCHWUpdate, s.chwUpdate))
+	mux.Handle("POST /chws/{id}/deactivate", editCHWs(auth.CapCHWDeactivate, s.chwDeactivate))
+	mux.Handle("POST /chws/{id}/reactivate", editCHWs(auth.CapCHWDeactivate, s.chwReactivate))
+
+	// Feeds the cascading selects. Read-only, and scoped like every other read.
+	mux.Handle("GET /api/locations", viewCHWs(s.locationsJSON))
+
 	viewAudit := func(h http.HandlerFunc) http.Handler {
 		return auth.RequireAuth(auth.RequireCapability(auth.CapAuditView, pages)(h))
 	}

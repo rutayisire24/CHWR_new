@@ -4,30 +4,31 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1 and 2 complete. Phase 3 (CHW CRUD) is next, and nothing in it is started.**
+**Phases 1–3 complete. Phase 4 (optional attributes) is next, and nothing in it is
+started.**
 
-The database is real and populated: 84,635 hierarchy rows and 7,895 facilities, applied by
-the binary and probed with 39 rejection cases. Authentication is in and exercised end to
-end: argon2id passwords, Postgres-backed sessions, CSRF on every mutating form, the
-capability matrix in middleware, and a `Scope` argument on every store method. What is
-missing is the register itself — no CHW record, no import, no list UI.
+The register works end to end: sign in, add a CHW, place them in the hierarchy, edit,
+deactivate with a reason, reactivate — every mutation audited in its own transaction and
+every read scoped. What is missing is everything hanging off the core record: the profile
+attributes, the tool and service-domain junctions, search and paging, and bulk import.
 
 | | State |
 |---|---|
 | `migrations/` 0001–0004 | applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
-| `internal/domain` | `User`, `Role`, `UserStatus`, sentinel errors, `ValidationError` |
+| `internal/domain` | `User`, `CHW`, `Cadre`, `Sex`, statuses, `Level`, sentinel errors |
 | `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
-| `internal/store` | users, sessions, audit, locations — every method takes a `Scope` |
-| `internal/http` | login, logout, forced first-login reset, user admin, audit view, dashboard |
-| `internal/web` | layout + seven pages, one stylesheet, embedded and parsed at startup |
+| `internal/store` | users, sessions, audit, locations, chws — every method takes a `Scope` |
+| `internal/http` | auth, user admin, audit view, dashboard, CHW CRUD, the location JSON feed |
+| `internal/web` | layout + ten pages, one stylesheet, the cascading-select script |
+| `chw_profiles`, junctions | **schema exists, no UI — phase 4** |
+| Search, filters, paging | **phase 5** |
 | `internal/importer` | **empty — phase 6** |
-| CHW record, list UI, export | **empty — phases 3 onward** |
 
-Immediate next steps, in order: the `CHW` domain entity and `internal/store/chws.go`,
-the create and edit forms with the cascading location selects, deactivation with a
-reason, and `audit.RecordTx` inside each mutation's transaction.
+Immediate next steps, in order: the profile form (phone branch, education, English
+proficiency, incentive, supervision), then the tool and service-domain junctions with the
+`trained_implies_provides` rule expressed in the UI rather than only in the CHECK.
 
 ## Decisions locked
 
@@ -65,7 +66,7 @@ internal/domain/                    entities and sentinel errors, no I/O
 internal/auth/                      Scope, capabilities, argon2id, sessions, CSRF, middleware
 internal/store/                     SQL, one file per aggregate, every method takes a Scope
 internal/http/                      router, handlers, form decoding, flashes
-internal/web/{templates,static}/    layout + pages, one stylesheet, embedded
+internal/web/{templates,static}/    layout + pages, one stylesheet, cascading selects
 internal/importer/                  not started (phase 6)
 migrations/                         *.sql + embed.go (go:embed)
 ```
@@ -73,6 +74,11 @@ migrations/                         *.sql + embed.go (go:embed)
 Configuration: `DATABASE_URL` (required), `ADDR` (`:8080`), `ENV` (`dev`|`prod`),
 `SHUTDOWN_TIMEOUT` (`15s`). `ENV=prod` is what puts `Secure` on the session, CSRF and
 flash cookies.
+
+The CHW form's location selects cascade district > subcounty > parish > village against
+`GET /api/locations?level=&under=`, which is scoped like every other read. County is
+skipped in the UI and derived from the path — it is mandatory in the data, because
+subcounty codes are unique only within a county.
 
 Sessions expire 12 hours after issue and 2 hours after the last request, whichever comes
 first. Passwords must be at least 12 characters mixing letters with a digit or symbol;
@@ -91,17 +97,16 @@ district user unrepresentable in the database.
 1. **Skeleton + geography** — config, pool, embedded migrations, hierarchy seeder,
    facility loader + quarantine report *(done)*
 2. **Auth** — argon2id, sessions, CSRF, RBAC middleware, `Scope` plumbing *(done)*
-3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation
+3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
 4. **Optional attributes** — profile form, tools and service-domain junctions
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination
 6. **Import + export** — CSV importer with per-row error report, scoped CSV export
 7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
    `-create-admin`)
 
-Geography is phase 1 because nothing else is testable without it. Phases 1 and 2 are
-complete — hierarchy, facilities, constraint suite, and the whole authentication and
-authorization layer. Phase 3 (CHW CRUD) is next, and it is the first phase that writes to
-the register itself.
+Geography is phase 1 because nothing else is testable without it. Phases 1–3 are
+complete: hierarchy, facilities, constraint suite, the authentication and authorization
+layer, and the core register record. Phase 4 (optional attributes) is next.
 
 ## Source data
 
@@ -165,6 +170,31 @@ request:
   cookie is cleared
 - `audit_log` holds `auth.login_failed`, `auth.login`, `auth.password_change`,
   `user.create` and `user.status`, each stamped with the actor's district
+
+Phase 3 was exercised the same way, against the populated hierarchy:
+
+- a VHT offered a parish and a CHEW offered a village are both refused with a field
+  message before `chws_set_placement` has to raise; so is re-cadring a VHT to CHEW
+  without moving them off the village
+- `district_id` is derived, not posted: a CHW placed in ABONGEPACH village comes back
+  attached to ABIM without the form ever naming a district id
+- `age_captured_on` is re-stamped only when the age changes — a save that left it alone
+  kept a snapshot date of 2020-01-01
+- a duplicate NIN is refused; a duplicate name at the same location is *warned*, with the
+  matching records shown, and proceeds on a second submit
+- deactivation demands a reason, writes `status`, `deactivated_at` and the reason
+  together, and reactivation clears the first two while the audit row keeps the reason
+- a GULU manager sees an empty register, 404s on an ABIM CHW, and gets `[]` from the
+  location feed when probing ABIM's id; their district select offers one district
+- a national viewer reads the register and gets 403 on create, edit and deactivate, with
+  no controls rendered
+- an ABIM manager cannot transfer a CHW to GULU; a national admin can, after which the
+  ABIM manager 404s on the record and the GULU manager sees it. Both districts remain in
+  the CHW's audit history
+- the cascade was driven in a real browser: selecting a district loads 17 subcounties, a
+  subcounty 7 parishes, a parish 8 villages; switching to CHEW hides *and clears* the
+  village select; opening an existing record rebuilds the whole chain from the server's
+  prefill, with no console errors
 
 Reproduce from the repo root:
 

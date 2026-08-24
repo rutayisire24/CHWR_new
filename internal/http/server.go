@@ -39,6 +39,7 @@ type page struct {
 // nav is which sections the signed-in user may reach, resolved once so
 // templates ask a boolean rather than re-deriving the capability matrix.
 type nav struct {
+	CHWs  bool
 	Users bool
 	Audit bool
 }
@@ -54,6 +55,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if u, ok := auth.UserFrom(r.Context()); ok {
 		p.User = &u
 		p.Nav = nav{
+			CHWs:  auth.Can(u.Role, auth.CapCHWView),
 			Users: auth.Can(u.Role, auth.CapUserManage),
 			Audit: auth.Can(u.Role, auth.CapAuditView),
 		}
