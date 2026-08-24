@@ -49,7 +49,7 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `POST /logout` | signed in | deletes the session row, rotates the CSRF token |
 | `GET /{$}` | signed in | dashboard |
 | `GET POST /account/password` | signed in | self-service change; the only way past a forced reset |
-| `GET /chws` | `chw.view` | register listing, `?status=active\|inactive` |
+| `GET /chws` | `chw.view` | listing: `?q=`, `?cadre=`, `?status=`, a location id, `?after=` / `?before=` |
 | `GET /chws/{id}` | `chw.view` | detail, with the ancestor breadcrumb |
 | `GET POST /chws/new` | `chw.create` | |
 | `GET /chws/{id}/edit`, `POST /chws/{id}` | `chw.update` | |
@@ -99,6 +99,41 @@ template that fails halfway does not leave a half-written 200 on the wire.
 Every template receives the same envelope: `.User`, `.Nav`, `.CSRFToken`, `.Flash`, and
 `.Page` for whatever the handler supplies. Flashes are a one-shot cookie, read and
 expired in the same response.
+
+## Searching and paging the register
+
+One search box, not two. Whether the input is a name or a NIN is decided by its shape —
+two leading letters and a digit, no spaces or punctuation, means NIN — because a radio
+button asking the user to classify their own input is a button they get wrong. A NIN
+matches from the start, the way someone reads one off a form; a name matches anywhere
+within `first_name || ' ' || last_name`, which is the exact expression `chws_name_trgm`
+is built on, so the search has to be written against it rather than against the two
+columns separately.
+
+Paging is **keyset, not offset**. The register runs to tens of thousands of rows across
+71,207 villages: an offset makes every page slower than the last, and a record inserted
+mid-browse shifts every subsequent page by one, which is how a clerk paging through a
+district silently skips somebody. The cursor is the sort key itself —
+`(lower(last_name), lower(first_name), id)` — compared row-wise, which is what lets one
+predicate use the whole three-column index. `id` is in the key because two people in one
+village genuinely share a name and the sort still has to be total.
+
+Both directions are supported: `?after=` steps forward, `?before=` reads backward from
+the cursor and flips the slice. A register is browsed both ways — a clerk who pages past
+a name goes back for it.
+
+Cursors are base64 in the URL. Decoding is total: anything malformed means "start at the
+beginning", never an error page, because cursors arrive from bookmarks and shared links.
+**A cursor is a position, not a permission** — it names a sort key, and the scope filter
+still decides which rows past it are visible, so a district user handed a national cursor
+sees their own district from that point.
+
+The count on the result line is a second query, deliberately. The page itself is a keyset
+scan that never counts, and counting on every page would give that away.
+
+`store.Filter` builds its predicate in one place, shared by the listing and the count: a
+count that filtered differently from the page it counts is a bug nobody notices until the
+two numbers disagree. Phase 6's export will take the same `Filter`.
 
 ## The profile form
 

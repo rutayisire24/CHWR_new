@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -81,36 +82,150 @@ func (s *CHWs) Get(ctx context.Context, sc auth.Scope, id int64) (domain.CHW, er
 	return c, nil
 }
 
-// Filter narrows a listing. The full search-and-paginate UI is phase 5; this
-// is what the register needs to be navigable while phase 3 lands.
+// Filter narrows a listing. The zero Filter is "everything in the scope",
+// which is what the register shows when nobody has typed anything.
 type Filter struct {
-	Status domain.CHWStatus // empty means both
-	Limit  int
+	// Query matches a name or a NIN. Which of the two is decided by the shape
+	// of the input, not by a radio button the user has to get right.
+	Query string
+	Cadre domain.Cadre
+	// Status empty means both. A register that hid inactive CHWs by default
+	// would quietly answer a different question than the one asked.
+	Status domain.CHWStatus
+	// LocationID narrows to a subtree at any level — a district, a subcounty,
+	// a parish or a single village.
+	LocationID int64
+
+	Limit int
+	// After and Before are keyset cursors. Offsets were rejected: paging deep
+	// into 71,000 villages' worth of register would make every page slower
+	// than the last, and a record inserted mid-browse would shift every
+	// subsequent page by one.
+	After  *Cursor
+	Before *Cursor
 }
 
-// List returns CHWs inside the scope, most recently changed first.
-func (s *CHWs) List(ctx context.Context, sc auth.Scope, f Filter) ([]domain.CHW, error) {
-	if f.Limit <= 0 || f.Limit > 500 {
-		f.Limit = 100
-	}
+// Cursor is a position in the (last name, first name, id) ordering. It is the
+// sort key itself rather than an opaque offset, so it stays valid when rows are
+// inserted or removed around it.
+type Cursor struct {
+	LastName  string
+	FirstName string
+	ID        int64
+}
 
-	q := `SELECT ` + chwColumns + chwFrom + ` WHERE true`
+// Page is one screenful of the register, with the cursors needed to step either
+// way. The register is browsed in both directions — a clerk who pages past a
+// name goes back for it — so a forward-only cursor would not do.
+type Page struct {
+	CHWs    []domain.CHW
+	First   *Cursor // cursor for the page before this one
+	Last    *Cursor // cursor for the page after this one
+	HasPrev bool
+	HasNext bool
+}
+
+// ninish reports whether a query looks like someone reaching for a NIN rather
+// than a name: NINs start with two letters and carry digits, and no Ugandan
+// surname does.
+func ninish(q string) bool {
+	if len(q) < 3 {
+		return false
+	}
+	hasDigit := false
+	for _, r := range q {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
+		default:
+			return false // a space, a hyphen: that is a name
+		}
+	}
+	return hasDigit
+}
+
+// where builds the predicate the listing and the count share. Keeping it in one
+// place is not tidiness: a count that filtered differently from the page it
+// counts would be a bug nobody notices until the numbers disagree.
+func (f Filter) where(sc auth.Scope) (string, []any) {
+	where := ` WHERE true`
 	var args []any
 
 	if frag, extra := sc.Filter("c.district_id", len(args)+1); frag != "" {
-		q += frag
+		where += frag
 		args = append(args, extra...)
+	}
+	if f.Cadre != "" {
+		args = append(args, string(f.Cadre))
+		where += fmt.Sprintf(" AND c.cadre = $%d::cadre", len(args))
 	}
 	if f.Status != "" {
 		args = append(args, string(f.Status))
-		q += fmt.Sprintf(" AND c.status = $%d::chw_status", len(args))
+		where += fmt.Sprintf(" AND c.status = $%d::chw_status", len(args))
 	}
-	args = append(args, f.Limit)
-	q += fmt.Sprintf(" ORDER BY c.updated_at DESC LIMIT $%d", len(args))
+	if f.LocationID != 0 {
+		// A prefix scan on the materialized path: one comparison covers a
+		// district or a single village, and locations_path_idx serves both.
+		args = append(args, f.LocationID)
+		where += fmt.Sprintf(
+			" AND l.path LIKE (SELECT path FROM locations WHERE id = $%d) || '%%'", len(args))
+	}
+	if q := strings.TrimSpace(f.Query); q != "" {
+		if ninish(q) {
+			args = append(args, strings.ToUpper(q)+"%")
+			where += fmt.Sprintf(" AND c.nin LIKE $%d", len(args))
+		} else {
+			// The trigram index is built on this exact expression, so the
+			// search has to be written against it rather than against the two
+			// columns separately.
+			args = append(args, "%"+q+"%")
+			where += fmt.Sprintf(" AND (c.first_name || ' ' || c.last_name) ILIKE $%d", len(args))
+		}
+	}
+	return where, args
+}
+
+// List returns one page of the register, ordered by name.
+//
+// Ordering is (lower(last_name), lower(first_name), id): surname first because
+// that is how a register is read, id last because two people in one village
+// genuinely share a name and the sort still has to be total.
+func (s *CHWs) List(ctx context.Context, sc auth.Scope, f Filter) (Page, error) {
+	if f.Limit <= 0 || f.Limit > 200 {
+		f.Limit = 50
+	}
+
+	where, args := f.where(sc)
+
+	// Keyset. Row-wise comparison is what lets one predicate use the whole
+	// three-column index; comparing the columns with AND/OR by hand does not.
+	order := "ASC"
+	if cursor := f.After; cursor != nil {
+		args = append(args, strings.ToLower(cursor.LastName), strings.ToLower(cursor.FirstName), cursor.ID)
+		where += fmt.Sprintf(
+			" AND (lower(c.last_name), lower(c.first_name), c.id) > ($%d, $%d, $%d)",
+			len(args)-2, len(args)-1, len(args))
+	} else if cursor := f.Before; cursor != nil {
+		args = append(args, strings.ToLower(cursor.LastName), strings.ToLower(cursor.FirstName), cursor.ID)
+		where += fmt.Sprintf(
+			" AND (lower(c.last_name), lower(c.first_name), c.id) < ($%d, $%d, $%d)",
+			len(args)-2, len(args)-1, len(args))
+		// Walking backwards means reading the rows nearest the cursor, which
+		// is the far end of the page; the slice is flipped below.
+		order = "DESC"
+	}
+
+	// One row more than asked for, to learn whether another page exists
+	// without counting the whole set.
+	args = append(args, f.Limit+1)
+	q := `SELECT ` + chwColumns + chwFrom + where +
+		fmt.Sprintf(" ORDER BY lower(c.last_name) %s, lower(c.first_name) %s, c.id %s LIMIT $%d",
+			order, order, order, len(args))
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list chws: %w", translate(err))
+		return Page{}, fmt.Errorf("list chws: %w", translate(err))
 	}
 	defer rows.Close()
 
@@ -118,27 +233,59 @@ func (s *CHWs) List(ctx context.Context, sc auth.Scope, f Filter) ([]domain.CHW,
 	for rows.Next() {
 		c, err := scanCHW(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan chw: %w", err)
+			return Page{}, fmt.Errorf("scan chw: %w", err)
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return Page{}, err
+	}
+
+	more := len(out) > f.Limit
+	if more {
+		out = out[:f.Limit]
+	}
+	if order == "DESC" {
+		for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+			out[i], out[j] = out[j], out[i]
+		}
+	}
+
+	page := Page{CHWs: out}
+	if len(out) > 0 {
+		first := cursorFor(out[0])
+		last := cursorFor(out[len(out)-1])
+		page.First, page.Last = &first, &last
+	}
+	switch {
+	case f.Before != nil:
+		// Walking backwards: the extra row proves there is more behind us, and
+		// there is always a page ahead, because we came from it.
+		page.HasPrev, page.HasNext = more, true
+	case f.After != nil:
+		page.HasPrev, page.HasNext = true, more
+	default:
+		page.HasPrev, page.HasNext = false, more
+	}
+	return page, nil
 }
 
-// Count reports how many CHWs are in the scope, by status.
-func (s *CHWs) Count(ctx context.Context, sc auth.Scope) (active, inactive int64, err error) {
-	q := `SELECT count(*) FILTER (WHERE status = 'active'),
-	             count(*) FILTER (WHERE status = 'inactive')
-	      FROM chws c WHERE true`
-	var args []any
-	if frag, extra := sc.Filter("c.district_id", len(args)+1); frag != "" {
-		q += frag
-		args = append(args, extra...)
+func cursorFor(c domain.CHW) Cursor {
+	return Cursor{LastName: c.LastName, FirstName: c.FirstName, ID: c.ID}
+}
+
+// Matching counts the CHWs a filter selects, for the "N found" line. It is a
+// separate query from List by design: the page itself is a keyset scan that
+// never counts, and a count that ran on every page would undo that.
+func (s *CHWs) Matching(ctx context.Context, sc auth.Scope, f Filter) (int64, error) {
+	f.Limit, f.After, f.Before = 0, nil, nil
+	where, args := f.where(sc)
+
+	var n int64
+	if err := s.pool.QueryRow(ctx, `SELECT count(*)`+chwFrom+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count matching chws: %w", translate(err))
 	}
-	if err := s.pool.QueryRow(ctx, q, args...).Scan(&active, &inactive); err != nil {
-		return 0, 0, fmt.Errorf("count chws: %w", translate(err))
-	}
-	return active, inactive, nil
+	return n, nil
 }
 
 // Create inserts a CHW and its audit row in one transaction.

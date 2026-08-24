@@ -1,4 +1,4 @@
-// Cascading location selects for the CHW form.
+// Cascading location selects.
 //
 // The UI walks district > subcounty > parish > village and skips county: the
 // tier is mandatory in the data — subcounty codes are unique only within a
@@ -9,8 +9,13 @@
 (function () {
   "use strict";
 
-  var form = document.getElementById("chw-form");
-  if (!form) return;
+  // Any form that declares the cascade gets it: the CHW form, where the
+  // placement is being chosen, and the register's filter bar, where a subtree
+  // is being narrowed to.
+  Array.prototype.forEach.call(
+    document.querySelectorAll("[data-location-cascade]"), cascade);
+
+function cascade(form) {
 
   // steps[0] is the district select, which has no parent; the rest each fetch
   // their level from the one before.
@@ -119,4 +124,5 @@
   for (var i = 1; i < steps.length; i++) steps[i].disabled = true;
   applyCadre();
   if (steps[0].value) fill(1);
+}
 })();

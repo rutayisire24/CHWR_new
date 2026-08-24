@@ -4,30 +4,31 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1–4 complete. Phase 5 (list UI) is next, and nothing in it is started.**
+**Phases 1–5 complete. Phase 6 (import and export) is next, and nothing in it is
+started.**
 
-Every field the ODK form collects now has somewhere to go and a way in: the core record,
-the profile attributes, the tool checklist and the service-domain grid. What is missing
-is finding a record among many — the register lists the hundred most recently changed and
-nothing else — and bulk import.
+The register is now usable at scale: search by name or NIN, filter by cadre, status and
+any level of the hierarchy, and page through the result with a keyset. What is missing is
+getting the existing register in — every record so far has been typed one at a time — and
+getting a scoped slice back out.
 
 | | State |
 |---|---|
-| `migrations/` 0001–0004 | applied and verified on PostgreSQL 18 |
+| `migrations/` 0001–0005 | applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
 | `internal/domain` | `User`, `CHW`, `Profile`, the enums, `Level`, sentinel errors |
 | `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
 | `internal/store` | users, sessions, audit, locations, chws, profiles — every method takes a `Scope` |
-| `internal/http` | auth, user admin, audit, dashboard, CHW CRUD, profiles, the location feed |
+| `internal/http` | auth, user admin, audit, dashboard, CHW CRUD, profiles, search and paging |
 | `internal/web` | layout + eleven pages, one stylesheet, two scripts |
-| Search, filters, paging | **phase 5** |
 | `internal/importer` | **empty — phase 6** |
-| `chw_languages` | **empty by design — the vocabulary fills from the importer's parsing in phase 6** |
+| CSV export | **phase 6 — it shares `store.Filter` with the listing** |
+| `chw_languages` | **empty by design — fills from the importer's parsing in phase 6** |
 
-Immediate next steps, in order: name and NIN search over `chws_name_trgm`, cadre / status /
-location filters, keyset pagination, and the scoped CSV export that shares the same filter
-type.
+Immediate next steps, in order: the CSV/ODK reader, per-row validation writing failures to
+`import_quarantine` with a reason, a dry-run that reports before it writes, and the scoped
+export.
 
 ## Decisions locked
 
@@ -98,15 +99,15 @@ district user unrepresentable in the database.
 2. **Auth** — argon2id, sessions, CSRF, RBAC middleware, `Scope` plumbing *(done)*
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
 4. **Optional attributes** — profile form, tools and service-domain junctions *(done)*
-5. **List UI** — search by name/NIN, filter cadre/status/location, pagination
+5. **List UI** — search by name/NIN, filter cadre/status/location, pagination *(done)*
 6. **Import + export** — CSV importer with per-row error report, scoped CSV export
 7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
    `-create-admin`)
 
-Geography is phase 1 because nothing else is testable without it. Phases 1–4 are
+Geography is phase 1 because nothing else is testable without it. Phases 1–5 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization
-layer, the core register record and every optional attribute around it. Phase 5 (list UI)
-is next — the register holds records now, and needs to be searchable.
+layer, the core register record, every optional attribute around it, and the search and
+paging that make a register of that size navigable. Phase 6 (import and export) is next.
 
 ## Source data
 
@@ -215,6 +216,23 @@ combination it forbids, past the JavaScript that hides it:
 - in the browser: branches stay hidden and *disabled* until their question is answered
   yes, a tool's condition unlocks only once the tool is held, and unticking a service
   clears its training box
+
+Phase 5 was verified against 24,573 CHWs — a synthetic fixture loaded into the dev
+database, since the real register arrives with the importer in phase 6:
+
+- every filter's count was checked against the same count taken in SQL: 1,279 inactive,
+  347 CHEWs, 202 in ABIM, 58 for a two-word name search, 20 for a NIN prefix
+- paging the CHEW filter to exhaustion returned all 347 rows over 7 pages, in exactly the
+  order the database returns them, with no row repeated and none skipped
+- walking back from the last page retraced the forward pages exactly
+- filters survive paging; a corrupt cursor falls back to page one instead of erroring
+- a district manager handed a cursor taken from the *national* listing still sees only
+  their own district: a cursor is a position, not a permission
+- `EXPLAIN ANALYZE` confirms the keyset pages are index scans on
+  `chws_district_name_idx` / `chws_name_sort_idx` (~1–2 ms at 24.5k rows), and NIN
+  prefixes an index scan on `chws_nin_prefix_idx`. The trigram index is used for a
+  selective name; for a term matching 4% of the table the planner prefers a sequential
+  scan, which at this size is the cheaper plan and not a defect
 
 Reproduce from the repo root:
 

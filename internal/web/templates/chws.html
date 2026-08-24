@@ -6,15 +6,78 @@
   {{if .Page.CanEdit}}<a class="button" href="/chws/new">Add CHW</a>{{end}}
 </div>
 
-<p class="muted">
-  {{.Page.Active}} active, {{.Page.Inactive}} inactive{{if .User.Role.District}} in {{.User.DistrictName}}{{end}}.
-  Showing the {{len .Page.CHWs}} most recently changed — search, filters and paging arrive in phase 5.
-</p>
+<form method="get" action="/chws" class="filters-bar" data-location-cascade>
+  <div class="search">
+    <label for="q">Search</label>
+    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name or NIN">
+    <span class="hint">A NIN is matched from the start; a name anywhere within it.</span>
+  </div>
 
-<p class="filters">
-  <a class="chip {{if eq .Page.Status ""}}on{{end}}" href="/chws">All</a>
-  <a class="chip {{if eq .Page.Status "active"}}on{{end}}" href="/chws?status=active">Active</a>
-  <a class="chip {{if eq .Page.Status "inactive"}}on{{end}}" href="/chws?status=inactive">Inactive</a>
+  <div>
+    <label for="cadre">Cadre</label>
+    <select id="cadre" name="cadre">
+      <option value="">Any</option>
+      {{range .Page.Cadres}}
+      <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </div>
+
+  <div>
+    <label for="status">Status</label>
+    <select id="status" name="status">
+      <option value="">Any</option>
+      <option value="active" {{if eq .Page.Filter.Status "active"}}selected{{end}}>Active</option>
+      <option value="inactive" {{if eq .Page.Filter.Status "inactive"}}selected{{end}}>Inactive</option>
+    </select>
+  </div>
+
+  <div>
+    <label for="district_id">District</label>
+    <select id="district_id" name="district_id" data-level="district">
+      <option value="">Any</option>
+      {{range .Page.Districts}}
+      <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+  </div>
+
+  <div>
+    <label for="subcounty_id">Subcounty</label>
+    <select id="subcounty_id" name="subcounty_id" data-under="district_id"
+            data-level="subcounty" data-selected="{{index .Page.Prefill "subcounty"}}">
+      <option value="">— any —</option>
+    </select>
+  </div>
+
+  <div>
+    <label for="parish_id">Parish</label>
+    <select id="parish_id" name="parish_id" data-under="subcounty_id"
+            data-level="parish" data-selected="{{index .Page.Prefill "parish"}}">
+      <option value="">— any —</option>
+    </select>
+  </div>
+
+  <div class="village-field">
+    <label for="village_id">Village</label>
+    <select id="village_id" name="village_id" data-under="parish_id"
+            data-level="village" data-selected="{{index .Page.Prefill "village"}}">
+      <option value="">— any —</option>
+    </select>
+  </div>
+
+  <div class="actions">
+    <button type="submit">Search</button>
+    {{if .Page.Filter.Active}}<a class="cancel" href="/chws">Clear</a>{{end}}
+  </div>
+</form>
+
+<p class="muted result-line">
+  {{.Page.Matching}} {{if eq .Page.Matching 1}}record{{else}}records{{end}}
+  {{if .Page.Filter.Active}}match{{if eq .Page.Matching 1}}es{{end}} this search{{else}}on the register{{end}}{{if .User.Role.District}} in {{.User.DistrictName}}{{end}}.
+  {{if .Page.Places}}Filtered to
+    {{range $i, $p := .Page.Places}}{{if gt $i 0}} › {{end}}{{$p.Name}}{{end}}.
+  {{end}}
 </p>
 
 <table class="grid">
@@ -24,7 +87,7 @@
   <tbody>
   {{range .Page.CHWs}}
     <tr class="{{if not .Active}}dim{{end}}">
-      <td><a href="/chws/{{.ID}}">{{.FullName}}</a></td>
+      <td><a href="/chws/{{.ID}}">{{.LastName}}, {{.FirstName}}</a></td>
       <td>{{.Cadre.Label}}</td>
       <td>{{.LocationName}}</td>
       <td>{{.DistrictName}}</td>
@@ -33,9 +96,20 @@
     </tr>
   {{else}}
     <tr><td colspan="6" class="muted">
-      No CHWs on the register yet.{{if .Page.CanEdit}} <a href="/chws/new">Add the first one</a>.{{end}}
+      {{if .Page.Filter.Active}}Nothing matches this search. <a href="/chws">Clear the filters</a>.
+      {{else}}No CHWs on the register yet.{{if .Page.CanEdit}} <a href="/chws/new">Add the first one</a>.{{end}}{{end}}
     </td></tr>
   {{end}}
   </tbody>
 </table>
+
+{{if or .Page.PrevURL .Page.NextURL}}
+<nav class="pager">
+  {{if .Page.PrevURL}}<a class="button ghost" href="{{.Page.PrevURL}}">← Previous</a>{{else}}<span></span>{{end}}
+  <span class="muted">Sorted by surname</span>
+  {{if .Page.NextURL}}<a class="button ghost" href="{{.Page.NextURL}}">Next →</a>{{else}}<span></span>{{end}}
+</nav>
+{{end}}
+
+<script src="/static/locations.js" defer></script>
 {{end}}

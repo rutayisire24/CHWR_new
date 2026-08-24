@@ -146,13 +146,29 @@ form.inline button { margin-top: 0; }
 
 /* --- CHW register ------------------------------------------------------- */
 
-.filters { display: flex; gap: 0.5rem; margin: 1rem 0 0; }
-.chip {
-  padding: 0.25rem 0.75rem; border: 1px solid var(--line); border-radius: 999px;
-  background: var(--paper); color: var(--ink-soft); text-decoration: none; font-size: 0.875rem;
+/* The filter bar wraps into as many rows as it needs: seven controls fit on a
+   desk monitor and stack on a laptop, without a breakpoint for each. */
+.filters-bar {
+  display: flex; flex-wrap: wrap; gap: 0 1rem; align-items: start;
+  background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 0.5rem 1.25rem 1.25rem; margin-top: 1rem;
 }
-.chip:hover { border-color: var(--green); color: var(--green); }
-.chip.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+.filters-bar > div { flex: 1 1 10rem; }
+.filters-bar .search { flex: 2 1 18rem; }
+.filters-bar label { margin-bottom: 0.3rem; }
+.filters-bar .hint { margin: 0.25rem 0 0; }
+.filters-bar .actions { flex: 0 0 auto; align-self: end; display: flex; align-items: center; }
+.filters-bar .actions button { margin-top: 0; }
+.result-line { margin: 1rem 0 0; }
+
+.pager {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 1rem; font-size: 0.9375rem;
+}
+.button.ghost {
+  background: var(--paper); color: var(--green); border: 1px solid var(--line);
+}
+.button.ghost:hover { border-color: var(--green); }
 
 .crumbs { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin: 0 0 1.25rem; }
 .crumb { font-size: 0.875rem; }

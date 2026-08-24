@@ -7,6 +7,7 @@ All verified against PostgreSQL 18.
 - `0002_users_auth.sql` — users, sessions, audit log
 - `0003_chws.sql` — the register, profiles, multi-select junctions
 - `0004_facilities_mfl.sql` — facility attributes from the MFL, CHW-to-facility district agreement
+- `0005_chw_listing.sql` — indexes for browsing: name sort, district+name sort, NIN prefix
 
 ## Locations
 
@@ -123,6 +124,21 @@ level. Verified to reject.
 `nin` is nullable with a partial unique index: the form does not require it and labels it
 "NIN / Alternative No". `chws_dup_probe_idx` on `(location_id, lower(last_name),
 lower(first_name))` supports soft duplicate detection where NIN is absent.
+
+### Indexes for browsing
+
+0003 indexed the register for the questions the schema itself asks — scope, placement,
+cadre, duplicate probing — plus `chws_name_trgm` for name search. 0005 adds the three the
+list UI needs:
+
+| Index | Answers |
+|---|---|
+| `chws_name_sort_idx (lower(last_name), lower(first_name), id)` | the national listing and its keyset comparison |
+| `chws_district_name_idx (district_id, lower(...), lower(...), id)` | the same inside one district, without scanning the national order |
+| `chws_nin_prefix_idx (nin text_pattern_ops) WHERE nin IS NOT NULL` | `LIKE 'CM90%'` as an index scan; `chws_nin_uniq` only answers equality |
+
+`lower()` because the source data is inconsistently cased and a case-sensitive sort
+interleaves the same surname three ways.
 
 `age_captured_on` exists because age is a snapshot, not a fact. ODK provenance is stripped
 by decision, so imports stamp the import date.

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"regexp"
@@ -19,10 +20,26 @@ var ninPattern = regexp.MustCompile(`^[A-Z]{2}[A-Z0-9]{11}[A-Z]$`)
 
 type chwsPage struct {
 	CHWs     []domain.CHW
-	Status   string
-	Active   int64
-	Inactive int64
-	CanEdit  bool
+	Matching int64
+	Filter   filterView
+	// PrevURL and NextURL are empty when there is no page that way, so the
+	// template asks a string rather than reassembling the query itself.
+	PrevURL   string
+	NextURL   string
+	Cadres    []cadreOption
+	Places    []domain.Place // the chosen location's chain, for the "filtered to" line
+	Districts []districtOption
+	Prefill   map[string]int64
+	CanEdit   bool
+}
+
+// filterView is the filter as the form redisplays it.
+type filterView struct {
+	Query      string
+	Cadre      string
+	Status     string
+	LocationID int64
+	Active     bool // any filter set at all
 }
 
 type cadreOption struct {
@@ -63,36 +80,155 @@ type chwShowPage struct {
 
 func (s *Server) chwsList(w http.ResponseWriter, r *http.Request) {
 	sc := auth.ScopeFrom(r.Context())
-	status := r.URL.Query().Get("status")
+	f, view := decodeFilter(r)
 
-	f := store.Filter{}
-	switch status {
-	case "active":
-		f.Status = domain.CHWActive
-	case "inactive":
-		f.Status = domain.CHWInactive
-	default:
-		status = ""
-	}
-
-	chws, err := s.store.CHWs.List(r.Context(), sc, f)
+	page, err := s.store.CHWs.List(r.Context(), sc, f)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	active, inactive, err := s.store.CHWs.Count(r.Context(), sc)
+	matching, err := s.store.CHWs.Matching(r.Context(), sc, f)
 	if err != nil {
 		s.fail(w, r, err)
 		return
+	}
+	districts, err := s.store.Locations.Districts(r.Context(), sc)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+
+	// A location filter redisplays as the chain it names, so the page can say
+	// which parish, in which subcounty, in which district.
+	var places []domain.Place
+	prefill := map[string]int64{}
+	if f.LocationID != 0 {
+		places, err = s.store.Locations.Ancestors(r.Context(), sc, f.LocationID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			s.fail(w, r, err)
+			return
+		}
+		for _, place := range places {
+			prefill[string(place.Level)] = place.ID
+		}
+	}
+
+	options := make([]districtOption, 0, len(districts))
+	for _, d := range districts {
+		options = append(options, districtOption{
+			ID: d.ID, Name: d.Name,
+			Selected: prefill[string(domain.LevelDistrict)] == d.ID,
+		})
+	}
+	cadres := make([]cadreOption, 0, len(domain.Cadres))
+	for _, cadre := range domain.Cadres {
+		cadres = append(cadres, cadreOption{
+			Value: cadre, Label: cadre.Label(), Level: string(cadre.PlacementLevel()),
+			Selected: string(cadre) == view.Cadre,
+		})
 	}
 
 	s.render(w, r, http.StatusOK, "chws", chwsPage{
-		CHWs:     chws,
-		Status:   status,
-		Active:   active,
-		Inactive: inactive,
-		CanEdit:  auth.Can(auth.MustUser(r.Context()).Role, auth.CapCHWCreate),
+		CHWs:      page.CHWs,
+		Matching:  matching,
+		Filter:    view,
+		PrevURL:   pageURL(r, page.HasPrev, "before", page.First),
+		NextURL:   pageURL(r, page.HasNext, "after", page.Last),
+		Cadres:    cadres,
+		Places:    places,
+		Districts: options,
+		Prefill:   prefill,
+		CanEdit:   auth.Can(auth.MustUser(r.Context()).Role, auth.CapCHWCreate),
 	})
+}
+
+// decodeFilter reads the filter from the query string. Everything is optional,
+// and anything unrecognised is dropped rather than rejected: a filter arrives
+// from a bookmarked or shared URL as often as from the form, and a stale one
+// should show the register rather than an error.
+func decodeFilter(r *http.Request) (store.Filter, filterView) {
+	q := r.URL.Query()
+
+	f := store.Filter{Query: strings.TrimSpace(q.Get("q"))}
+	view := filterView{Query: f.Query}
+
+	if cadre := domain.Cadre(q.Get("cadre")); cadre.Valid() {
+		f.Cadre = cadre
+		view.Cadre = string(cadre)
+	}
+	switch status := domain.CHWStatus(q.Get("status")); status {
+	case domain.CHWActive, domain.CHWInactive:
+		f.Status = status
+		view.Status = string(status)
+	}
+
+	// The location cascade contributes one field per level; the deepest one
+	// filled in is the filter, exactly as on the CHW form.
+	for _, field := range []string{"village_id", "parish_id", "subcounty_id", "district_id"} {
+		if id, err := strconv.ParseInt(q.Get(field), 10, 64); err == nil && id > 0 {
+			f.LocationID = id
+			view.LocationID = id
+			break
+		}
+	}
+	view.Active = f.Query != "" || f.Cadre != "" || f.Status != "" || f.LocationID != 0
+
+	f.After = decodeCursor(q.Get("after"))
+	f.Before = decodeCursor(q.Get("before"))
+
+	return f, view
+}
+
+// cursorSep separates a cursor's three parts. A unit separator, because a
+// surname can contain anything a keyboard produces except a control character.
+const cursorSep = "\x1f"
+
+// Cursors travel in the URL. They are encoded rather than sent as three
+// parameters: it keeps the query string readable, and a position that looks
+// opaque is less inviting to hand-edit into nonsense.
+func encodeCursor(c *store.Cursor) string {
+	if c == nil {
+		return ""
+	}
+	raw := c.LastName + cursorSep + c.FirstName + cursorSep + strconv.FormatInt(c.ID, 10)
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+// decodeCursor reads a cursor back, and returns nil for anything malformed —
+// a bad cursor means "start at the beginning", not an error page.
+//
+// A cursor is a position, not a permission: it names a sort key, and the scope
+// filter still decides which rows past it are visible.
+func decodeCursor(encoded string) *store.Cursor {
+	if encoded == "" {
+		return nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil
+	}
+	parts := strings.Split(string(raw), cursorSep)
+	if len(parts) != 3 {
+		return nil
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	return &store.Cursor{LastName: parts[0], FirstName: parts[1], ID: id}
+}
+
+// pageURL rebuilds the current query string around a new cursor, so paging
+// keeps the filters and changing a filter starts the paging over.
+func pageURL(r *http.Request, exists bool, param string, cursor *store.Cursor) string {
+	if !exists || cursor == nil {
+		return ""
+	}
+	q := r.URL.Query()
+	q.Del("after")
+	q.Del("before")
+	q.Set(param, encodeCursor(cursor))
+	return "/chws?" + q.Encode()
 }
 
 func (s *Server) chwShow(w http.ResponseWriter, r *http.Request) {

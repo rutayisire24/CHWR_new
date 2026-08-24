@@ -112,6 +112,17 @@ scoped in twice: the update will not match a CHW outside their district, and a p
 that would carry one out is rolled back. A transfer is a two-district event, and the
 receiving district is not theirs to decide.
 
+**Keyset pagination, not offset.** The register runs to tens of thousands of rows. An
+offset makes every page slower than the last, and — worse — a record inserted mid-browse
+shifts every subsequent page by one, so a clerk paging through a district silently skips
+somebody. The cursor is the sort key itself, so it stays valid as rows appear and
+disappear around it. The cost is that there are no page numbers, only next and previous.
+
+**One search box, not a name field and a NIN field.** Whether the input is a NIN is
+decided by its shape: two leading letters, digits, no spaces or punctuation. A radio
+button asking users to classify their own input is a button they get wrong, and the two
+kinds of input are trivially distinguishable.
+
 **"Not asked" is a third answer, everywhere.** Every `chw_profiles` column is nullable
 because the ODK export answers none of them. Yes/no questions are three radios and `*bool`
 in Go, so an unanswered question survives as unanswered. Collapsing it to false would

@@ -18,7 +18,7 @@
 </div>
 {{end}}
 
-<form method="post" action="{{.Page.Action}}" class="card" id="chw-form">
+<form method="post" action="{{.Page.Action}}" class="card" id="chw-form" data-location-cascade>
   {{template "csrf" .}}
   {{if .Page.Duplicates}}<input type="hidden" name="confirm_duplicate" value="1">{{end}}
 

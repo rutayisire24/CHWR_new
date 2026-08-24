@@ -6,6 +6,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"chwr/internal/domain"
+	"chwr/internal/store"
 )
 
 // safeNext guards the login form's ?next= against being used as an open
@@ -167,5 +170,115 @@ func TestDecodeDomainsDropsTrainingWithoutProvision(t *testing.T) {
 		if d.DomainID == 1 && !d.Trained {
 			t.Error("domain 1 was provided and trained, and should be trained")
 		}
+	}
+}
+
+// Cursors travel in the URL and come back from bookmarks, shared links and
+// hand-editing, so decoding has to be total: anything malformed means "start
+// at the beginning", never an error page.
+func TestCursorRoundTrip(t *testing.T) {
+	for _, c := range []store.Cursor{
+		{LastName: "Okello", FirstName: "Grace", ID: 42},
+		{LastName: "O'Brien-Ssemakula", FirstName: "Mary Jane", ID: 1},
+		{LastName: "", FirstName: "", ID: 9007199254740991},
+	} {
+		got := decodeCursor(encodeCursor(&c))
+		if got == nil {
+			t.Fatalf("round trip of %+v decoded to nil", c)
+		}
+		if *got != c {
+			t.Errorf("round trip = %+v, want %+v", *got, c)
+		}
+	}
+
+	if encodeCursor(nil) != "" {
+		t.Error("a nil cursor should encode to an empty string")
+	}
+	for _, bad := range []string{
+		"",                   // no cursor at all
+		"not-base64!!",       // not base64
+		"YWJj",               // base64 but not three parts
+		"YQBiAGM",            // wrong separator
+		"YR9iHzA",            // id of zero
+		"YR9iHy0x",           // negative id
+		"YR9iH25vdC1hLW51bQ", // id is not a number
+	} {
+		if got := decodeCursor(bad); got != nil {
+			t.Errorf("decodeCursor(%q) = %+v, want nil", bad, *got)
+		}
+	}
+}
+
+// A filter arrives from a bookmarked URL as often as from the form. Anything
+// unrecognised is dropped rather than rejected.
+func TestDecodeFilter(t *testing.T) {
+	cases := []struct {
+		name       string
+		query      string
+		wantQuery  string
+		wantCadre  domain.Cadre
+		wantStatus domain.CHWStatus
+		wantLoc    int64
+		wantActive bool
+	}{
+		{"empty", "", "", "", "", 0, false},
+		{"a search term", "?q=+Okello+", "Okello", "", "", 0, true},
+		{"cadre and status", "?cadre=chew&status=inactive", "", domain.CadreCHEW, domain.CHWInactive, 0, true},
+		{"a bad cadre is dropped", "?cadre=doctor", "", "", "", 0, false},
+		{"a bad status is dropped", "?status=retired", "", "", "", 0, false},
+		{"the deepest location wins", "?district_id=72&subcounty_id=2296&parish_id=4160", "", "", "", 4160, true},
+		{"a village beats a parish", "?parish_id=4160&village_id=51696", "", "", "", 51696, true},
+		{"a non-numeric location is ignored", "?district_id=abc", "", "", "", 0, false},
+		{"a zero location is ignored", "?district_id=0", "", "", "", 0, false},
+	}
+
+	for _, c := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/chws"+c.query, nil)
+		f, view := decodeFilter(r)
+
+		if f.Query != c.wantQuery {
+			t.Errorf("%s: query = %q, want %q", c.name, f.Query, c.wantQuery)
+		}
+		if f.Cadre != c.wantCadre {
+			t.Errorf("%s: cadre = %q, want %q", c.name, f.Cadre, c.wantCadre)
+		}
+		if f.Status != c.wantStatus {
+			t.Errorf("%s: status = %q, want %q", c.name, f.Status, c.wantStatus)
+		}
+		if f.LocationID != c.wantLoc {
+			t.Errorf("%s: location = %d, want %d", c.name, f.LocationID, c.wantLoc)
+		}
+		if view.Active != c.wantActive {
+			t.Errorf("%s: Active = %v, want %v", c.name, view.Active, c.wantActive)
+		}
+	}
+}
+
+// Paging keeps the filters, and changing a filter starts the paging over.
+func TestPageURL(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/chws?q=Okello&cadre=vht&after=stale", nil)
+	cursor := &store.Cursor{LastName: "Okello", FirstName: "Grace", ID: 42}
+
+	next := pageURL(r, true, "after", cursor)
+	parsed, err := url.Parse(next)
+	if err != nil {
+		t.Fatalf("pageURL produced an unparseable URL: %v", err)
+	}
+	q := parsed.Query()
+	if q.Get("q") != "Okello" || q.Get("cadre") != "vht" {
+		t.Errorf("filters lost: %q", next)
+	}
+	if q.Get("after") == "stale" {
+		t.Error("the previous cursor survived into the next page's link")
+	}
+	if q.Has("before") {
+		t.Error("stepping forward left a backward cursor in the query")
+	}
+
+	if got := pageURL(r, false, "after", cursor); got != "" {
+		t.Errorf("pageURL for a page that does not exist = %q, want empty", got)
+	}
+	if got := pageURL(r, true, "after", nil); got != "" {
+		t.Errorf("pageURL with no cursor = %q, want empty", got)
 	}
 }
