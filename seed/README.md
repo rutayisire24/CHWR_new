@@ -18,6 +18,7 @@ which is the only part with no loader of its own.
 | `verify_constraints.sql` | 39 bad-data cases, every one of which must say `blocked` |
 | `convert_odk_export.py` | ODK export → importer-canonical CSVs, one per district |
 | `import_batches.sh` | Uploads and commits those CSVs against a running server |
+| `package_import.sh` | Packs those CSVs for transfer, and verifies one against a register |
 
 Order matters: hierarchy, then facilities, then the ODK conversion. `make seed` runs the
 first three. The conversion is not part of it — it needs a register that is already
@@ -129,6 +130,37 @@ free text, and the `or_other` member of the tool list. Supervision is not import
 all — the form records it per service domain and carries no date, so `last_supervised_on`
 fills only through the UI.
 
+## Packaging for another register
+
+The converted files are the deliverable, and they do not live in this repository. To
+carry them to a machine that cannot reach the export:
+
+```bash
+DATABASE_URL=postgres:///chwr seed/package_import.sh pack ~/chwr-import chwr-import.tar.gz
+# on the far side, before importing anything:
+DATABASE_URL="$PROD_DATABASE_URL" seed/package_import.sh verify chwr-import.tar.gz
+```
+
+`pack` stamps a `FINGERPRINT` into the archive — the row and district counts, and a
+count-plus-checksum of every `code_path` and facility in the register it was built
+against — then writes `SHA256SUMS` beside the files and a `.sha256` beside the tarball.
+31 MB of CSV compresses to about 3 MB.
+
+`verify` checks the sums, prints both fingerprints side by side, and **exits non-zero if
+they differ**. A register seeded from a different workbook would resolve the same code to
+a different village, or fail to resolve it at all; that is the one failure this pipeline
+cannot detect from the inside, because a wrong-but-existing code imports quietly. Do not
+skip it, and do not load a package that fails it — re-run the conversion instead.
+
+`national.csv` is left out of the package deliberately: the importer refuses it by name at
+14 MB, so shipping it only invites someone to try. `REJECTS.csv` and `NOTES.csv` do travel
+— the districts chasing those rows are the reason they exist.
+
+**The package carries NINs and phone numbers for tens of thousands of people.** Move it
+over SSH, load it, delete it. Set `RECIPIENT` to a gpg key, or `PASSPHRASE` for symmetric
+encryption, and `pack` will encrypt it at rest; with neither it says plainly that it did
+not.
+
 ## Importing the result
 
 ```bash
@@ -158,9 +190,11 @@ Take a backup. CHWs are never deleted — invariant 5 — so a bad import cannot
 through the application, and a restore is the only rollback. `/opt/chwr/backup.sh` is the
 same script the nightly timer runs.
 
-Re-run the conversion against the target database rather than shipping CSVs generated
-elsewhere: the `location_code` values must resolve in the hierarchy they are being
-imported into.
+The CSVs are portable, but prove it before trusting it. `location_code` is the official
+code path — `district_code || ea_code || scounty_code || parish_code || village_code`,
+straight out of the workbook in `data/` — so it carries no database id and means the same
+thing in any register seeded from that workbook. `package_import.sh verify` is what turns
+that from an assumption into a check.
 
 Expect more quarantined rows on a register that already holds CHWs than on an empty one.
 `convert_odk_export.py` deduplicates NINs only within the file; `chws_nin_uniq` is a
