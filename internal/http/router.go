@@ -72,6 +72,12 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 		return auth.RequireAuth(auth.RequireCapability(c, pages)(h))
 	}
 	mux.Handle("GET /chws", viewCHWs(s.chwsList))
+	// The export carries the listing's own filters and the caller's Scope, and
+	// is the one register route a viewer may have that writes a file.
+	mayExport := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(auth.CapExport, pages)(h))
+	}
+	mux.Handle("GET /chws/export.csv", mayExport(s.chwsExport))
 	mux.Handle("GET /chws/new", editCHWs(auth.CapCHWCreate, s.chwNew))
 	mux.Handle("POST /chws/new", editCHWs(auth.CapCHWCreate, s.chwCreate))
 	mux.Handle("GET /chws/{id}", viewCHWs(s.chwShow))

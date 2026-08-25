@@ -439,10 +439,11 @@ form depend on JavaScript when nothing else on the register does.
 
 ## What is left
 
-**The scoped CSV export**, which shares `store.Filter` with the listing. That is the rest
-of phase 6.
+Nothing in the import itself. The scoped CSV export that completes phase 6 is built —
+see [application.md](application.md#the-export) — and its columns are deliberately this
+file's columns, so a register that comes out can go back in.
 
-`chw_languages` also stays empty. `other_languages` is kept verbatim in
+`chw_languages` stays empty. `other_languages` is kept verbatim in
 `other_languages_raw` as the form collects it; splitting that free text into a vocabulary
 nobody has agreed on would be inventing the vocabulary, so the parsed junction waits for
 one.

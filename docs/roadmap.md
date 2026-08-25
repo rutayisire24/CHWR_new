@@ -4,8 +4,8 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1–5 complete. Phase 6 all but done: bulk import is built and verified, register
-record and every optional attribute; the scoped export is what remains.**
+**Phases 1–7 complete.** The register is seeded, scoped, searchable, importable,
+exportable and deployable.
 
 The register is usable at scale — search by name or NIN, filter by cadre, status and any
 level of the hierarchy, page with a keyset — and it can now be filled from the files
@@ -28,10 +28,11 @@ out.
 | `internal/importer` | readers, resolver, row validation — 30 tests, none needing a database |
 | Import UI | upload, report, commit, discard, template and `errors.csv` |
 | Profile columns on import | all seventeen, with every branch CHECK pre-checked |
-| CSV export | **not started — it shares `store.Filter` with the listing** |
+| CSV export | `GET /chws/export.csv`, streamed, sharing `store.Filter` and the `Scope` with the listing |
 | `chw_languages` | **empty by design — `other_languages_raw` is kept verbatim; the parsed junction waits for an agreed vocabulary** |
 
-Immediate next step: the scoped CSV export.
+Phase 6 is complete. Next is whatever the register needs in use; the roadmap's own list
+is done.
 
 ## Decisions locked
 
@@ -111,16 +112,17 @@ district user unrepresentable in the database.
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
 4. **Optional attributes** — profile form, tools and service-domain junctions *(done)*
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination *(done)*
-6. **Import + export** — CSV/Excel importer with a per-row error report *(done)*, scoped
-   CSV export
+6. **Import + export** — CSV/Excel importer with a per-row error report, scoped CSV
+   export *(done)*
 7. **Deploy** — a plain binary under systemd, a reverse proxy for TLS, nightly backups
    with a rehearsed restore *(done — [deploy.md](deploy.md); no container, by decision)*
 
 Geography is phase 1 because nothing else is testable without it. Phases 1–5 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization
 layer, the core register record, every optional attribute around it, and the search and
-paging that make a register of that size navigable. Phase 6 is nearly complete — the whole
-record imports in bulk; the scoped export is what remains.
+paging that make a register of that size navigable. Phase 6 is complete: the whole record
+imports in bulk and comes back out through the same vocabulary. Phase 7 deploys it as a
+binary under systemd, behind a proxy, with a rehearsed restore.
 
 ## Source data
 

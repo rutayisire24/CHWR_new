@@ -205,6 +205,19 @@ A staged row carries `record`, the resolved register record as JSON, beside `raw
 commit reads it back rather than re-deriving it: a facility is resolved by name within the
 CHW's district, and re-resolving at commit would answer from a register that has moved.
 
+## The export
+
+`GET /chws/export.csv` is the listing as a file: the same query string, the same
+`decodeFilter`, the same `Scope`. The cursor is dropped — an export is the whole
+selection, not the page being looked at — and rows stream through a callback, flushed in
+batches, so the national register never sits in memory.
+
+**Its columns are the importer's columns.** A row that comes out can go back in, junction
+sets and all, which is why `internal/http/export.go` spells them with the `importer.Col*`
+constants rather than string literals. The register-only columns beside them — the id, the
+derived placement, the status, the timestamps, supervision — are named as unknown by an
+import and ignored, which is right for values an upload must not set.
+
 ## Auth
 
 Accounts are provisioned by a `national_admin` (or `-create-admin` for the first one)

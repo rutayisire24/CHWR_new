@@ -62,6 +62,7 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `POST /chws/{id}/deactivate` | `chw.deactivate` | reason required by the handler |
 | `POST /chws/{id}/reactivate` | `chw.deactivate` | |
 | `GET /api/locations` | `chw.view` | `?level=&under=`, JSON, feeds the cascade |
+| `GET /chws/export.csv` | `export` | the listing's own filters and Scope, streamed as CSV |
 | `GET /imports` | `chw.import` | upload form, column reference, recent batches (scoped, pending first) |
 | `GET /imports/template.csv` | `chw.import` | blank template; a district user's carries their district |
 | `POST /imports` | `chw.import` | multipart; validates and stages. Writes nothing to `chws` |
@@ -175,6 +176,31 @@ identity, magnitude, whole-and-part, or de-emphasis. Slot 1 is the brand blue it
 chart carries more than two identities, and the status green/amber/red stay out entirely —
 on this site green means one thing, "this CHW is active", and a chart that borrowed it for
 a series would spend that meaning.
+
+## The export
+
+`GET /chws/export.csv` is the listing as a file. It takes the same query string, decodes
+it with the same `decodeFilter`, and hands the result to `store.Export.Rows` with the
+caller's `Scope` — so a filter that selects 20 records on screen exports those 20, and a
+district user exports their district. The page and the file cannot disagree, because they
+are built from the same predicate.
+
+The cursor is dropped. Paging is for a reader moving through a page at a time; an export
+of "page three" would be a file nobody asked for.
+
+Rows are streamed through a callback and flushed every 500, so the whole national register
+never exists in memory at once and a large download starts arriving immediately. An error
+part-way through cannot become an error page — the status went out with the first byte — so
+the file ends short and the log carries why, the same bargain `errors.csv` makes.
+
+The columns the importer reads keep the importer's own names, so a file that comes out of
+the register can go back into it: an exported row re-imported under a different name comes
+back with its placement, its phone, its facility, its education, both junction sets and
+`english_write` as a recorded *false* rather than a null. The rest — the id, the derived
+placement, the status and the timestamps — are named as unknown by an import and ignored,
+which is the right answer for a column an upload must not be able to set. Supervision is
+among them: the export shows it, and an import cannot supply it, because the source form
+carries no date.
 
 ## Searching and paging the register
 

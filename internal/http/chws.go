@@ -25,6 +25,10 @@ type chwsPage struct {
 	Districts []districtOption
 	Prefill   map[string]int64
 	CanEdit   bool
+	// ExportURL carries the listing's own query string, so the file holds what
+	// the page is showing rather than the whole register.
+	ExportURL string
+	CanExport bool
 }
 
 // filterView is the filter as the form redisplays it.
@@ -133,6 +137,8 @@ func (s *Server) chwsList(w http.ResponseWriter, r *http.Request) {
 		Districts: options,
 		Prefill:   prefill,
 		CanEdit:   auth.Can(auth.MustUser(r.Context()).Role, auth.CapCHWCreate),
+		ExportURL: exportURL(r),
+		CanExport: auth.Can(auth.MustUser(r.Context()).Role, auth.CapExport),
 	})
 }
 
@@ -223,6 +229,19 @@ func pageURL(r *http.Request, exists bool, param string, cursor *store.Cursor) s
 	q.Del("before")
 	q.Set(param, encodeCursor(cursor))
 	return "/chws?" + q.Encode()
+}
+
+// exportURL is the current listing as a file: the same filters, without the
+// cursor, because an export is the whole selection rather than the page being
+// looked at.
+func exportURL(r *http.Request) string {
+	q := r.URL.Query()
+	q.Del("after")
+	q.Del("before")
+	if encoded := q.Encode(); encoded != "" {
+		return "/chws/export.csv?" + encoded
+	}
+	return "/chws/export.csv"
 }
 
 func (s *Server) chwShow(w http.ResponseWriter, r *http.Request) {

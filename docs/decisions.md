@@ -312,6 +312,21 @@ that has moved — a facility renamed between the report and the commit would si
 which one a CHW reports to. Migration 0008 adds `import_rows.record`, and "what is
 committed is what was reviewed" stops being an argument.
 
+**The export's columns are the import's columns.** A file that comes out of the register
+goes back into it — verified by re-importing an exported row under a different name and
+getting back its placement, phone, facility, education, both junction sets, and
+`english_write` as a recorded false rather than a null. The columns an upload must not be
+able to set — the id, the derived placement, the status, the timestamps — are present but
+named as unknown on import and ignored. Rejected: a narrower export of only what the
+importer reads, which would have made the file useless for the reading it is mostly for.
+
+**The export streams and drops the cursor.** Paging is for a reader moving a page at a
+time; an export of "page three" is a file nobody asked for. Rows go through a callback
+flushed every 500, so a national export starts arriving at once and never exists in memory.
+The cost is that a failure part-way through cannot become an error page — the status went
+out with the first byte — so the file ends short and the log carries why, the same bargain
+errors.csv makes.
+
 ## Known costs
 
 **`last_supervised_on` is NULL on every imported row.** The form records supervision per
