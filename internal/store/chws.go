@@ -108,8 +108,9 @@ func (s *CHWs) ByNIN(ctx context.Context, sc auth.Scope, nin string) (domain.CHW
 // Filter narrows a listing. The zero Filter is "everything in the scope",
 // which is what the register shows when nobody has typed anything.
 type Filter struct {
-	// Query matches a name or a NIN. Which of the two is decided by the shape
-	// of the input, not by a radio button the user has to get right.
+	// Query matches a name, anywhere within it. It does not match a NIN: a
+	// register is browsed by the name a clerk is holding, and a search that
+	// answered to a national identity number invites someone to probe for one.
 	Query string
 	Cadre domain.Cadre
 	// Status empty means both. A register that hid inactive CHWs by default
@@ -148,26 +149,6 @@ type Page struct {
 	HasNext bool
 }
 
-// ninish reports whether a query looks like someone reaching for a NIN rather
-// than a name: NINs start with two letters and carry digits, and no Ugandan
-// surname does.
-func ninish(q string) bool {
-	if len(q) < 3 {
-		return false
-	}
-	hasDigit := false
-	for _, r := range q {
-		switch {
-		case r >= '0' && r <= '9':
-			hasDigit = true
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
-		default:
-			return false // a space, a hyphen: that is a name
-		}
-	}
-	return hasDigit
-}
-
 // where builds the predicate the listing and the count share. Keeping it in one
 // place is not tidiness: a count that filtered differently from the page it
 // counts would be a bug nobody notices until the numbers disagree.
@@ -195,16 +176,11 @@ func (f Filter) where(sc auth.Scope) (string, []any) {
 			" AND l.path LIKE (SELECT path FROM locations WHERE id = $%d) || '%%'", len(args))
 	}
 	if q := strings.TrimSpace(f.Query); q != "" {
-		if ninish(q) {
-			args = append(args, strings.ToUpper(q)+"%")
-			where += fmt.Sprintf(" AND c.nin LIKE $%d", len(args))
-		} else {
-			// The trigram index is built on this exact expression, so the
-			// search has to be written against it rather than against the two
-			// columns separately.
-			args = append(args, "%"+q+"%")
-			where += fmt.Sprintf(" AND (c.first_name || ' ' || c.last_name) ILIKE $%d", len(args))
-		}
+		// The trigram index is built on this exact expression, so the search
+		// has to be written against it rather than against the two columns
+		// separately.
+		args = append(args, "%"+q+"%")
+		where += fmt.Sprintf(" AND (c.first_name || ' ' || c.last_name) ILIKE $%d", len(args))
 	}
 	return where, args
 }

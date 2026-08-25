@@ -126,8 +126,7 @@ The location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is
 skipped in the UI and derived from the path.
 
-The listing searches one box for either a name or a NIN, decided by the shape of the
-input, and pages with a **keyset** on `(lower(last_name), lower(first_name), id)` — never
+The listing searches one box, by name only — never by NIN — and pages with a **keyset** on `(lower(last_name), lower(first_name), id)` — never
 an offset. A cursor is a position, not a permission: the `Scope` still decides which rows
 past it are visible.
 

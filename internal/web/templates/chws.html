@@ -12,8 +12,8 @@
 <form method="get" action="/chws" class="filters-bar" data-location-cascade>
   <div class="search">
     <label for="q">Search</label>
-    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name or NIN">
-    <span class="hint">A NIN is matched from the start; a name anywhere within it.</span>
+    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name">
+    <span class="hint">Matches anywhere within the name.</span>
   </div>
 
   <div>
