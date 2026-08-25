@@ -2,3 +2,5 @@ seed/out/
 *.db
 .env
 /chwr-server
+/chwr-server-linux-amd64
+.run/

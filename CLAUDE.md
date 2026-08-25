@@ -99,6 +99,10 @@ psql -d chwr -f seed/verify_constraints.sql      # 39 cases, all must say blocke
 go run ./cmd/server                              # serves on ADDR, default :8080
 ```
 
+`make` prints the shorthand for all of the above — `make seed` runs the four database
+steps in order, `make restart` rebuilds and restarts a background server, `make check`
+formats, vets and tests. Every variable is overridable: `make restart ADDR=:8099`.
+
 The server migrates on every start; `-migrate` stops after that. Migration files carry
 goose annotations (`-- +goose Up`, and `StatementBegin/End` around plpgsql bodies, whose
 `$$` bodies goose's statement splitter cannot otherwise see).
