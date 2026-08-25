@@ -68,15 +68,26 @@ The matching is exact throughout. Fragments of a cell are tried, never fuzzy mat
 village name that folds onto two siblings is reported ambiguous and dropped, not guessed.
 Identity in `locations` is `(parent_id, code)` and explicitly not name.
 
-### Why VHT only
+### One cadre per run
 
-By instruction, not by limitation. Rows naming `chew` are dropped, including the 1,343
-that name both — cadre decides placement level, so a row claiming both says village and
-parish at once and there is no neutral reading. The two-value model has no room for
-`parasocial_worker`, `mentor_mother` or `linkage_facilitator` either; a row carrying one
-of those *beside* `vht` is imported as a VHT, and a row carrying only those is dropped.
+```bash
+CADRE=vht  python3 seed/convert_odk_export.py export.csv ~/chwr-vht    # default
+CADRE=chew python3 seed/convert_odk_export.py export.csv ~/chwr-chew
+```
 
-To take CHEWs as well, change the cadre test at the top of the row loop.
+Cadre decides placement, so it decides which rows a run is even about. A VHT run places
+at village and requires one; a CHEW run places at **parish**, never consults the village
+column, and emits the parish's code — with the village column left blank, because a
+village name beside a parish code contradicts the chain and the importer would refuse it.
+
+Splitting the two is not just tidiness. A mixed upload would produce one report covering
+rows placed at two different levels, and "17 rows could not be placed" would not say which
+question was being asked of them.
+
+A row naming **both** cadres is refused by either run. There is no neutral reading: it
+says village and parish at once. The two-value model has no room for `parasocial_worker`,
+`mentor_mother` or `linkage_facilitator` either — a row carrying one of those *beside* a
+cadre is imported as that cadre, and a row carrying only those is dropped.
 
 ### What it produces
 
@@ -98,7 +109,20 @@ repository, as the example above does.
 
 ### Results on the August 2026 export
 
-63,554 submissions in, 42,956 importable rows out across 46 districts.
+63,554 submissions in. The two runs are disjoint and were loaded one after the other:
+
+| Run | Converted | Imported | Districts |
+|---|---|---|---|
+| `CADRE=vht` | 42,956 | 42,956 | 46 |
+| `CADRE=chew` | 1,588 | 1,490 | 30 |
+
+The 98 CHEWs that did not land were refused by `chws_nin_uniq`: their NIN was already on
+the register from a VHT submission. The same people had been enumerated twice under
+different cadres, and the index caught every one without the converter having to guess.
+That is also the best evidence about the rows naming both cadres — they look like
+duplicate enumeration rather than a genuine dual role.
+
+The VHT run's losses, which dominate:
 
 | Dropped | Rows |
 |---|---|
@@ -109,6 +133,9 @@ repository, as the example above does.
 | No VHT cadre | 1,081 |
 | Duplicate NIN within the file | 662 |
 | Missing name | 1 |
+
+"Names chew" is not a loss to the register — 2,392 of those rows are the CHEW run's input,
+and 1,490 of them landed. The 1,343 naming *both* cadres are in neither run.
 
 The village losses are a collection gap, not a matching failure: whole districts recorded
 no village at all — Namutumba 2,851 of 2,862 rows, Bugiri 2,057 of 2,075, Jinja 519 of
@@ -164,10 +191,20 @@ not.
 ## Importing the result
 
 ```bash
-BASE=https://chwr.example.org EMAIL=you@ministry.go.ug PASSWORD=... \
-  DRY_RUN=1 seed/import_batches.sh ~/chwr-import/*.csv    # stage, commit nothing
-BASE=... EMAIL=... PASSWORD=... seed/import_batches.sh ~/chwr-import/*.csv
+cd ~/chwr-import
+ls *.csv | grep -vE '(REJECTS|NOTES|national)\.csv$' \
+  | BASE=https://chwr.example.org EMAIL=you@ministry.go.ug PASSWORD=... DRY_RUN=1 \
+    xargs seed/import_batches.sh          # stage everything, commit nothing
+ls *.csv | grep -vE '(REJECTS|NOTES|national)\.csv$' \
+  | BASE=... EMAIL=... PASSWORD=... xargs seed/import_batches.sh
 ```
+
+Filter the list rather than passing `*.csv`. The importer does refuse `REJECTS.csv` and
+`NOTES.csv` on their columns and `national.csv` on its size, so a bare glob is survivable
+— but it spends three uploads finding that out and reports three failures that are not
+failures. Pipe through `xargs` rather than expanding into a variable: **zsh does not
+word-split an unquoted expansion**, so `FILES=$(ls ...)` then `$FILES` hands the script one
+argument containing every path and it silently processes almost nothing.
 
 `DRY_RUN=1` uploads and stages every file without committing, which is the whole point of
 the two-step import: a human reads the reports at `/imports` and then decides. Set

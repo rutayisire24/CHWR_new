@@ -22,6 +22,12 @@ os.makedirs(OUT, exist_ok=True)
 DB = os.environ.get('DATABASE_URL')
 if not DB: sys.exit("DATABASE_URL is not set")
 
+# Cadre decides placement, so it decides which rows this run is even about.
+# One cadre per run: the two produce different files for different levels of the
+# hierarchy, and mixing them in one upload would hide which rows a report is about.
+CADRE = os.environ.get('CADRE', 'vht').strip().lower()
+if CADRE not in ('vht', 'chew'): sys.exit("CADRE must be vht or chew")
+
 def dump(sql):
     """Read a table out of the register. The hierarchy the codes are resolved
     against must be the one they will be imported into, which is why this reads
@@ -173,12 +179,15 @@ def note(r, field, dropped, why):
                   'dropped_value': dropped, 'why': why})
 
 for r in rows:
-    # --- cadre: VHT only, never a chew -------------------------------------
+    # --- cadre: one cadre per run, and never a row naming both -------------
+    # A row naming both says village and parish at once. There is no neutral
+    # reading of it, so it is refused by either run rather than guessed at.
     toks = set((r.get('Capacity-chw_type') or '').lower().split())
-    if 'chew' in toks:
-        reject(r, 'cadre', 'names chew'); continue
-    if 'vht' not in toks:
-        reject(r, 'cadre', 'no vht cadre'); continue
+    other = 'chew' if CADRE == 'vht' else 'vht'
+    if other in toks:
+        reject(r, 'cadre', 'names ' + other); continue
+    if CADRE not in toks:
+        reject(r, 'cadre', 'no ' + CADRE + ' cadre'); continue
 
     # --- identity ----------------------------------------------------------
     first = (r.get('Hirechy-first_name') or '').strip()
@@ -207,18 +216,32 @@ for r in rows:
         reject(r, 'placement', 'district not in hierarchy'); continue
     did = dm[0]; L = dlevels(did)
 
-    vcell = (r.get('Hirechy-village_select') or '').strip()
-    if not vcell:
-        reject(r, 'placement', 'no village (a VHT is placed at village)'); continue
-    vhit = match(L['village'], vcell)
-    if not vhit:
-        reject(r, 'placement', 'village not in hierarchy'); continue
-    phit = match(L['parish'], r.get('Hirechy-parish_select'))
+    phit = match(L['parish'],  r.get('Hirechy-parish_select'))
     shit = match(L['subcounty'] + L['county'], r.get('Hirechy-subcounty'))
-    v2 = under(vhit, phit) or under(vhit, shit) or vhit
-    if len(v2) > 1:
-        reject(r, 'placement', 'village name is ambiguous in this district'); continue
-    vid = v2[0]
+
+    if CADRE == 'vht':
+        vcell = (r.get('Hirechy-village_select') or '').strip()
+        if not vcell:
+            reject(r, 'placement', 'no village (a VHT is placed at village)'); continue
+        vhit = match(L['village'], vcell)
+        if not vhit:
+            reject(r, 'placement', 'village not in hierarchy'); continue
+        v2 = under(vhit, phit) or under(vhit, shit) or vhit
+        if len(v2) > 1:
+            reject(r, 'placement', 'village name is ambiguous in this district'); continue
+        vid = v2[0]
+    else:
+        # A CHEW is placed at parish, so the village column is not consulted at
+        # all — a CHEW row that happens to carry one is still a parish record.
+        pcell = (r.get('Hirechy-parish_select') or '').strip()
+        if not pcell:
+            reject(r, 'placement', 'no parish (a CHEW is placed at parish)'); continue
+        if not phit:
+            reject(r, 'placement', 'parish not in hierarchy'); continue
+        p2 = under(phit, shit) or phit
+        if len(p2) > 1:
+            reject(r, 'placement', 'parish name is ambiguous in this district'); continue
+        vid = p2[0]
     ch = chain_of(vid)
 
     # --- duplicate NIN: first row wins -------------------------------------
@@ -286,10 +309,11 @@ for r in rows:
     trn   = [t for t in trn if t in svcs]
 
     out_rows.append({
-        'first_name': first, 'last_name': last, 'sex': sex, 'cadre': 'vht',
+        'first_name': first, 'last_name': last, 'sex': sex, 'cadre': CADRE,
         'age_years': age or '', 'nin': nin,
         'district': ch.get('district',''), 'subcounty': ch.get('subcounty',''),
-        'parish': ch.get('parish',''), 'village': ch.get('village',''),
+        'parish': ch.get('parish',''),
+        'village': ch.get('village','') if CADRE == 'vht' else '',
         'location_code': byid[vid]['code_path'],
         'phone_owner': owner, 'phone_primary': prim,
         'phone_for_reporting': rep, 'phone_alternate': alt,
@@ -329,7 +353,7 @@ with open(os.path.join(OUT,'NOTES.csv'),'w',newline='',encoding='utf-8') as f:
 json.dump(manifest, open(os.path.join(OUT,'manifest.json'),'w'), indent=1)
 
 print(f"source rows      : {len(rows)}")
-print(f"importable (VHT) : {len(out_rows)}   across {len(per)} districts")
+print(f"importable ({CADRE:>4}) : {len(out_rows)}   across {len(per)} districts")
 print(f"rejected         : {len(rejects)}")
 print(f"field-level notes: {len(notes)}\n")
 print("rejections by reason:")
