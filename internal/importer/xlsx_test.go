@@ -155,16 +155,18 @@ func TestXLSXShortRowsReadAsEmptyCells(t *testing.T) {
 	}
 }
 
-// sameRecord compares by value. AgeYears is a pointer because "0 households"
-// and "not asked" are different answers throughout the register, so two equal
-// ages are two different pointers.
+// sameRecord compares by value. The record is full of pointers, because "0
+// households" and "not asked" are different answers throughout the register, so
+// two equal values are two different pointers. Comparing the JSON the row would
+// be staged with is the same comparison the commit cares about.
 func sameRecord(a, b Record) bool {
-	if (a.AgeYears == nil) != (b.AgeYears == nil) {
+	left, err := a.Encode()
+	if err != nil {
 		return false
 	}
-	if a.AgeYears != nil && *a.AgeYears != *b.AgeYears {
+	right, err := b.Encode()
+	if err != nil {
 		return false
 	}
-	a.AgeYears, b.AgeYears = nil, nil
-	return a == b
+	return string(left) == string(right)
 }

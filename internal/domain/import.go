@@ -178,7 +178,13 @@ type ImportRow struct {
 
 	// LocationID is the resolved placement, nil when resolution failed.
 	LocationID *int64
-	Problems   []Problem
+	// Record is the resolved register record this row will create, as JSON.
+	// It is stored beside Raw rather than rebuilt at commit: a facility is
+	// resolved by name within the CHW's district, so re-resolving it later
+	// would answer from a register that has moved since the report. Nil for a
+	// refused row.
+	Record   []byte
+	Problems []Problem
 	// CHWID is set once the row becomes a register record.
 	CHWID *int64
 }

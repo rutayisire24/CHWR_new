@@ -65,3 +65,55 @@ func ParseSex(s string) (Sex, bool) {
 	}
 	return "", false
 }
+
+// ParseTriState reads a yes / no / not-answered cell. The distinction is the
+// register's own: every profile column is nullable because "no" and "not asked"
+// are different answers, and an imported record that answered nothing must not
+// come back as one that answered no.
+func ParseTriState(s string) (*bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "":
+		return nil, true
+	case "yes", "y", "true", "t", "1":
+		yes := true
+		return &yes, true
+	case "no", "n", "false", "f", "0":
+		no := false
+		return &no, true
+	}
+	return nil, false
+}
+
+// ParseEducation reads the highest level completed. The enum values are the
+// Ugandan certificates; the aliases are what someone writes when they have not
+// read the template.
+func ParseEducation(s string) (EducationLevel, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "none", "no formal education", "no education":
+		return EducationNone, true
+	case "ple", "primary":
+		return EducationPLE, true
+	case "uce", "o level", "o-level", "ordinary", "ordinary level", "secondary":
+		return EducationUCE, true
+	case "uace", "a level", "a-level", "advanced", "advanced level":
+		return EducationUACE, true
+	case "tertiary", "university", "college":
+		return EducationTertiary, true
+	}
+	return "", false
+}
+
+// ParseIncentiveFrequency reads how often an incentive arrives, not how much.
+func ParseIncentiveFrequency(s string) (IncentiveFrequency, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "monthly", "month":
+		return IncentiveMonthly, true
+	case "quarterly", "quarter":
+		return IncentiveQuarterly, true
+	case "annually", "annual", "yearly", "year":
+		return IncentiveAnnually, true
+	case "one_off", "one off", "one-off", "once", "oneoff":
+		return IncentiveOneOff, true
+	}
+	return "", false
+}

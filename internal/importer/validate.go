@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -16,13 +17,28 @@ import (
 // store.CHWInput, which is where district_id is absent by design and derived by
 // trigger from the placement.
 type Record struct {
-	NIN        string
-	FirstName  string
-	LastName   string
-	Sex        domain.Sex
-	Cadre      domain.Cadre
-	AgeYears   *int16
-	LocationID int64
+	NIN        string        `json:"nin,omitempty"`
+	FirstName  string        `json:"first_name"`
+	LastName   string        `json:"last_name"`
+	Sex        domain.Sex    `json:"sex"`
+	Cadre      domain.Cadre  `json:"cadre"`
+	AgeYears   *int16        `json:"age_years,omitempty"`
+	LocationID int64         `json:"location_id"`
+	Profile    ProfileRecord `json:"profile,omitempty"`
+}
+
+// Encode is the record as it is stored on the staged row, and read back at
+// commit. The commit does not re-parse the file or re-resolve anything: the
+// record it writes is the one the report was drawn from.
+func (r Record) Encode() ([]byte, error) { return json.Marshal(r) }
+
+// DecodeRecord reads a staged row's record back.
+func DecodeRecord(raw []byte) (Record, error) {
+	var rec Record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return Record{}, fmt.Errorf("decode staged record: %w", err)
+	}
+	return rec, nil
 }
 
 // Staged is one line's verdict: the row as it reaches import_rows, and the
@@ -134,26 +150,6 @@ func fields(r Row) (Record, []domain.Problem) {
 	return rec, problems
 }
 
-// RecordFrom rebuilds the record a staged row stands for, from the header the
-// batch kept and the raw values it stored. It reports false when the row will
-// not parse, which cannot happen for a row that was staged as importable — but
-// a commit that trusted that blindly would be one schema change away from
-// writing a half-parsed CHW.
-func RecordFrom(columns []string, raw map[string]string, locationID int64) (Record, bool) {
-	cells := make([]string, len(columns))
-	for i, name := range columns {
-		cells[i] = raw[name]
-	}
-	row := Row{cells: cells, header: ReadHeader(columns)}
-
-	rec, problems := fields(row)
-	if len(problems) > 0 {
-		return Record{}, false
-	}
-	rec.LocationID = locationID
-	return rec, true
-}
-
 // row validates one line. Every field is checked, not just up to the first
 // failure: a report that stopped early would take four uploads to surface four
 // problems in one row.
@@ -173,6 +169,18 @@ func (im *Importer) row(ctx context.Context, r Row, resolver *Resolver) Staged {
 			placement = nil
 		}
 	}
+
+	// The optional attributes. The facility among them is matched inside the
+	// CHW's own district, so this runs after the placement has said which.
+	districtID := int64(0)
+	if placement != nil {
+		districtID = placement.DistrictID
+	}
+	profile, profileProblems := im.profileFields(ctx, r, districtID, resolver)
+	for _, p := range profileProblems {
+		add(p)
+	}
+	rec.Profile = profile
 
 	// Against the register. Both of these read it, so they are asked only once
 	// the row is otherwise sound — there is nothing to compare a nameless row
@@ -200,6 +208,17 @@ func (im *Importer) row(ctx context.Context, r Row, resolver *Resolver) Staged {
 	if out.Row.Status.Importable() {
 		out.Row.LocationID = &rec.LocationID
 		out.Record = rec
+		if encoded, err := rec.Encode(); err == nil {
+			out.Row.Record = encoded
+		} else {
+			// Unreachable for a record made of strings, numbers and bools, but
+			// a row that cannot be stored must not be reported as ready.
+			out.Row.Status = domain.RowRejected
+			out.Row.LocationID = nil
+			out.Record = Record{}
+			out.Row.Problems = append(problems, domain.Problem{
+				Code: domain.ProblemBadValue, Message: "This row could not be stored for review."})
+		}
 	}
 	return out
 }
@@ -305,6 +324,7 @@ func markDuplicateNINs(staged []Staged) {
 			})
 			staged[i].Row.Status = domain.RowRejected
 			staged[i].Row.LocationID = nil
+			staged[i].Row.Record = nil
 			staged[i].Record = Record{}
 		}
 	}

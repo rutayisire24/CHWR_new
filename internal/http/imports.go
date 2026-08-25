@@ -59,6 +59,45 @@ func (l registerLookup) NamesAt(ctx context.Context, sc auth.Scope, locationID i
 	return l.store.CHWs.PossibleDuplicates(ctx, sc, locationID, first, last, 0)
 }
 
+// Tools and ServiceDomains read the vocabularies through the same queries the
+// profile form uses, asked about nobody: CHW id 0 matches no junction row, so
+// what comes back is the plain list.
+func (l registerLookup) Tools(ctx context.Context) ([]domain.Tool, error) {
+	held, err := l.store.Profiles.Tools(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Tool, 0, len(held))
+	for _, t := range held {
+		out = append(out, t.Tool)
+	}
+	return out, nil
+}
+
+func (l registerLookup) ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error) {
+	offered, err := l.store.Profiles.ServiceDomains(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.ServiceDomain, 0, len(offered))
+	for _, d := range offered {
+		out = append(out, d.ServiceDomain)
+	}
+	return out, nil
+}
+
+func (l registerLookup) FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error) {
+	facilities, err := l.store.Profiles.FacilitiesIn(ctx, sc, districtID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Facility, 0, len(facilities))
+	for _, f := range facilities {
+		out = append(out, domain.Facility{ID: f.ID, Name: f.Name, Ownership: f.Ownership})
+	}
+	return out, nil
+}
+
 type importsPage struct {
 	Batches  []domain.Batch
 	District string
@@ -133,7 +172,7 @@ func (s *Server) renderImports(w http.ResponseWriter, r *http.Request, status in
 		District: auth.MustUser(r.Context()).DistrictName,
 		Problems: problems,
 		MaxRows:  importer.MaxRows,
-		Columns:  importer.Core,
+		Columns:  importer.All,
 	})
 }
 
@@ -503,13 +542,15 @@ func (s *Server) runCommit(ctx context.Context, sc auth.Scope, actor domain.User
 func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User,
 	batch domain.Batch, row domain.ImportRow, ip netip.Addr) (*domain.Problem, error) {
 
-	if row.LocationID == nil {
+	if row.LocationID == nil || len(row.Record) == 0 {
 		return &domain.Problem{Code: domain.ProblemLostRace,
-			Message: "This row reached the commit with no placement."}, nil
+			Message: "This row reached the commit without the record it was reviewed as."}, nil
 	}
 
-	record, ok := importer.RecordFrom(batch.Columns, row.Raw, *row.LocationID)
-	if !ok {
+	// The record is read back, not re-derived: what is committed is what the
+	// report was drawn from, down to which facility a name resolved to.
+	record, err := importer.DecodeRecord(row.Record)
+	if err != nil {
 		return &domain.Problem{Code: domain.ProblemLostRace,
 			Message: "This row could not be read back the way it was reviewed."}, nil
 	}
@@ -532,6 +573,17 @@ func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User
 	if err != nil {
 		return lostRace(err), nil
 	}
+	// The optional attributes, in the same transaction as the CHW they hang
+	// off. A file carrying only the core columns writes no profile row at all,
+	// rather than a row of nulls: "nothing recorded" and "recorded as nothing"
+	// are different answers here too.
+	if record.Profile.Answered() {
+		if _, err := s.store.Profiles.SaveTx(ctx, tx, sc, actor, chw.ID,
+			profileInput(record.Profile), ip); err != nil {
+			return lostRace(err), nil
+		}
+	}
+
 	if err := s.store.Imports.MarkImportedTx(ctx, tx, batch.ID, row.Number, chw.ID); err != nil {
 		return nil, err
 	}
@@ -539,6 +591,41 @@ func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User
 		return lostRace(err), nil
 	}
 	return nil, nil
+}
+
+// profileInput maps the importer's record onto the store's input. The two are
+// separate types on purpose: internal/importer does not depend on
+// internal/store, so that its whole validation pass can be tested without a
+// database.
+func profileInput(p importer.ProfileRecord) store.ProfileInput {
+	in := store.ProfileInput{
+		OwnsPhone:          p.OwnsPhone,
+		PhonePrimary:       p.PhonePrimary,
+		PhoneForReporting:  p.PhoneForReporting,
+		PhoneAlternate:     p.PhoneAlternate,
+		FacilityID:         p.FacilityID,
+		ServiceStartYear:   p.ServiceStartYear,
+		HouseholdsServed:   p.HouseholdsServed,
+		Education:          p.Education,
+		EnglishSpeak:       p.EnglishSpeak,
+		EnglishRead:        p.EnglishRead,
+		EnglishWrite:       p.EnglishWrite,
+		OtherLanguagesRaw:  p.OtherLanguagesRaw,
+		ReceivesIncentive:  p.ReceivesIncentive,
+		IncentiveFrequency: p.IncentiveFrequency,
+		IncentiveAmountUGX: p.IncentiveAmountUGX,
+		// Supervision is absent by decision: the source form records it per
+		// service domain and carries no date, so last_supervised_on fills only
+		// through the UI. See docs/odk-mapping.md.
+	}
+	for _, t := range p.Tools {
+		in.Tools = append(in.Tools, store.ToolInput{ToolID: t.ToolID, Functional: t.Functional})
+	}
+	for _, d := range p.Domains {
+		in.Domains = append(in.Domains, store.DomainInput{
+			DomainID: d.DomainID, Provides: d.Provides, Trained: d.Trained})
+	}
+	return in
 }
 
 // lostRace names what the register did between the report and the commit. Every

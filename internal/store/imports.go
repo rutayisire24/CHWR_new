@@ -195,6 +195,7 @@ func (s *Imports) Stage(ctx context.Context, sc auth.Scope, batchID int64, rows 
 		statuses := make([]string, len(chunk))
 		locations := make([]*int64, len(chunk))
 		problems := make([]string, len(chunk))
+		records := make([]*string, len(chunk))
 
 		for i, r := range chunk {
 			raw, err := json.Marshal(r.Raw)
@@ -210,16 +211,20 @@ func (s *Imports) Stage(ctx context.Context, sc auth.Scope, batchID int64, rows 
 			statuses[i] = string(r.Status)
 			locations[i] = r.LocationID
 			problems[i] = string(problem)
+			if len(r.Record) > 0 {
+				encoded := string(r.Record)
+				records[i] = &encoded
+			}
 		}
 
 		const q = `
-		    INSERT INTO import_rows (batch_id, row_number, raw, status, location_id, problems)
+		    INSERT INTO import_rows (batch_id, row_number, raw, status, location_id, problems, record)
 		    SELECT $1, r.number, r.raw::jsonb, r.status::import_row_status,
-		           r.location_id, r.problems::jsonb
-		      FROM unnest($2::int[], $3::text[], $4::text[], $5::bigint[], $6::text[])
-		           AS r(number, raw, status, location_id, problems)`
+		           r.location_id, r.problems::jsonb, r.record::jsonb
+		      FROM unnest($2::int[], $3::text[], $4::text[], $5::bigint[], $6::text[], $7::text[])
+		           AS r(number, raw, status, location_id, problems, record)`
 
-		if _, err := s.pool.Exec(ctx, q, batchID, numbers, raws, statuses, locations, problems); err != nil {
+		if _, err := s.pool.Exec(ctx, q, batchID, numbers, raws, statuses, locations, problems, records); err != nil {
 			return fmt.Errorf("stage rows %d-%d of batch %d: %w", start, end, batchID, translate(err))
 		}
 	}
@@ -243,7 +248,7 @@ func (s *Imports) Rows(ctx context.Context, sc auth.Scope, batchID int64,
 	}
 
 	q := `
-	    SELECT batch_id, row_number, raw, status::text, location_id, problems, chw_id
+	    SELECT batch_id, row_number, raw, status::text, location_id, problems, record, chw_id
 	      FROM import_rows
 	     WHERE batch_id = $1 AND row_number > $2`
 	args := []any{batchID, afterRow}
@@ -271,7 +276,7 @@ func (s *Imports) Rows(ctx context.Context, sc auth.Scope, batchID int64,
 		var status string
 		var raw, problems []byte
 		var number int32
-		if err := rows.Scan(&r.BatchID, &number, &raw, &status, &r.LocationID, &problems, &r.CHWID); err != nil {
+		if err := rows.Scan(&r.BatchID, &number, &raw, &status, &r.LocationID, &problems, &r.Record, &r.CHWID); err != nil {
 			return nil, fmt.Errorf("scan import row: %w", err)
 		}
 		r.Number = int(number)
@@ -317,6 +322,7 @@ func (s *Imports) MarkRow(ctx context.Context, batchID int64, rowNumber int,
 	_, err = s.pool.Exec(ctx, `
 	    UPDATE import_rows
 	       SET status = $3::import_row_status,
+	           record = CASE WHEN $3 IN ('imported','ready','warning') THEN record ELSE NULL END,
 	           problems = CASE WHEN jsonb_array_length($4::jsonb) > 0
 	                           THEN $4::jsonb ELSE problems END
 	     WHERE batch_id = $1 AND row_number = $2`,

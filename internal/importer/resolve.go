@@ -35,6 +35,14 @@ type Lookup interface {
 	// NamesAt returns CHWs of that name at that location, for the soft
 	// duplicate probe.
 	NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.CHW, error)
+
+	// Tools and ServiceDomains are the closed vocabularies the two multi-select
+	// columns name. Both are small and static; the resolver reads each once.
+	Tools(ctx context.Context) ([]domain.Tool, error)
+	ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error)
+	// FacilitiesIn lists a district's facilities, for matching the facility
+	// column by name inside the CHW's own district.
+	FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error)
 }
 
 // normalizeName folds a location name to the form names are matched by: upper
@@ -90,8 +98,9 @@ type Resolver struct {
 	lookup Lookup
 	scope  auth.Scope
 
-	districts map[string][]domain.Place
-	children  map[childKey][]domain.Place
+	districts  map[string][]domain.Place
+	children   map[childKey][]domain.Place
+	facilities map[int64][]domain.Facility
 }
 
 type childKey struct {
@@ -110,10 +119,11 @@ func NewResolver(ctx context.Context, lookup Lookup, sc auth.Scope) (*Resolver, 
 	}
 
 	r := &Resolver{
-		lookup:    lookup,
-		scope:     sc,
-		districts: make(map[string][]domain.Place, len(districts)),
-		children:  make(map[childKey][]domain.Place),
+		lookup:     lookup,
+		scope:      sc,
+		districts:  make(map[string][]domain.Place, len(districts)),
+		children:   make(map[childKey][]domain.Place),
+		facilities: make(map[int64][]domain.Facility),
 	}
 	for _, d := range districts {
 		key := normalizeName(d.Name)
@@ -306,6 +316,21 @@ func (r *Resolver) childrenAt(ctx context.Context, parentID int64, level domain.
 		return nil, err
 	}
 	r.children[key] = found
+	return found, nil
+}
+
+// facilitiesIn reads a district's facilities through the per-file cache. A file
+// is usually one district's worth of CHWs, so this is one query for the whole
+// upload however many rows name a facility.
+func (r *Resolver) facilitiesIn(ctx context.Context, districtID int64) ([]domain.Facility, error) {
+	if cached, ok := r.facilities[districtID]; ok {
+		return cached, nil
+	}
+	found, err := r.lookup.FacilitiesIn(ctx, r.scope, districtID)
+	if err != nil {
+		return nil, err
+	}
+	r.facilities[districtID] = found
 	return found, nil
 }
 

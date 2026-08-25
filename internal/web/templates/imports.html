@@ -46,6 +46,12 @@
     </tbody>
   </table>
   <p class="muted">
+    The first eleven columns are the register record itself; the rest are the optional
+    survey attributes, and every one of them may be left empty. An empty cell means the
+    question was not asked, which is not the same as an answer of no — so a blank
+    <code>receives_incentive</code> records nothing, while <code>no</code> records a no.
+  </p>
+  <p class="muted">
     Column names are matched however they are spelled — <code>Other Names</code>,
     <code>other_names</code> and <code>OTHER-NAMES</code> are the same column. Columns the
     register does not know are ignored, and named on the report so nobody assumes they

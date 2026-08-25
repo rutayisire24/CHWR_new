@@ -72,6 +72,34 @@ var codePaths = map[string]int64{
 	"10224101010001": layibi,
 }
 
+// The vocabularies, as 0003 seeds them. Slug and label both match, because a
+// district reading the template's help will write one or the other.
+var fakeTools = []domain.Tool{
+	{ID: 1, Slug: "bicycle", Label: "Bicycle"},
+	{ID: 2, Slug: "gumboots", Label: "Gumboots"},
+	{ID: 3, Slug: "thermometer", Label: "Thermometer"},
+	{ID: 7, Slug: "register", Label: "VHT Reporting Tools"},
+}
+
+var fakeDomains = []domain.ServiceDomain{
+	{ID: 1, Slug: "iccm", Label: "Management of Common Childhood Illnesses (ICCM)"},
+	{ID: 2, Slug: "maternal_newborn", Label: "Maternal and Newborn Health"},
+	{ID: 7, Slug: "nutrition", Label: "Nutrition Services"},
+}
+
+// Facilities, keyed by district. ABIM holds two of the same name, which is not
+// possible in the real schema — facilities are unique on (district_id, name) —
+// but the importer must not depend on that to avoid picking one arbitrarily.
+var fakeFacilities = map[int64][]domain.Facility{
+	abim: {
+		{ID: 100, Name: "ABIM HOSPITAL", Ownership: "GOV"},
+		{ID: 101, Name: "MORULEM HC III", Ownership: "GOV"},
+		{ID: 102, Name: "TWIN CLINIC", Ownership: "PFP"},
+		{ID: 103, Name: "TWIN CLINIC", Ownership: "PNFP"},
+	},
+	gulu: {{ID: 200, Name: "GULU REGIONAL REFERRAL", Ownership: "GOV"}},
+}
+
 // fakeLookup answers from the tree above. It is the whole reason the validation
 // pass needs no database.
 type fakeLookup struct {
@@ -81,6 +109,24 @@ type fakeLookup struct {
 	names map[int64][]domain.CHW
 	// calls counts ChildrenAt, so a test can prove the resolver caches.
 	calls int
+	// facilityCalls counts FacilitiesIn, for the same reason.
+	facilityCalls int
+}
+
+func (f *fakeLookup) Tools(ctx context.Context) ([]domain.Tool, error) {
+	return fakeTools, nil
+}
+
+func (f *fakeLookup) ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error) {
+	return fakeDomains, nil
+}
+
+func (f *fakeLookup) FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error) {
+	f.facilityCalls++
+	if !sc.Allows(districtID) {
+		return nil, domain.ErrNotFound
+	}
+	return fakeFacilities[districtID], nil
 }
 
 func (f *fakeLookup) Districts(ctx context.Context, sc auth.Scope) ([]domain.Place, error) {

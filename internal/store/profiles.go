@@ -249,6 +249,27 @@ func (s *Profiles) Save(ctx context.Context, sc auth.Scope, actor domain.User, c
 	}
 	defer tx.Rollback(ctx)
 
+	profile, err := s.SaveTx(ctx, tx, sc, actor, chwID, in, ip)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Profile{}, fmt.Errorf("save profile for chw %d: %w", chwID, err)
+	}
+	return profile, nil
+}
+
+// SaveTx writes the profile into a caller's transaction, the Tx half of the
+// pair CHWs.CreateTx and Audit.RecordTx already establish.
+//
+// The bulk importer uses it so that a CHW, their profile, both audit rows and
+// the staged row's mark commit together. A profile written in a second
+// transaction could be lost while the CHW it describes survived, which is the
+// half-loaded record invariant 7 exists to prevent — one row at a time rather
+// than one file at a time, but the same failure.
+func (s *Profiles) SaveTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor domain.User,
+	chwID int64, in ProfileInput, ip netip.Addr) (domain.Profile, error) {
+
 	// Confirm the CHW is inside the scope before writing anything hanging off
 	// them: chw_profiles has no district of its own to filter on.
 	chw, err := s.chwInScope(ctx, tx, sc, chwID)
@@ -338,14 +359,7 @@ func (s *Profiles) Save(ctx context.Context, sc auth.Scope, actor domain.User, c
 		return domain.Profile{}, err
 	}
 
-	profile, err := s.getTx(ctx, tx, chwID)
-	if err != nil {
-		return domain.Profile{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return domain.Profile{}, fmt.Errorf("save profile for chw %d: %w", chwID, err)
-	}
-	return profile, nil
+	return s.getTx(ctx, tx, chwID)
 }
 
 func (s *Profiles) chwInScope(ctx context.Context, tx pgx.Tx, sc auth.Scope, chwID int64) (domain.CHW, error) {

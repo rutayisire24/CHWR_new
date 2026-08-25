@@ -55,6 +55,73 @@ var Core = []Column{
 		Help: "Optional. The official code decides the placement when it is given."},
 }
 
+// Profile is the optional survey attributes, in the order the source form asks
+// them. Every one of them may be blank, and blank is not "no": an empty cell
+// leaves the column NULL, and only an explicit no writes false. A record
+// imported from a file that never asked about incentives must not come back as
+// a CHW who said they receive none.
+var Profile = []Column{
+	{Name: "phone_owner", Aliases: []string{"owns_phone", "phones", "has_phone"},
+		Help: "yes or no. Blank means it was not asked."},
+	{Name: "phone_primary", Aliases: []string{"phone_number", "phone"},
+		Help: "Their own number, if they own a phone."},
+	{Name: "phone_for_reporting", Aliases: []string{"phone_reporting"},
+		Help: "yes or no — is that phone used for reporting."},
+	{Name: "phone_alternate", Aliases: []string{"other_number"},
+		Help: "A number to reach them on when they own no phone."},
+	{Name: "facility", Aliases: []string{"health_facility", "facility_name"},
+		Help: "Name of the facility they report to. Must be in their own district."},
+	{Name: "service_start_year", Aliases: []string{"service_year", "year_started"},
+		Help: "Year of first appointment, 1960 to 2100."},
+	{Name: "households_served", Aliases: []string{"households"},
+		Help: "3 to 100,000."},
+	{Name: "education", Help: "none, ple, uce, uace or tertiary."},
+	{Name: "english", Aliases: []string{"english_proficiency"},
+		Help: "Any of speak; read; write, separated by semicolons. none is a recorded no."},
+	{Name: "other_languages", Aliases: []string{"other_language", "languages"},
+		Help: "Free text, kept as written."},
+	{Name: "receives_incentive", Aliases: []string{"recieve_financial", "receives_financial"},
+		Help: "yes or no."},
+	{Name: "incentive_frequency", Aliases: []string{"frequency"},
+		Help: "monthly, quarterly, annually or one_off. Only with yes above."},
+	{Name: "incentive_amount_ugx", Aliases: []string{"financial_incentive", "incentive_amount"},
+		Help: "1,000 to 500,000 UGX. Only with yes above."},
+	{Name: "tools", Aliases: []string{"tool"},
+		Help: "Semicolon-separated: bicycle; gumboots; thermometer; medicine_box; muac_tape; torch; register."},
+	{Name: "tools_functional", Aliases: []string{"tool_functional"},
+		Help: "Which of those are working. Must be among the tools held."},
+	{Name: "services", Aliases: []string{"service_domains"},
+		Help: "Semicolon-separated service domains offered."},
+	{Name: "trained", Aliases: []string{"training"},
+		Help: "Which of those they were trained on in the last 2 years."},
+}
+
+// Canonical profile column names.
+const (
+	ColPhoneOwner      = "phone_owner"
+	ColPhonePrimary    = "phone_primary"
+	ColPhoneReporting  = "phone_for_reporting"
+	ColPhoneAlternate  = "phone_alternate"
+	ColFacility        = "facility"
+	ColServiceYear     = "service_start_year"
+	ColHouseholds      = "households_served"
+	ColEducation       = "education"
+	ColEnglish         = "english"
+	ColOtherLanguages  = "other_languages"
+	ColIncentive       = "receives_incentive"
+	ColIncentiveFreq   = "incentive_frequency"
+	ColIncentiveAmount = "incentive_amount_ugx"
+	ColTools           = "tools"
+	ColToolsFunctional = "tools_functional"
+	ColServices        = "services"
+	ColTrained         = "trained"
+)
+
+// All is every column the register understands, core first. There is no
+// `support_supervision`: the source form records supervision per service domain
+// and carries no date, so last_supervised_on fills only through the UI.
+var All = append(append([]Column{}, Core...), Profile...)
+
 // Canonical column names, so a rule reads as a name rather than a string.
 const (
 	ColFirstName = "first_name"
@@ -72,8 +139,8 @@ const (
 
 // canonical maps every accepted spelling, normalized, to its column name.
 var canonical = func() map[string]string {
-	m := make(map[string]string, len(Core)*2)
-	for _, c := range Core {
+	m := make(map[string]string, len(All)*2)
+	for _, c := range All {
 		m[normalizeHeader(c.Name)] = c.Name
 		for _, alias := range c.Aliases {
 			m[normalizeHeader(alias)] = c.Name
@@ -175,7 +242,7 @@ func (h Header) Unknown() []string {
 // four name columns beside it would be asking for the answer twice.
 func (h Header) Missing() []string {
 	var out []string
-	for _, c := range Core {
+	for _, c := range All {
 		if !c.Required || h.Has(c.Name) {
 			continue
 		}
@@ -201,9 +268,9 @@ func Template(districtName string) []byte {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
-	header := make([]string, len(Core))
-	example := make([]string, len(Core))
-	for i, c := range Core {
+	header := make([]string, len(All))
+	example := make([]string, len(All))
+	for i, c := range All {
 		header[i] = c.Name
 		if c.Name == ColDistrict {
 			example[i] = districtName

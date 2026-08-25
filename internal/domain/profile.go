@@ -178,6 +178,15 @@ func (p Profile) Answered() bool {
 
 func isTrue(b *bool) bool { return b != nil && *b }
 
+// Facility is a health facility as the importer and the picker see it. The
+// register loads the whole Master Facility List; which ones a CHW may attach to
+// is decided by district, not by this shape.
+type Facility struct {
+	ID        int64
+	Name      string
+	Ownership string
+}
+
 // Tool is a row of the `tools` vocabulary — the kit a CHW may hold.
 type Tool struct {
 	ID    int16

@@ -523,11 +523,44 @@ func TestTemplateRoundTrips(t *testing.T) {
 	}
 	_ = f
 
-	// With a row added beneath it, the example row is still skipped.
-	filled := string(blank) + "Grace,Okello,f,vht,,,ABIM,MORULEM,ALEREK,KANU-EAST,\n"
-	staged := validate(t, auth.National(), strings.TrimPrefix(filled, header), nil)
+	// With a row added beneath it, the example row is still skipped. The row is
+	// built against the template's own header, which is the whole vocabulary —
+	// this is the file a district actually fills in.
+	cells := make([]string, len(All))
+	for i, c := range All {
+		switch c.Name {
+		case ColFirstName:
+			cells[i] = "Grace"
+		case ColLastName:
+			cells[i] = "Okello"
+		case ColSex:
+			cells[i] = "f"
+		case ColCadre:
+			cells[i] = "vht"
+		case ColDistrict:
+			cells[i] = "ABIM"
+		case ColSubcounty:
+			cells[i] = "MORULEM"
+		case ColParish:
+			cells[i] = "ALEREK"
+		case ColVillage:
+			cells[i] = "KANU-EAST"
+		}
+	}
+	filled, err := ReadCSV("filled.csv",
+		strings.NewReader(string(blank)+strings.Join(cells, ",")+"\n"))
+	if err != nil {
+		t.Fatalf("read the filled template: %v", err)
+	}
+	staged, err := New(&fakeLookup{}, auth.National()).Validate(context.Background(), filled)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
 	if len(staged) != 1 {
-		t.Fatalf("staged %d rows, want 1", len(staged))
+		t.Fatalf("staged %d rows, want 1 — the example row was not skipped", len(staged))
+	}
+	if staged[0].Row.Status != domain.RowReady {
+		t.Fatalf("status = %s (%v)", staged[0].Row.Status, staged[0].Row.Problems)
 	}
 }
 
