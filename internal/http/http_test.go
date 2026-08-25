@@ -1,8 +1,10 @@
 package http
 
 import (
+	"chwr/internal/config"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -300,5 +302,81 @@ func TestPct(t *testing.T) {
 		if got := pct(c.n, c.total); got != c.want {
 			t.Errorf("pct(%d, %d) = %v, want %v", c.n, c.total, got, c.want)
 		}
+	}
+}
+
+// The audit trail's IP column is "who changed this record, from where", and
+// audit_log doubles as the CHW change history. What may be believed about it is
+// therefore worth pinning.
+func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
+	proxy := netip.MustParsePrefix("127.0.0.1/32")
+	behindProxy := &Server{cfg: config.Config{TrustedProxies: []netip.Prefix{proxy}}}
+	direct := &Server{}
+
+	cases := []struct {
+		name      string
+		server    *Server
+		peer      string
+		forwarded []string
+		want      string
+	}{
+		{
+			name: "no proxy configured, header ignored",
+			// The default. Anyone can send this header; believing it would put
+			// a lie in the register's own provenance.
+			server: direct, peer: "203.0.113.9:5555",
+			forwarded: []string{"198.51.100.7"},
+			want:      "203.0.113.9",
+		},
+		{
+			name:   "header from an untrusted peer is ignored",
+			server: behindProxy, peer: "203.0.113.9:5555",
+			forwarded: []string{"198.51.100.7"},
+			want:      "203.0.113.9",
+		},
+		{
+			name:   "header from the proxy names the client",
+			server: behindProxy, peer: "127.0.0.1:5555",
+			forwarded: []string{"198.51.100.7"},
+			want:      "198.51.100.7",
+		},
+		{
+			name: "a client's own forged hop cannot be reached",
+			// The client sent "1.2.3.4"; the proxy appended what it actually
+			// saw. Walking from the right stops at the real one.
+			server: behindProxy, peer: "127.0.0.1:5555",
+			forwarded: []string{"1.2.3.4, 198.51.100.7"},
+			want:      "198.51.100.7",
+		},
+		{
+			name:   "two headers are one chain",
+			server: behindProxy, peer: "127.0.0.1:5555",
+			forwarded: []string{"1.2.3.4", "198.51.100.7"},
+			want:      "198.51.100.7",
+		},
+		{
+			name:   "no header from the proxy falls back to the peer",
+			server: behindProxy, peer: "127.0.0.1:5555",
+			want: "127.0.0.1",
+		},
+		{
+			name:   "a junk hop stops the chain being evidence",
+			server: behindProxy, peer: "127.0.0.1:5555",
+			forwarded: []string{"not-an-address"},
+			want:      "127.0.0.1",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = c.peer
+			for _, value := range c.forwarded {
+				r.Header.Add("X-Forwarded-For", value)
+			}
+			if got := c.server.clientIP(r); got.String() != c.want {
+				t.Errorf("clientIP = %s, want %s", got, c.want)
+			}
+		})
 	}
 }

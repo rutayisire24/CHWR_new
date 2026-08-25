@@ -1,0 +1,28 @@
+# Reverse proxy for the National CHW Registry — the Caddy alternative to
+# deploy/nginx.conf. Caddy obtains and renews the certificate itself.
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Replace chwr.example.org.
+
+chwr.example.org {
+	# A CHW import may be several megabytes. The application caps the body at
+	# 12 MB and names a file over 10 MB as too large; this must not refuse first.
+	request_body {
+		max_size 16MB
+	}
+
+	header Strict-Transport-Security "max-age=31536000"
+
+	reverse_proxy 127.0.0.1:8080 {
+		# Caddy appends the peer it saw to X-Forwarded-For by default, which is
+		# what the application walks back through. It is believed only from an
+		# address named in TRUSTED_PROXY.
+		transport http {
+			# Committing a ten-thousand-row import takes about thirty seconds.
+			read_timeout 180s
+			write_timeout 180s
+		}
+	}
+}

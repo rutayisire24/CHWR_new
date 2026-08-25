@@ -1,0 +1,16 @@
+[Unit]
+Description=Back up the CHW Registry database
+Documentation=file:/opt/chwr/docs/deploy.md
+
+[Service]
+Type=oneshot
+User=chwr
+Group=chwr
+EnvironmentFile=/etc/chwr/chwr.env
+ExecStart=/opt/chwr/backup.sh
+# The backup directory is the one path this service may write.
+ReadWritePaths=/var/backups/chwr
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes

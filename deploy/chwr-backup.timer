@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly CHW Registry backup
+
+[Timer]
+OnCalendar=*-*-* 01:30:00
+# A machine that was off at 01:30 still gets its backup.
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

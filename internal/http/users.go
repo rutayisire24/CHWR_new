@@ -91,7 +91,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	entry.Entity = "user"
 	entry.EntityID = &created.ID
 	entry.After = auditUser(created)
-	entry.IP = clientIP(r)
+	entry.IP = s.clientIP(r)
 	s.audit(r, entry)
 
 	setFlash(w, s.secure(), "ok", created.Email+" can now sign in with the temporary password. They must change it immediately.")
@@ -164,7 +164,7 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 	entry.EntityID = &after.ID
 	entry.Before = auditUser(before)
 	entry.After = auditUser(after)
-	entry.IP = clientIP(r)
+	entry.IP = s.clientIP(r)
 	s.audit(r, entry)
 
 	setFlash(w, s.secure(), "ok", "Saved changes to "+after.Email+".")
@@ -219,7 +219,7 @@ func (s *Server) userStatus(w http.ResponseWriter, r *http.Request) {
 	entry.EntityID = &after.ID
 	entry.Before = auditUser(before)
 	entry.After = auditUser(after)
-	entry.IP = clientIP(r)
+	entry.IP = s.clientIP(r)
 	s.audit(r, entry)
 
 	msg := after.Email + " is active again."
@@ -260,7 +260,7 @@ func (s *Server) userResetPassword(w http.ResponseWriter, r *http.Request) {
 	entry.Action = store.ActionUserReset
 	entry.Entity = "user"
 	entry.EntityID = &target.ID
-	entry.IP = clientIP(r)
+	entry.IP = s.clientIP(r)
 	s.audit(r, entry)
 
 	setFlash(w, s.secure(), "ok", "Temporary password set for "+target.Email+". They must change it at next sign-in.")

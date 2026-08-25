@@ -113,10 +113,51 @@ func (s *Server) forbidden(w http.ResponseWriter, r *http.Request) {
 // dev, where the service is reached over plain http on localhost.
 func (s *Server) secure() bool { return s.cfg.Prod() }
 
-// clientIP is the peer address, for the session row and the audit trail. No
-// proxy header is trusted: the service is reached directly, and an
-// attacker-set X-Forwarded-For would poison the audit log.
-func clientIP(r *http.Request) netip.Addr {
+// clientIP is the address the session row and the audit trail record.
+//
+// By default it is the peer's own, and no header is believed: anyone can send
+// X-Forwarded-For, and audit_log doubles as the CHW change history, so a
+// forged one would be a lie in the register's own provenance.
+//
+// Behind a reverse proxy the peer is the proxy, and every row would say so.
+// TRUSTED_PROXY names the proxies whose header may be read — a list of
+// addresses, not a boolean, because "trust the header when someone sends one"
+// is trusting the client.
+func (s *Server) clientIP(r *http.Request) netip.Addr {
+	peer := peerAddr(r)
+	if !peer.IsValid() || !s.cfg.TrustsProxy(peer) {
+		return peer
+	}
+
+	// X-Forwarded-For is client, proxy1, proxy2 …, each hop appending the peer
+	// it saw. Walking from the right and stopping at the first address we do
+	// not trust gives the client: a value the client itself put there sits to
+	// the left of the real hops and can never be reached.
+	forwarded := r.Header.Values("X-Forwarded-For")
+	var hops []string
+	for _, value := range forwarded {
+		for _, hop := range strings.Split(value, ",") {
+			if hop = strings.TrimSpace(hop); hop != "" {
+				hops = append(hops, hop)
+			}
+		}
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		addr, err := netip.ParseAddr(hops[i])
+		if err != nil {
+			// An unparseable hop is where the chain stops being evidence.
+			return peer
+		}
+		if !s.cfg.TrustsProxy(addr) {
+			return addr.Unmap()
+		}
+	}
+	// Every hop was a proxy we trust, or there was no header at all.
+	return peer
+}
+
+// peerAddr is the address the connection actually came from.
+func peerAddr(r *http.Request) netip.Addr {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
@@ -125,7 +166,7 @@ func clientIP(r *http.Request) netip.Addr {
 	if err != nil {
 		return netip.Addr{}
 	}
-	return addr
+	return addr.Unmap()
 }
 
 // safeNext sanitises a ?next= destination. Only same-site absolute paths are

@@ -65,7 +65,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.store.Sessions.Create(r.Context(), user.ID, clientIP(r), r.UserAgent())
+	token, err := s.store.Sessions.Create(r.Context(), user.ID, s.clientIP(r), r.UserAgent())
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -82,7 +82,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	entry.Action = store.ActionLogin
 	entry.Entity = "user"
 	entry.EntityID = &user.ID
-	entry.IP = clientIP(r)
+	entry.IP = s.clientIP(r)
 	s.audit(r, entry)
 
 	if user.MustReset {
@@ -104,7 +104,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		entry.Action = store.ActionLogout
 		entry.Entity = "user"
 		entry.EntityID = &u.ID
-		entry.IP = clientIP(r)
+		entry.IP = s.clientIP(r)
 		s.audit(r, entry)
 	}
 
@@ -182,7 +182,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	entry.Action = store.ActionPasswordChange
 	entry.Entity = "user"
 	entry.EntityID = &u.ID
-	entry.IP = clientIP(r)
+	entry.IP = s.clientIP(r)
 	s.audit(r, entry)
 
 	setFlash(w, s.secure(), "ok", "Your password has been changed. Other sessions were signed out.")
@@ -199,6 +199,6 @@ func (s *Server) recordLoginFailure(r *http.Request, email string, userID *int64
 		Action:     store.ActionLoginFailed,
 		Entity:     "user",
 		EntityID:   userID,
-		IP:         clientIP(r),
+		IP:         s.clientIP(r),
 	})
 }

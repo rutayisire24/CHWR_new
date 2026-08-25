@@ -312,7 +312,7 @@ func (s *Server) chwCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	chw, err := s.store.CHWs.Create(r.Context(), sc, actor, in, clientIP(r))
+	chw, err := s.store.CHWs.Create(r.Context(), sc, actor, in, s.clientIP(r))
 	if err != nil {
 		s.chwWriteFailed(w, r, err, draftCHW(in), "/chws/new", age)
 		return
@@ -369,7 +369,7 @@ func (s *Server) chwUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chw, err := s.store.CHWs.Update(r.Context(), sc, actor, id, in, clientIP(r))
+	chw, err := s.store.CHWs.Update(r.Context(), sc, actor, id, in, s.clientIP(r))
 	if err != nil {
 		draft := draftCHW(in)
 		draft.ID = id
@@ -430,7 +430,7 @@ func (s *Server) chwDeactivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chw, err := s.store.CHWs.Deactivate(r.Context(), sc, actor, id, reason, clientIP(r))
+	chw, err := s.store.CHWs.Deactivate(r.Context(), sc, actor, id, reason, s.clientIP(r))
 	if err != nil {
 		s.notFoundOrFail(w, r, err)
 		return
@@ -447,7 +447,7 @@ func (s *Server) chwReactivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chw, err := s.store.CHWs.Reactivate(r.Context(), auth.ScopeFrom(r.Context()),
-		auth.MustUser(r.Context()), id, clientIP(r))
+		auth.MustUser(r.Context()), id, s.clientIP(r))
 	if err != nil {
 		s.notFoundOrFail(w, r, err)
 		return

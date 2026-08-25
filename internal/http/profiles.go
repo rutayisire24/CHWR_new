@@ -119,7 +119,7 @@ func (s *Server) chwProfileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.Profiles.Save(r.Context(), sc, actor, id, in, clientIP(r)); err != nil {
+	if _, err := s.store.Profiles.Save(r.Context(), sc, actor, id, in, s.clientIP(r)); err != nil {
 		s.notFoundOrFail(w, r, err)
 		return
 	}

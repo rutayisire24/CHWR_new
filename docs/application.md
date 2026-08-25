@@ -265,8 +265,14 @@ user cannot map the country by probing ids.
 ## Configuration
 
 `DATABASE_URL` (required), `ADDR` (`:8080`), `ENV` (`dev`|`prod`), `SHUTDOWN_TIMEOUT`
-(`15s`). Every problem is reported at once, before anything is dialled. `ENV=prod` is
-what puts `Secure` on the session, CSRF and flash cookies.
+(`15s`), `TRUSTED_PROXY` (empty). Every problem is reported at once, before anything is
+dialled. `ENV=prod` is what puts `Secure` on the session, CSRF and flash cookies.
+
+`TRUSTED_PROXY` is the addresses whose `X-Forwarded-For` may be read. `clientIP`
+otherwise records the peer's own address and believes no header, because anyone can send
+one and `audit_log` doubles as the CHW change history. Behind a proxy the peer is the
+proxy, so leaving this empty there costs every audit row its client address; setting it
+to something too broad accepts a forged one. See [deploy.md](deploy.md).
 
 The server migrates on every start — one binary, one schema, no separate deploy step to
 forget. `-migrate` stops after that; `-create-admin` provisions the first national

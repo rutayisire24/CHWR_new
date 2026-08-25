@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 	"time"
@@ -21,6 +22,16 @@ type Config struct {
 	Env string
 	// ShutdownTimeout bounds how long in-flight requests may finish.
 	ShutdownTimeout time.Duration
+
+	// TrustedProxies are the peers whose X-Forwarded-For header may be
+	// believed. Empty — the default — means no header is trusted and the
+	// client address is always the peer's own, which is right for a service
+	// reached directly.
+	//
+	// It is a list rather than a boolean because trusting "whatever sent the
+	// header" is trusting the client: anyone can set X-Forwarded-For, and the
+	// audit trail is what would carry the lie.
+	TrustedProxies []netip.Prefix
 }
 
 // Prod reports whether the process is running in production configuration.
@@ -37,6 +48,12 @@ func Load() (Config, error) {
 		Env:         envOr("ENV", "dev"),
 	}
 
+	proxies, err := parsePrefixes(os.Getenv("TRUSTED_PROXY"))
+	if err != nil {
+		problems = append(problems, err.Error())
+	}
+	c.TrustedProxies = proxies
+
 	if c.DatabaseURL == "" {
 		problems = append(problems, "DATABASE_URL is required")
 	}
@@ -44,7 +61,8 @@ func Load() (Config, error) {
 		problems = append(problems, fmt.Sprintf("ENV must be dev or prod, got %q", c.Env))
 	}
 
-	d, err := durationOr("SHUTDOWN_TIMEOUT", 15*time.Second)
+	d, derr := durationOr("SHUTDOWN_TIMEOUT", 15*time.Second)
+	err = derr
 	if err != nil {
 		problems = append(problems, err.Error())
 	}
@@ -54,6 +72,39 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: %s", strings.Join(problems, "; "))
 	}
 	return c, nil
+}
+
+// TrustsProxy reports whether an address is one of the configured proxies.
+func (c Config) TrustsProxy(addr netip.Addr) bool {
+	for _, prefix := range c.TrustedProxies {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// parsePrefixes reads TRUSTED_PROXY: a comma-separated list of addresses or
+// CIDR blocks. A bare address is the single host, so the common case —
+// "127.0.0.1", a proxy on the same machine — needs no mask.
+func parsePrefixes(raw string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, field := range strings.Split(raw, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if prefix, err := netip.ParsePrefix(field); err == nil {
+			out = append(out, prefix)
+			continue
+		}
+		addr, err := netip.ParseAddr(field)
+		if err != nil {
+			return nil, fmt.Errorf("TRUSTED_PROXY: %q is not an address or CIDR block", field)
+		}
+		out = append(out, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return out, nil
 }
 
 func envOr(key, fallback string) string {

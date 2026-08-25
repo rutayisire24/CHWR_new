@@ -230,7 +230,7 @@ func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 	// its uploader are recorded even if what follows fails. Its district comes
 	// from the Scope, never from the file.
 	batch, err := s.store.Imports.Create(ctx, sc, actor,
-		header.Filename, format, parsed.Header.Spelled, clientIP(r))
+		header.Filename, format, parsed.Header.Spelled, s.clientIP(r))
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -397,7 +397,7 @@ func (s *Server) importCommit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	skipDuplicates := trimmed(r, "skip_duplicates") != ""
-	result, err := s.runCommit(ctx, sc, actor, batch, skipDuplicates, clientIP(r))
+	result, err := s.runCommit(ctx, sc, actor, batch, skipDuplicates, s.clientIP(r))
 	if err != nil {
 		// The rows already written stay written and stay marked; the batch goes
 		// back to pending so the rest can be picked up rather than stranded.
@@ -408,7 +408,7 @@ func (s *Server) importCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.Imports.Commit(ctx, sc, actor, batch.ID, skipDuplicates, clientIP(r)); err != nil {
+	if _, err := s.store.Imports.Commit(ctx, sc, actor, batch.ID, skipDuplicates, s.clientIP(r)); err != nil {
 		if release := s.store.Imports.Release(ctx, batch.ID); release != nil {
 			slog.Error("releasing import claim failed", "batch", batch.ID, "err", release)
 		}
@@ -426,7 +426,7 @@ func (s *Server) importDiscard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.store.Imports.Discard(r.Context(), auth.ScopeFrom(r.Context()),
-		auth.MustUser(r.Context()), batch.ID, clientIP(r))
+		auth.MustUser(r.Context()), batch.ID, s.clientIP(r))
 	if errors.Is(err, domain.ErrConflict) {
 		setFlash(w, s.secure(), "warn", "That upload has already been decided.")
 		http.Redirect(w, r, importPath(batch.ID), http.StatusSeeOther)

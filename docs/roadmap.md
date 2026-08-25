@@ -81,8 +81,10 @@ migrations/                         *.sql + embed.go (go:embed)
 ```
 
 Configuration: `DATABASE_URL` (required), `ADDR` (`:8080`), `ENV` (`dev`|`prod`),
-`SHUTDOWN_TIMEOUT` (`15s`). `ENV=prod` is what puts `Secure` on the session, CSRF and
-flash cookies.
+`SHUTDOWN_TIMEOUT` (`15s`), `TRUSTED_PROXY` (empty). `ENV=prod` is what puts `Secure` on
+the session, CSRF and flash cookies. `TRUSTED_PROXY` names the addresses whose
+`X-Forwarded-For` may be believed — without it, a service behind a proxy records the
+proxy in every audit row. See [deploy.md](deploy.md).
 
 The CHW form's location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is
@@ -111,8 +113,8 @@ district user unrepresentable in the database.
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination *(done)*
 6. **Import + export** — CSV/Excel importer with a per-row error report *(done)*, scoped
    CSV export
-7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
-   `-create-admin`)
+7. **Deploy** — a plain binary under systemd, a reverse proxy for TLS, nightly backups
+   with a rehearsed restore *(done — [deploy.md](deploy.md); no container, by decision)*
 
 Geography is phase 1 because nothing else is testable without it. Phases 1–5 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization

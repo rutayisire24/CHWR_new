@@ -1,0 +1,58 @@
+# systemd unit for the National CHW Registry.
+#
+#   sudo cp deploy/chwr.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now chwr
+#
+# See docs/deploy.md. The binary logs to stdout, so `journalctl -u chwr` is the
+# log; nothing writes a file that could fill a disk unattended.
+
+[Unit]
+Description=National Community Health Worker Registry
+Documentation=file:/opt/chwr/docs/deploy.md
+# The register is unusable without its database, and the migrations run at
+# startup, so wait for postgres when it is on this host.
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=chwr
+Group=chwr
+WorkingDirectory=/opt/chwr
+
+# DATABASE_URL carries the password, so the environment lives in a file only
+# root and chwr can read rather than in this unit, which is world-readable.
+EnvironmentFile=/etc/chwr/chwr.env
+ExecStart=/opt/chwr/chwr-server
+
+# The service holds no state of its own: everything is in Postgres, and the
+# templates, static assets and migrations are embedded in the binary.
+Restart=on-failure
+RestartSec=5s
+# SIGTERM starts the graceful shutdown; SHUTDOWN_TIMEOUT bounds how long
+# in-flight requests may finish, so give systemd a little more than that.
+TimeoutStopSec=30s
+
+# Hardening. The service needs to read its own directory, reach the database
+# and bind a port above 1024 — nothing else.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+# Nothing on disk is written by the service. If backups are written by the
+# timer below, that is a different unit with its own directory.
+ReadOnlyPaths=/opt/chwr
+
+[Install]
+WantedBy=multi-user.target
