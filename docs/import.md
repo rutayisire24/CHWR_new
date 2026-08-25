@@ -1,9 +1,8 @@
 # Bulk import
 
-**Built and verified.** The core record imports from CSV and Excel, through the UI, with
-per-row refusals and a scoped report. Two things named here are not built yet: the profile
-columns, which follow on the same machinery, and the scoped CSV export that finishes phase
-6. Both are marked where they appear.
+**Built and verified.** The register record and every optional survey attribute import
+from CSV and Excel, through the UI, with per-row refusals and a scoped report. One thing
+named here is not built: the scoped CSV export that finishes phase 6.
 
 Every record on the register so far was typed one at a time. Districts hold their CHW
 lists in spreadsheets and ODK exports, and the register is not usable until those get in.
@@ -21,6 +20,7 @@ internal/importer/      parse, validate, resolve — no SQL of its own
   read.go       encoding/csv and excelize, both to one Row shape; the limits
   resolve.go    district > subcounty > parish > village, by name within parent
   validate.go   one row → Record + []Problem, and the cross-file NIN pass
+  profile.go    the optional attributes: the branches, the two nested lists
 internal/domain/import.go     Batch, ImportRow, Problem, the status and code vocabularies
 internal/domain/parse.go      the field rules the CHW form and the importer share
 internal/store/imports.go     batches, staged rows, the commit claim, quarantine writes
@@ -28,6 +28,7 @@ internal/http/imports.go      the routes, the store adapter, the commit runner
 internal/web/templates/       imports.html, import_report.html
 migrations/0006_imports.sql   staging tables
 migrations/0007_import_lease.sql   the commit claim
+migrations/0008_import_record.sql  the resolved record on a staged row
 docs/import.md                this file
 ```
 
@@ -116,16 +117,20 @@ column. The district fixes that file and uploads it again; they never have to fi
 
 ## Commit
 
-Commit calls `store.CHWs.CreateTx` once per ready row. Not a bulk `INSERT`, not `COPY`.
+Commit calls `store.CHWs.CreateTx` and, where the row answered anything,
+`store.Profiles.SaveTx`, once per ready row. Not a bulk `INSERT`, not `COPY`.
 
 That is what keeps invariant 6 structural: the create already writes the CHW's `audit_log`
 row inside the CHW's own transaction, and already re-checks the derived `district_id`
 against the `Scope` after the trigger has set it. An importer with its own `INSERT` would
 be a second implementation of both, and the second one is the one that gets it wrong.
 
-`CreateTx` joins the *caller's* transaction — the `Tx` half of the pair `Audit.Record` and
-`Audit.RecordTx` already established — so that one transaction carries the CHW, its audit
-row, and `Imports.MarkImportedTx` marking the staged row. Marking afterwards would leave a
+Both join the *caller's* transaction — the `Tx` half of the pair `Audit.Record` and
+`Audit.RecordTx` already established — so that one transaction carries the CHW, its
+profile, both audit rows, and `Imports.MarkImportedTx` marking the staged row. A profile
+written in a second transaction could be lost while the CHW it describes survived, which
+is the half-loaded record invariant 7 forbids, one row at a time rather than one file at a
+time. Marking afterwards would leave a
 window one row wide: a process killed between the insert committing and the mark landing
 would leave a CHW on the register whose import row still read `ready`, and the next commit
 attempt would create them a second time. Three writes in one transaction close it.
@@ -178,7 +183,7 @@ The first pass carries the core record. The profile columns follow on the same m
 and the vocabulary below is fixed now so the template does not change under people who
 have already started filling it in.
 
-### Core record — first pass
+### The register record
 
 | Column | Required | Notes |
 |---|---|---|
@@ -239,22 +244,67 @@ the **remedy for `location_ambiguous`**. A district holding two villages named `
 has no other way to repair their file. Rejecting a row for ambiguity while offering no
 escape hatch in the same release would be a dead end.
 
-### Profile — second pass
+### Profile — the optional attributes
 
-`phone_owner`, `phone_primary`, `phone_for_reporting`, `phone_alternate`, `facility`,
-`service_start_year`, `households_served`, `education`, `english` (a `;`-delimited subset
-of `speak;read;write`), `other_languages`, `receives_incentive`, `incentive_frequency`,
-`incentive_amount_ugx`, `tools` and `tools_functional` (`;`-delimited slugs),
-`services` and `trained` (`;`-delimited slugs).
+| Column | Notes |
+|---|---|
+| `phone_owner` | yes / no. Blank means not asked |
+| `phone_primary` | their own number, when they own a phone |
+| `phone_for_reporting` | yes / no — is that phone used for reporting |
+| `phone_alternate` | a number to reach them on when they own **no** phone |
+| `facility` | matched by name inside the CHW's own district |
+| `service_start_year` | 1960–2100 |
+| `households_served` | 3–100,000 |
+| `education` | `none` / `ple` / `uce` / `uace` / `tertiary` |
+| `english` | any of `speak; read; write`; `none` is a recorded no on all three |
+| `other_languages` | free text, kept verbatim |
+| `receives_incentive` | yes / no |
+| `incentive_frequency` | `monthly` / `quarterly` / `annually` / `one_off` |
+| `incentive_amount_ugx` | 1,000–500,000 |
+| `tools` | `;`-separated slugs or labels |
+| `tools_functional` | which of those work — a subset of `tools` |
+| `services` | `;`-separated service domains offered |
+| `trained` | trained on in the last 2 years — a subset of `services` |
 
 Blank and "no" stay different answers all the way through: an empty cell leaves the column
 NULL, and only an explicit `no` writes `false`. A profile imported from a file that never
-asked about incentives must not come back as a CHW who said they receive none.
+asked about incentives must not come back as a CHW who said they receive none. **A file
+whose profile columns are all empty writes no `chw_profiles` row at all**, rather than a
+row of nulls — "nothing recorded" and "recorded as nothing" are the same distinction one
+level up.
 
-The branch CHECKs are pre-checked per row for the same reason the profile form pre-checks
-them — a `phone_branch_exclusive` violation reaching the operator as a 500 tells them
-nothing. `support_supervision` has no column here at all: the source form carries no date,
-so `last_supervised_on` fills only through the UI.
+Slugs are what the template documents; the labels are accepted too, because someone who
+read the form rather than the template will write those. `None` in a tool or service list
+means the empty set — it is not a tool named None, which is why 0003 does not seed one.
+
+Both nested lists are checked against their parent before the schema has to: `trained`
+must be among `services` (`trained_implies_provides`) and `tools_functional` among `tools`
+(the form's `choice_filter`). A tool held but not named in `tools_functional` is recorded
+as not working only when that column was filled in at all; left empty, the condition was
+not asked and stays NULL.
+
+`support_supervision` has no column: the source form records supervision per service
+domain and carries no date, so `last_supervised_on` fills only through the UI.
+
+**A bad profile value refuses the whole row**, as a bad value anywhere else does. The
+profile *form* silently drops a value posted into a branch its own JavaScript had hidden —
+a "no" to owning a phone arriving with a phone number stores neither. That is right for a
+form, where the hidden field is a leftover; it is wrong for an import, where a district
+that wrote a phone number is owed either the number or a reason. Every branch CHECK is
+therefore pre-checked and reported: `phone_branch_exclusive`,
+`incentive_details_require_yes`, `trained_implies_provides`.
+
+### The resolved record
+
+A staged row carries `record` beside `raw`: the resolved register record, as JSON, that a
+commit will write. `raw` answers "what did the file say"; `record` is what was reviewed.
+
+Storing it rather than re-deriving it at commit is what the profile columns forced.
+Re-parsing worked while every field was a pure function of its own cell — a name is a name
+— but a facility is resolved by name within the CHW's district, and re-resolving at commit
+would answer from a register that has moved: a facility renamed between the report and the
+commit would silently change which one a CHW reports to. Migration 0008 adds the column,
+and "what is committed is what was reviewed" stops being an argument and becomes a fact.
 
 ## Validation
 
@@ -389,14 +439,13 @@ form depend on JavaScript when nothing else on the register does.
 
 ## What is left
 
-The core record is in. Two pieces of phase 6 are not:
+**The scoped CSV export**, which shares `store.Filter` with the listing. That is the rest
+of phase 6.
 
-1. **The profile columns**, on the same machinery — the vocabulary is fixed above so the
-   template does not change under people who have already started filling it in. Each of
-   the profile CHECKs needs its own row-level rule, for the same reason the profile form
-   pre-checks them: a `phone_branch_exclusive` violation reaching the operator as a 500
-   tells them nothing.
-2. **The scoped CSV export**, which shares `store.Filter` with the listing.
+`chw_languages` also stays empty. `other_languages` is kept verbatim in
+`other_languages_raw` as the form collects it; splitting that free text into a vocabulary
+nobody has agreed on would be inventing the vocabulary, so the parsed junction waits for
+one.
 
 If the row cap ever rises, the commit becomes a background job. The batch table is already
 where such a worker would keep its state, and `committing_at` is already the claim it
@@ -455,6 +504,34 @@ At commit:
   exactly the file's row count, and the second attempt is refused in milliseconds
 - a claim older than the lease is taken over, and the batch commits normally
 
-In the browser, at 1400px and 420px: the report's tiles, the candidate list, the decision
-panel disappearing once decided, no horizontal scroll, and no script on the page at all —
-`app.css` is the only resource the CSP has to allow.
+The profile columns, against the real vocabularies and the real Master Facility List, on a
+fixture built from the template the running app served:
+
+- a full profile round-trips: `0772 123-456` stores as `772123456` and `+256 700 999888` as
+  `700999888`, `1,250` households as `1250`, `speak;read` as speaks and reads with **write
+  recorded as a no**, `Luo, Ateso` kept verbatim, and the facility resolved by name inside
+  the CHW's own district
+- `english=none` writes three recorded noes; a blank cell writes three NULLs
+- a row carrying only the core columns writes **no `chw_profiles` row at all** — verified
+  by asking the database, not by reading nulls off a join
+- `bicycle;gumboots;register` with `bicycle;register` working stores three tools with
+  gumboots false; `iccm;nutrition` trained on `iccm` stores two domains with one trained
+- one row violating every branch at once reported **all seven** reasons together: the
+  phone branch, an unknown education, an unknown proficiency, an amount out of range, a
+  functional tool not held, a trained service not offered, and a facility in another
+  district
+- `received_supervision` and `last_supervised_on` are NULL on every imported row, by
+  construction
+- audit carries one `chw.create` per CHW and one `chw.profile_update` per profile actually
+  written — three and two, not three and three
+
+And the transaction the profile columns are the reason for: a facility moved out of the
+district *between the report and the commit* fails its row at
+`chw_profiles_facility_district`, and **no CHW is left behind** — the insert, the profile
+and the mark roll back together, the row is marked `failed`, and its neighbour still
+imports.
+
+In the browser, at 1400px and 420px: the column reference opens to all 28, the report's
+tiles, the seven reasons listed against one row, the decision panel disappearing once
+decided, no horizontal scroll, and no script on the page at all — `app.css` is the only
+resource the CSP has to allow.

@@ -30,7 +30,8 @@ internal/http/       handlers, routing, form decoding
 internal/importer/   CSV/Excel ingest: readers, name resolution, row validation
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_chws, 0004_facilities_mfl,
-                     0005_chw_listing, 0006_imports, 0007_import_lease
+                     0005_chw_listing, 0006_imports, 0007_import_lease,
+                     0008_import_record
 seed/                hierarchy extraction + load
 data/                source workbooks and the district-to-region map (checked in)
 docs/                detailed reference — see docs/README.md
@@ -190,8 +191,15 @@ refusal, not a preference. Rules the CHW form already applies — the NIN patter
 range, the cadre and sex vocabularies — live in `internal/domain` and are shared, so the
 importer can never accept what the form refuses.
 
-The profile columns are not imported yet; their vocabulary is fixed in `docs/import.md` so
-the template does not change under people already filling it in.
+The optional attributes import too, all seventeen columns. Blank and "no" stay different
+answers: an empty cell is NULL, only an explicit `no` writes false, and a row whose profile
+columns are all empty writes **no `chw_profiles` row at all**. Every branch CHECK is
+pre-checked and reported rather than dropped — the profile *form* silently discards a value
+posted into a hidden branch, which is right for a form and wrong for an import.
+
+A staged row carries `record`, the resolved register record as JSON, beside `raw`. The
+commit reads it back rather than re-deriving it: a facility is resolved by name within the
+CHW's district, and re-resolving at commit would answer from a register that has moved.
 
 ## Auth
 

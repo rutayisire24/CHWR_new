@@ -193,7 +193,14 @@ reach cannot. `columns` keeps the header exactly as the file spelled it, in orde
 is what `errors.csv` is rebuilt from.
 
 `import_rows` is one line: `raw` as it arrived, a verdict, the resolved `location_id`, the
-`problems` array, and `chw_id` once it becomes a record.
+`problems` array, `chw_id` once it becomes a record — and `record` (`0008`), the resolved
+register record the commit will write, as JSON.
+
+`record` exists because not every field is a pure function of its own cell. A facility is
+resolved by name within the CHW's district, so re-deriving it at commit would answer from
+a register that has moved since the report — a facility renamed in between would silently
+change which one a CHW reports to. `raw` answers "what did the file say"; `record` is what
+was reviewed, and what is written.
 
 Two constraints carry rules that would otherwise live only in Go:
 

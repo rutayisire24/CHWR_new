@@ -293,6 +293,25 @@ record that an upload was attempted and refused. A committed batch's rows are th
 redundant data in the system. A timed sweep was written into the design and removed before
 it was built, on those grounds.
 
+**A bad profile value refuses the whole row.** The profile form silently drops a value
+posted into a branch its own JavaScript had hidden — a "no" to owning a phone arriving with
+a number stores neither. That is right for a form, where the hidden field is a leftover,
+and wrong for an import, where a district that wrote a phone number is owed either the
+number or a reason. Every branch CHECK is pre-checked and reported instead. Rejected:
+importing the CHW and dropping the field, which is the silent loss invariant 7 exists to
+forbid.
+
+**A row whose profile columns are all empty writes no `chw_profiles` row.** An all-null row
+would claim the questions were asked and unanswered. It also keeps a plain register import
+as fast as it was, since the profile write and its audit row are skipped entirely.
+
+**The resolved record is stored on the staged row, not re-derived at commit.** Re-parsing
+`raw` worked while every field was a pure function of its own cell; a facility is resolved
+by name within the CHW's district, and re-resolving at commit would answer from a register
+that has moved — a facility renamed between the report and the commit would silently change
+which one a CHW reports to. Migration 0008 adds `import_rows.record`, and "what is
+committed is what was reviewed" stops being an argument.
+
 ## Known costs
 
 **`last_supervised_on` is NULL on every imported row.** The form records supervision per

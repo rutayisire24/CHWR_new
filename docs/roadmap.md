@@ -4,8 +4,8 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1–5 complete. Phase 6 is half done: bulk import of the core record is built and
-verified; the profile columns and the scoped export are not.**
+**Phases 1–5 complete. Phase 6 all but done: bulk import is built and verified, register
+record and every optional attribute; the scoped export is what remains.**
 
 The register is usable at scale — search by name or NIN, filter by cadre, status and any
 level of the hierarchy, page with a keyset — and it can now be filled from the files
@@ -24,15 +24,14 @@ out.
 | `internal/store` | users, sessions, audit, locations, chws, profiles, stats — every method takes a `Scope` |
 | `internal/http` | auth, user admin, audit, dashboard (scoped stats + charts), CHW CRUD, profiles, search and paging |
 | `internal/web` | layout + eleven pages, one stylesheet, three scripts, Chart.js vendored |
-| `migrations/` 0006–0007 | import staging and the commit claim, applied and probed |
+| `migrations/` 0006–0008 | import staging, the commit claim, the resolved record — applied and probed |
 | `internal/importer` | readers, resolver, row validation — 30 tests, none needing a database |
 | Import UI | upload, report, commit, discard, template and `errors.csv` |
-| Profile columns on import | **not started — the vocabulary is fixed in [import.md](import.md)** |
+| Profile columns on import | all seventeen, with every branch CHECK pre-checked |
 | CSV export | **not started — it shares `store.Filter` with the listing** |
-| `chw_languages` | **empty by design — fills with the profile columns** |
+| `chw_languages` | **empty by design — `other_languages_raw` is kept verbatim; the parsed junction waits for an agreed vocabulary** |
 
-Immediate next steps, in order: the profile columns through the importer, then the scoped
-export.
+Immediate next step: the scoped CSV export.
 
 ## Decisions locked
 
@@ -110,16 +109,16 @@ district user unrepresentable in the database.
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
 4. **Optional attributes** — profile form, tools and service-domain junctions *(done)*
 5. **List UI** — search by name/NIN, filter cadre/status/location, pagination *(done)*
-6. **Import + export** — CSV/Excel importer with a per-row error report *(done for the
-   core record)*, the profile columns, scoped CSV export
+6. **Import + export** — CSV/Excel importer with a per-row error report *(done)*, scoped
+   CSV export
 7. **Deploy** — Docker, backups (the first-admin bootstrap landed with phase 2:
    `-create-admin`)
 
 Geography is phase 1 because nothing else is testable without it. Phases 1–5 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization
 layer, the core register record, every optional attribute around it, and the search and
-paging that make a register of that size navigable. Phase 6 is under way — the core record
-imports in bulk; the profile columns and the export are what remain.
+paging that make a register of that size navigable. Phase 6 is nearly complete — the whole
+record imports in bulk; the scoped export is what remains.
 
 ## Source data
 
