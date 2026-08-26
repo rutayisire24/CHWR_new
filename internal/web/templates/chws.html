@@ -12,7 +12,7 @@
 <form method="get" action="/chws" class="filters-bar" data-location-cascade>
   <div class="search">
     <label for="q">Search</label>
-    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name">
+    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name or CHW ID">
     <span class="hint">Matches anywhere within the name.</span>
   </div>
 
@@ -85,11 +85,12 @@
 
 <table class="grid">
   <thead>
-    <tr><th>Name</th><th>Cadre</th><th>Placement</th><th>District</th><th>NIN</th><th>Status</th></tr>
+    <tr><th>CHW ID</th><th>Name</th><th>Cadre</th><th>Placement</th><th>District</th><th>NIN</th><th>Status</th></tr>
   </thead>
   <tbody>
   {{range .Page.CHWs}}
     <tr class="{{if not .Active}}dim{{end}}">
+      <td><code class="chw-code">{{.Code}}</code></td>
       <td><a href="/chws/{{.ID}}">{{.LastName}}, {{.FirstName}}</a></td>
       <td>{{.Cadre.Label}}</td>
       <td>{{.LocationName}}</td>
@@ -98,7 +99,7 @@
       <td><span class="pill {{.Status}}">{{.Status}}</span></td>
     </tr>
   {{else}}
-    <tr><td colspan="6" class="muted">
+    <tr><td colspan="7" class="muted">
       {{if .Page.Filter.Active}}Nothing matches this search. <a href="/chws">Clear the filters</a>.
       {{else}}No CHWs on the register yet.{{if .Page.CanEdit}} <a href="/chws/new">Add the first one</a>.{{end}}{{end}}
     </td></tr>

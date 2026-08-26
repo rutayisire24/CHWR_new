@@ -83,6 +83,23 @@ func TestHeaderIsOrderIndependentAndForgiving(t *testing.T) {
 	}
 }
 
+// The export writes chw_code beside the importer's own columns, so a file that
+// came out of the register can go back in. It must be carried as unknown rather
+// than mistaken for location_code, whose aliases include a bare "code" — and
+// never stored, because the register assigns it.
+func TestCHWCodeIsCarriedAsUnknown(t *testing.T) {
+	h := ReadHeader([]string{"id", "chw_code", "first_name", "last_name", "sex",
+		"cadre", "district", "subcounty", "parish", "location_code"})
+
+	if got, ok := h.index[ColCode]; !ok || got != 9 {
+		t.Errorf("location_code at %d (%v), want 9 — chw_code must not claim it", got, ok)
+	}
+	unknown := h.Unknown()
+	if len(unknown) != 2 || unknown[0] != "id" || unknown[1] != "chw_code" {
+		t.Errorf("Unknown() = %v, want [id chw_code]", unknown)
+	}
+}
+
 // A file missing a required column is refused whole, before a row is staged:
 // there is nothing to review when the columns are wrong.
 func TestMissingRequiredColumnsRefusesTheFile(t *testing.T) {

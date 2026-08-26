@@ -327,6 +327,51 @@ The cost is that a failure part-way through cannot become an error page — the 
 out with the first byte — so the file ends short and the log carries why, the same bargain
 errors.csv makes.
 
+**The CHW code is `KYE00042`: district, then serial, frozen for life.** `chws.id` is a
+surrogate key — correct, and unusable by a district officer reading a printed list at a
+parish or saying a number down a phone. The register needed a second identifier a person
+can carry. Three sub-decisions, each with a rejected alternative:
+
+*No cadre letter.* The first draft was `VKYE00042` / `CKYE00042`, a `v`/`c` for VHT and
+CHEW. Rejected because both encoded facts are mutable — `chws_placement_trg` already fires
+`ON UPDATE OF cadre` — and a two-valued field that is wrong is misleading rather than
+merely vague. Either the letter is true or it should not be there. Dropping it also
+collapses two counters per district into one.
+
+*Frozen, never recomputed.* Rejected: recomputing the code on transfer or re-cadring, and
+reissuing with the old code retained as an alias. An identifier that changes is not one —
+it breaks paper already in the field and the join back through `audit_log` — and Uganda has
+gone from 112 districts to 146 within living memory, so a single split would churn
+thousands of codes at once. The code says where a CHW *entered* the register, which stays
+true; the record's own columns say where they are now.
+
+*Five digits, not four and not base-32.* Four caps a district at 9,999 and the largest
+already holds over 3,000 at partial coverage, with invariant 5 meaning a serial is never
+released. Crockford base-32 was considered for compactness — it drops `I L O U` and folds
+`O`→`0`, `I`/`L`→`1` on input — and rejected: it saves exactly one character over five
+digits, needs an input-normalization rule and a check character to be safe, and still
+leaves `5`/`S`, `2`/`Z`, `8`/`B` confusable. Its home is 128-bit random tokens, not a
+counter that will spend its life under five figures. Digits also let an officer read the
+serial as a count and check it against their own paperwork.
+
+**Two letters of district was impossible, not merely tight.** 41 of the 146 districts begin
+with K, so no scheme where the code starts with the district's own initial can give them
+distinct second letters. Assigning arbitrary pairs is possible — 146 into 676 — but
+produces `AA` for Kaabong and `ER` for Kaberamaido, at which point the code is a lookup
+table and the official numeric district code in `locations.code` would have done. Three
+letters gives every district a code starting with its own initial with room to curate:
+`KYE` Kyenjojo, `KYG` Kyegegwa, and a code ends in `C` if and only if the district is a
+city. The 146 are reviewed and checked in as `data/district_codes.tsv`, and carried into
+`district_codes` by migration 0009 rather than by a seed step, because the trigger that
+assigns codes cannot wait for a seed the way the hierarchy can.
+
+**The listing's search box takes a code as well as a name.** This is not the NIN exclusion
+in reverse. A NIN is a national identifier and searching by one lets the register be probed
+with it; a CHW code is issued by this register and exists to be looked up. `Scope` still
+decides which rows come back. A code has a shape a name cannot, so `NormalizeCHWCode`
+recognises one and matches it exactly — forgiving case, spaces and the hyphen someone adds
+to make it readable, because a code arrives copied off paper.
+
 ## Known costs
 
 **`last_supervised_on` is NULL on every imported row.** The form records supervision per

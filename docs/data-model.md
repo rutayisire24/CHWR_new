@@ -96,6 +96,37 @@ history — there is no separate versioning table.
 `chws` holds identity only; optional survey answers live in `chw_profiles`; multi-valued
 answers live in junctions.
 
+### The CHW code
+
+`chw_code` is the register's human-legible identifier: three letters of district, five
+digits of serial, e.g. `KYE00042` for the 42nd CHW registered in Kyenjojo. `chws.id`
+remains the key everything joins on; this is the one a person reads off a printed list or
+says down a phone.
+
+| Piece | Source | Mutability |
+|---|---|---|
+| `KYE` | `district_codes.abbr`, keyed by the official numeric district code | curated, checked in as `data/district_codes.tsv` |
+| `00042` | `chw_code_counters.last_serial` for that district | issued once, never reused |
+
+`chws_assign_code()` fires `BEFORE INSERT` and is **named to sort after
+`chws_placement_trg`** — PostgreSQL fires BEFORE row triggers in trigger-name order, and
+`NEW.district_id` is derived by that one. It refuses a supplied value, takes the serial
+from a single upsert (`ON CONFLICT DO UPDATE ... RETURNING`) so concurrent inserts into one
+district serialize on that row and inserts into different districts do not touch each
+other, and refuses a district that has no code rather than inventing one.
+
+`chws_freeze_code()` refuses any change. The code is permanent: a transfer, a re-cadring
+and a district split all leave it alone, because an identifier that changes is not one.
+Both refusals, and the district-code shape constraints, are cases in
+`seed/verify_constraints.sql`. Verified: 44,446 backfilled rows all coded and unique, and
+40 concurrent inserts into one district produced 40 contiguous codes with no duplicate.
+
+`district_codes` is populated by migration 0009 rather than by a seed step, because
+`locations` is empty when migrations run on a fresh database and the trigger cannot wait.
+That is why it is keyed by `district_code text` and not by `locations.id`. A district
+created after 0009 needs a row added before CHWs can be registered there — the refusal is
+loud on purpose; the alternative is a register carrying two ID schemes.
+
 ### Placement
 
 ```
@@ -136,6 +167,7 @@ list UI needs:
 | `chws_name_sort_idx (lower(last_name), lower(first_name), id)` | the national listing and its keyset comparison |
 | `chws_district_name_idx (district_id, lower(...), lower(...), id)` | the same inside one district, without scanning the national order |
 | `chws_nin_prefix_idx (nin text_pattern_ops) WHERE nin IS NOT NULL` | `LIKE 'CM90%'` as an index scan; `chws_nin_uniq` only answers equality |
+| `chws_code_uniq (chw_code)` | the search box's exact match when what was typed is a code, and the uniqueness the code claims |
 
 `lower()` because the source data is inconsistently cased and a case-sensitive sort
 interleaves the same surname three ways.

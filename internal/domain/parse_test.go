@@ -85,3 +85,38 @@ func TestParseSex(t *testing.T) {
 		}
 	}
 }
+
+// The search box holds names and CHW codes alike, so recognising a code has to
+// survive the ways one arrives: copied off a printed list, said down a phone,
+// or typed with the hyphen that makes it readable. A name must never be
+// mistaken for one.
+func TestNormalizeCHWCode(t *testing.T) {
+	codes := map[string]string{
+		"KYE00042":   "KYE00042",
+		"kye00042":   "KYE00042",
+		"KYE-00042":  "KYE00042", // printed with a separator
+		" kye 00042": "KYE00042",
+		"WAK99999":   "WAK99999",
+	}
+	for in, want := range codes {
+		got, ok := NormalizeCHWCode(in)
+		if !ok || got != want {
+			t.Errorf("NormalizeCHWCode(%q) = %q, %v; want %q, true", in, got, ok, want)
+		}
+	}
+
+	notCodes := []string{
+		"",
+		"Namukasa",  // a name
+		"KYE0042",   // four digits
+		"KYE000420", // six
+		"KY000042",  // two letters
+		"KYEA0042",  // letter inside the serial
+		"KYE-0042",  // the hyphen goes, and four digits are left
+	}
+	for _, s := range notCodes {
+		if _, ok := NormalizeCHWCode(s); ok {
+			t.Errorf("NormalizeCHWCode(%q) reported a code", s)
+		}
+	}
+}

@@ -191,6 +191,15 @@ form.inline button { margin-top: 0; }
 .grid .actions { text-align: right; }
 .grid code { font-size: 0.8125rem; }
 
+/* The CHW code is read off the screen and copied onto paper, or said down a
+   phone. Tabular figures keep the five digits in a column so a wrong one is
+   visible, and it never wraps: half a code is a different code. */
+.chw-code {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .pill {
   display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
   font-size: 0.75rem; font-weight: 600; text-transform: lowercase;

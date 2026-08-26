@@ -19,11 +19,12 @@ import (
 //
 // The columns the importer reads keep the importer's own names, so a file that
 // comes out of the register can go back into it. The rest are what the register
-// knows and an upload cannot supply — the id, the derived placement, the status
-// and the timestamps — and the importer names them as unknown and ignores them,
+// knows and an upload cannot supply — the id, the CHW code, the derived
+// placement, the status and the timestamps — and the importer names them as
+// unknown and ignores them,
 // which is the right answer for a column it must not let anyone set.
 var exportColumns = []string{
-	"id",
+	"id", "chw_code",
 	importer.ColNIN, importer.ColFirstName, importer.ColLastName,
 	importer.ColSex, importer.ColCadre, importer.ColAge, "age_captured_on",
 	importer.ColDistrict, importer.ColSubcounty, importer.ColParish, importer.ColVillage,
@@ -91,7 +92,7 @@ func (s *Server) chwsExport(w http.ResponseWriter, r *http.Request) {
 // *bool, not a fact about the register.
 func exportRecord(r store.ExportRow) []string {
 	return []string{
-		strconv.FormatInt(r.ID, 10),
+		strconv.FormatInt(r.ID, 10), r.Code,
 		r.NIN, r.FirstName, r.LastName,
 		string(r.Sex), string(r.Cadre), intPtrString(r.AgeYears), dateString(&r.AgeCapturedOn),
 		r.District, r.Subcounty, r.Parish, r.Village,

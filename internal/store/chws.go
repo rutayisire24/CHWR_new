@@ -25,7 +25,7 @@ type CHWs struct {
 // text so pgx needs no type registration, and nin is coalesced because "not
 // recorded" is the common case, not an error.
 const chwColumns = `
-    c.id, coalesce(c.nin,''), c.first_name, c.last_name, c.sex::text, c.cadre::text,
+    c.id, c.chw_code, coalesce(c.nin,''), c.first_name, c.last_name, c.sex::text, c.cadre::text,
     c.age_years, c.age_captured_on, c.location_id, c.district_id,
     l.name, d.name, c.status::text, c.deactivated_at, coalesce(c.deactivation_reason,''),
     c.created_by, c.updated_by, c.created_at, c.updated_at`
@@ -38,7 +38,7 @@ const chwFrom = `
 func scanCHW(row pgx.Row) (domain.CHW, error) {
 	var c domain.CHW
 	var sex, cadre, status string
-	err := row.Scan(&c.ID, &c.NIN, &c.FirstName, &c.LastName, &sex, &cadre,
+	err := row.Scan(&c.ID, &c.Code, &c.NIN, &c.FirstName, &c.LastName, &sex, &cadre,
 		&c.AgeYears, &c.AgeCapturedOn, &c.LocationID, &c.DistrictID,
 		&c.LocationName, &c.DistrictName, &status, &c.DeactivatedAt, &c.DeactivationReason,
 		&c.CreatedBy, &c.UpdatedBy, &c.CreatedAt, &c.UpdatedAt)
@@ -176,11 +176,24 @@ func (f Filter) where(sc auth.Scope) (string, []any) {
 			" AND l.path LIKE (SELECT path FROM locations WHERE id = $%d) || '%%'", len(args))
 	}
 	if q := strings.TrimSpace(f.Query); q != "" {
-		// The trigram index is built on this exact expression, so the search
-		// has to be written against it rather than against the two columns
-		// separately.
-		args = append(args, "%"+q+"%")
-		where += fmt.Sprintf(" AND (c.first_name || ' ' || c.last_name) ILIKE $%d", len(args))
+		if code, ok := domain.NormalizeCHWCode(q); ok {
+			// One box, two things it can hold. A CHW code has a shape a name
+			// cannot, so recognising it costs nothing and saves an operator
+			// holding a printed list from knowing which field to use.
+			//
+			// This is not the NIN exception in reverse: a NIN is a national
+			// identifier and searching by one lets a register be probed with
+			// it, whereas a code is issued by this register and exists to be
+			// looked up. The Scope still decides whether the row comes back.
+			args = append(args, code)
+			where += fmt.Sprintf(" AND c.chw_code = $%d", len(args))
+		} else {
+			// The trigram index is built on this exact expression, so the
+			// search has to be written against it rather than against the two
+			// columns separately.
+			args = append(args, "%"+q+"%")
+			where += fmt.Sprintf(" AND (c.first_name || ' ' || c.last_name) ILIKE $%d", len(args))
+		}
 	}
 	return where, args
 }
