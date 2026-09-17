@@ -4,12 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{block "title" .}}Community Health Worker Registry{{end}}</title>
+  <link rel="icon" href="/static/logo.png" type="image/png">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body class="{{if .User}}has-nav{{else}}no-nav{{end}}">
 {{if .User}}
 <aside class="sidenav">
-  <a class="brand" href="/">CHW Registry</a>
+  <a class="brand" href="/">
+    <img class="brand-mark" src="/static/logo.png" width="186" height="200" alt="">
+    <span>CHW Registry</span>
+  </a>
   <nav>
     <a href="/" class="{{if eq .Nav.Section "/"}}on{{end}}">Dashboard</a>
     {{if .Nav.CHWs}}<a href="/chws" class="{{if eq .Nav.Section "/chws"}}on{{end}}">Register</a>{{end}}
@@ -34,7 +38,10 @@
     {{block "content" .}}{{end}}
   </main>
 
-  <footer class="foot">Ministry of Health · National Community Health Worker Registry</footer>
+  <footer class="foot">
+    <img class="foot-mark" src="/static/logo.png" width="186" height="200" alt="">
+    <span>Ministry of Health · National Community Health Worker Registry</span>
+  </footer>
 </div>
 </body>
 </html>

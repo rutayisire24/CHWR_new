@@ -8,6 +8,17 @@
 <form method="post" action="/chws/{{.Page.CHW.ID}}/profile" class="card" id="profile-form">
   {{template "csrf" .}}
 
+  {{if .Page.Errors}}
+  <div class="form-error-summary" role="alert">
+    <p>Fix these before saving:</p>
+    <ul>
+      {{range $field, $msg := .Page.Errors}}
+      <li><a href="{{if eq $field "last_supervised_on"}}#supervised_month{{else}}#{{$field}}{{end}}">{{$msg}}</a></li>
+      {{end}}
+    </ul>
+  </div>
+  {{end}}
+
   <h2 class="section">Phone</h2>
   <label>Does the CHW own a phone?</label>
   <div class="radios" data-branch="owns_phone">

@@ -315,6 +315,117 @@ func TestAmbiguousVillageOffersBothCandidates(t *testing.T) {
 	}
 }
 
+// A district's spreadsheet writes the tier beside the name. At subcounty the
+// tier word is decoration — no canonical subcounty carries one — so every one
+// of these is MORULEM.
+func TestTierWordOnASubcountyIsDecoration(t *testing.T) {
+	for _, written := range []string{"MORULEM", "MORULEM S/C", "MORULEM SC", "MORULEM Subcounty", "morulem sub-county"} {
+		s := only(t, validate(t, auth.National(),
+			"Grace,Okello,f,vht,,,ABIM,"+written+",ALEREK,KANU-EAST,\n", nil))
+		if len(s.Row.Problems) != 0 {
+			t.Errorf("%q: %v", written, s.Row.Summary())
+			continue
+		}
+		if s.Record.LocationID != kanu {
+			t.Errorf("%q placed at %d, want KANU-EAST under MORULEM", written, s.Record.LocationID)
+		}
+	}
+}
+
+// The other half of the same rule, and the one that matters. MORULEM and
+// MORULEM TOWN COUNCIL are two different subcounties of one county. The tier
+// word is the name here, so it is expanded to the gazetteer's spelling and
+// never dropped — dropping it would place this CHW in MORULEM and nothing
+// downstream would notice.
+func TestTownCouncilIsTheNameNotTheTier(t *testing.T) {
+	for _, written := range []string{"MORULEM TOWN COUNCIL", "MORULEM T/C", "Morulem TC"} {
+		s := only(t, validate(t, auth.National(),
+			"Grace,Okello,f,vht,,,ABIM,"+written+",CENTRAL WARD,MARKET CELL,\n", nil))
+		if len(s.Row.Problems) != 0 {
+			t.Errorf("%q: %v", written, s.Row.Summary())
+			continue
+		}
+		if s.Record.LocationID != marketCel {
+			t.Errorf("%q placed at %d, want MARKET CELL under MORULEM TOWN COUNCIL",
+				written, s.Record.LocationID)
+		}
+	}
+}
+
+// WARD ends 3,228 real parishes and CELL ends 187 real villages, so neither is
+// ever folded away. A parish written CENTRAL WARD is CENTRAL WARD.
+func TestWardAndCellAreNamesNotTiers(t *testing.T) {
+	s := only(t, validate(t, auth.National(),
+		"Grace,Okello,f,vht,,,ABIM,MORULEM TOWN COUNCIL,CENTRAL,MARKET,\n", nil))
+	if !hasCode(s, domain.ProblemLocationMissing) {
+		t.Fatalf("CENTRAL matched CENTRAL WARD: %v", codes(s))
+	}
+}
+
+// A name that is not among the siblings it was looked for among is refused, not
+// relocated. But the refusal says where the name does exist, because "no
+// village called KANU-EAST in OKUDI" cannot be told from a misspelling.
+func TestAVillageInTheNextParishIsNamedNotGuessed(t *testing.T) {
+	s := only(t, validate(t, auth.National(),
+		"Grace,Okello,f,vht,,,ABIM,MORULEM,OKUDI,KANU-EAST,\n", nil))
+
+	if !hasCode(s, domain.ProblemLocationMissing) {
+		t.Fatalf("codes = %v", codes(s))
+	}
+	if s.Record.LocationID != 0 {
+		t.Fatal("the row was placed in the parish it did not name")
+	}
+	if !strings.Contains(s.Row.Summary(), "OKUDI") {
+		t.Errorf("message does not name the parish searched: %q", s.Row.Summary())
+	}
+
+	candidates := s.Row.Problems[0].Candidates
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %d, want the one in ALEREK", len(candidates))
+	}
+	if candidates[0].LocationID != kanu {
+		t.Errorf("candidate is %d, want KANU-EAST", candidates[0].LocationID)
+	}
+	if !strings.Contains(candidates[0].Path, "ALEREK") {
+		t.Errorf("candidate path %q does not say where it is", candidates[0].Path)
+	}
+	if candidates[0].Code == "" {
+		t.Error("candidate carries no code, so there is no way to act on it")
+	}
+	if !strings.Contains(s.Row.Summary(), ColCode) {
+		t.Errorf("message does not name the escape hatch: %q", s.Row.Summary())
+	}
+}
+
+// Widening looks one tier up, never past the district — which is the tier the
+// scope already agreed to. A subcounty that is nowhere in the district has
+// nothing above it to widen into and gets the plain refusal.
+func TestWideningStopsAtTheDistrict(t *testing.T) {
+	s := only(t, validate(t, auth.National(),
+		"Grace,Okello,f,vht,,,ABIM,BUNGATIRA,PAWEL,LAYIBI,\n", nil))
+
+	if !hasCode(s, domain.ProblemLocationMissing) {
+		t.Fatalf("codes = %v", codes(s))
+	}
+	if got := s.Row.Problems[0].Candidates; len(got) != 0 {
+		t.Errorf("widened into another district: %v", got)
+	}
+}
+
+// The tier word is folded on both sides of the code-versus-name check too, so
+// a row spelling its subcounty MORULEM S/C beside a correct code is agreeing
+// with it, not contradicting it.
+func TestATierWordIsNotACodeMismatch(t *testing.T) {
+	s := only(t, validate(t, auth.National(),
+		"Grace,Okello,f,vht,,,ABIM,MORULEM S/C,ALEREK,BUHOBA A,09523504038002\n", nil))
+	if len(s.Row.Problems) != 0 {
+		t.Fatalf("%v", s.Row.Summary())
+	}
+	if s.Record.LocationID != buhobaA1 {
+		t.Errorf("placed at %d, want %d", s.Record.LocationID, buhobaA1)
+	}
+}
+
 // The remedy for the case above, in the same release: the code says which.
 func TestLocationCodeSettlesAnAmbiguousName(t *testing.T) {
 	s := only(t, validate(t, auth.National(),

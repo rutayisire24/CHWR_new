@@ -279,6 +279,38 @@ never a silently wrong answer. Trigram matching across 71,207 villages was rejec
 would answer confidently and wrongly, and a CHW filed under the wrong village is not an
 error anyone notices.
 
+**The administrative tier word is folded per level: redundant ones dropped, identifying
+ones expanded, and at village neither.** A district's spreadsheet writes the tier beside
+the name — `Romogi Sc`, `Mpigi T/C`, `Ludaracounty` — and refusing all of them cost real
+rows: on a 31,462-row eCHIS export only 40% placed. Blanket suffix stripping was the
+obvious fix and is wrong. The gazetteer holds 588 subcounties named `… TOWN COUNCIL` and
+112 named `… DIVISION`, and `LUWEERO` sits beside `LUWEERO TOWN COUNCIL` in one county —
+279 such pairs. Stripping the tier word merges them and files a CHW in the wrong one
+silently, which is the single outcome this package exists to prevent. So a tier word is
+dropped only where **no** canonical name at that level carries it, and otherwise expanded
+to the gazetteer's spelling. At village nothing is folded: `CELL`, `ZONE`, `TC` and
+`VILLAGE` all end real village names.
+
+A collision count alone is not the test. Bare `TC` at subcounty collides with nothing —
+canonical names spell `TOWN COUNCIL` out — yet stripping it would match `Mpigi T/C` to
+`MPIGI`, a different subcounty. The rule is about what the word *means* at that level, and
+the collision count only catches the half of the mistake that shows up as a merge.
+`seed/verify_name_folding.sql` checks that half against the real hierarchy, because it is
+a fact about the gazetteer rather than about Go, and `make verify` runs it. On the August
+2026 hierarchy the safe fold takes the same export from 40% placed to 52%, and adds no
+ambiguity at all.
+
+**A name matching nothing is refused, and the refusal says where the name does exist.**
+The alternative — resolving to the one place the name is found one tier up — is the same
+silent guess that preferring a code over a contradicting name would be, and it would
+quietly overrule the parish the file actually named. But `No village called Waibuga in
+Kasonga.` cannot be told from a misspelling by the person who has to fix it. So the
+resolver looks one tier wider purely to build the message and offers what it finds as
+`candidates`, which the report already renders and which a `location_code` already
+settles. The search radius widens; the match does not. Widening stops at the district, so
+it can never name a location outside the uploader's scope — the same reason
+`/api/locations` and the CHW form answer the way they do.
+
 **Excel is read by `excelize`, pinned to v2.9.1.** A hand-rolled reader over `archive/zip`
 is about two hundred lines and was rejected: it would be a second implementation of a
 format whose edge cases — styles, dates as serials, merged cells, scientific notation in a

@@ -4,15 +4,16 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
-**Phases 1–7 complete.** The register is seeded, scoped, searchable, importable,
-exportable and deployable.
+**Phases 1–7 complete, and the register now holds a real national seed:** 44,446 CHWs
+converted from the August 2026 ODK export and imported district by district — 42,956 VHTs
+and 1,490 CHEWs across 54 districts, every one of them with an `audit_log` row.
 
-The register is usable at scale — search by name or NIN, filter by cadre, status and any
-level of the hierarchy, page with a keyset — and it can now be filled from the files
-districts already hold. A CSV or Excel upload is checked row by row against the hierarchy
-and the register, staged, and reported on; a human commits or discards it. What is left is
-the optional survey attributes on the same machinery, and getting a scoped slice back
-out.
+The register is usable at scale — search by name or CHW code, filter by cadre, status and
+any level of the hierarchy, page with a keyset — and it is filled from the files districts
+already hold. A CSV or Excel upload is checked row by row against the hierarchy and the
+register, staged, and reported on; a human commits or discards it. The roadmap's own list
+is done. What is left is a second source, not a second feature: see
+[Open work](#open-work-the-second-source) below.
 
 | | State |
 |---|---|
@@ -30,9 +31,12 @@ out.
 | Profile columns on import | all seventeen, with every branch CHECK pre-checked |
 | CSV export | `GET /chws/export.csv`, streamed, sharing `store.Filter` and the `Scope` with the listing |
 | `chw_languages` | **empty by design — `other_languages_raw` is kept verbatim; the parsed junction waits for an agreed vocabulary** |
-
-Phase 6 is complete. Next is whatever the register needs in use; the roadmap's own list
-is done.
+| `migrations/` 0009 | `chw_code` — three-letter district code plus a five-digit serial, assigned by trigger, never supplied and never changed |
+| Register search | one box, name **or** CHW code; the NIN filter was removed rather than kept — a national identifier must not be a probe |
+| `seed/convert_odk_export.py` | ODK export → importer-canonical CSVs, one cadre per run, one file per district |
+| `seed/package_import.sh` | fingerprinted, checksummed transfer to a machine that cannot reach the export |
+| Importer name folding | the administrative tier word folded per level — dropped where redundant, expanded where identifying, untouched at village |
+| ODK seed loaded | 44,446 CHWs, 54 districts — see [The national seed](#the-national-seed) |
 
 ## Decisions locked
 
@@ -57,6 +61,10 @@ Full rationale, including rejected alternatives, is in [decisions.md](decisions.
 | Import flow | Upload validates and stages, a human commits or discards; nothing is written by uploading |
 | Import scope | A row naming another district is refused, never silently relocated |
 | `location_code` | Decides the placement when given; a contradicting name column is a refusal |
+| CHW code | `KYE00042` — district letters plus a serial, assigned on insert, never recomputed on transfer or district split; encodes no cadre |
+| Register search | Name or CHW code only. A NIN is a national identifier; searching by one lets the register be probed with it |
+| Name folding | Tier word folded by level against the gazetteer, never blanket-stripped: 279 subcounties sit beside their own `TOWN COUNCIL` |
+| Unmatched name | Refused, never relocated — but the message looks one tier wider, never past the district, so the refusal is actionable |
 
 ## Stack
 
@@ -111,7 +119,7 @@ district user unrepresentable in the database.
 2. **Auth** — argon2id, sessions, CSRF, RBAC middleware, `Scope` plumbing *(done)*
 3. **CHW CRUD** — core record, deactivation with reason, audit on every mutation *(done)*
 4. **Optional attributes** — profile form, tools and service-domain junctions *(done)*
-5. **List UI** — search by name/NIN, filter cadre/status/location, pagination *(done)*
+5. **List UI** — search by name/code, filter cadre/status/location, pagination *(done)*
 6. **Import + export** — CSV/Excel importer with a per-row error report, scoped CSV
    export *(done)*
 7. **Deploy** — a plain binary under systemd, a reverse proxy for TLS, nightly backups
@@ -123,6 +131,76 @@ layer, the core register record, every optional attribute around it, and the sea
 paging that make a register of that size navigable. Phase 6 is complete: the whole record
 imports in bulk and comes back out through the same vocabulary. Phase 7 deploys it as a
 binary under systemd, behind a proxy, with a rehearsed restore.
+
+## The national seed
+
+The register was filled from the August 2026 ODK Central export — 63,554 submissions,
+which never enter this repository because they carry NINs and phone numbers.
+`seed/convert_odk_export.py` resolves placement against the hierarchy and emits
+importer-canonical CSVs, one cadre per run and one file per district; those go through the
+ordinary `/imports` review-then-commit path. Full method and losses in
+[`seed/README.md`](../seed/README.md).
+
+| Run | Converted | Imported | Districts |
+|---|---|---|---|
+| `CADRE=vht` | 42,956 | 42,956 | 46 |
+| `CADRE=chew` | 1,588 | 1,490 | 30 |
+| **register** | | **44,446** | **54** |
+
+The 98 CHEWs that did not land were refused by `chws_nin_uniq` — the same people
+enumerated twice under two cadres, caught by the index rather than guessed at by the
+converter. `SELECT count(*) FROM chws` and `count(*) FROM audit_log WHERE action =
+'chw.create'` both read 44,446, which is invariant 6 holding across a 44k-row load.
+
+The dominant loss is a collection gap, not a matching failure: 9,243 submissions recorded
+no village at all, and whole districts recorded none — Namutumba 2,851 of 2,862, Bugiri
+2,057 of 2,075. A VHT is placed at village, so those rows need re-collection before
+anything can import them. That is why 46 districts come out of an export covering 64.
+
+## Open work: the second source
+
+The ODK export is one of two rosters. The other is **eCHIS** — `cht.mv_chw_hierarchy` in
+`uganda_dwh`, 43,895 rows over 73 districts, seventeen more than the ODK export reached.
+`seed/convert_echis_export.py` converts it, on the same contract as the ODK converter:
+placement resolved here and handed over as `location_code`. Method and full counts in
+[`seed/README.md`](../seed/README.md); measured 1 Sep 2026 against the seeded hierarchy:
+
+| | VHT | CHEW |
+|---|---|---|
+| rows of that cadre | 38,609 | 5,286 |
+| placed by the importer's own name cascade | 20,021 (52.3%) | — |
+| **placed by the converter** | **26,913 (73.9%)** | **3,712 (70.2%)** |
+| of those, already on the register | 7,294 | 536 |
+| written out as new people | 19,317 | 3,173 |
+| districts | 51 | 38 |
+
+Every emitted `location_code` was checked back against `locations`: all 22,490 resolve, sit
+at the level their cadre requires, and carry name columns matching the resolved chain, so
+the importer's code-versus-name check passes on all of them.
+
+**7,830 rows are people the register already holds.** eCHIS carries no NIN, so
+`chws_nin_uniq` cannot see them, the importer only *warns* on a duplicate name at one
+location, and a CHW is never deleted — a duplicate loaded from this file would be
+permanent. The converter probes `chws` directly instead, on the token set rather than the
+name pair, because eCHIS stores one name string whose order is unreliable.
+
+**What is still open is `sex`, and only `sex`.** `chws.sex` is `NOT NULL` and the importer
+requires it; eCHIS fills it 0 times in 43,895. So the converter writes `ready/` and
+`pending/`, and today `ready/` is empty: **22,490 people are placed, de-duplicated and
+canonical in every other column, waiting on one answer.** It is never guessed — a defaulted
+sex is a wrong fact that would flow into the reporting the register feeds.
+
+Two ways to close it, and they compose:
+
+- `SEX_FILE=map.csv` merges a `chw_id,sex` extract, if CHT holds the field anywhere the
+  view does not expose.
+- Otherwise a `pending/` file *is* the district worklist: placement, phone and facility
+  already settled, one column to fill, uploaded through the ordinary `/imports` path.
+
+Beyond sex, eCHIS fills 10 of 28 columns — no NIN, no age, no education, incentives, tools
+or services. That is not a reason to hold it back: every profile column is nullable, blank
+imports as NULL, and a row from eCHIS is an honest placement and phone number rather than a
+survey. The completeness chart is where that shows, which is what it is for.
 
 ## Source data
 
@@ -152,6 +230,11 @@ Schema applied to PostgreSQL 18 and probed, not just written:
 - full hierarchy loads in ~3s, 84,635 rows, zero losses, zero `code_path` mismatches
 - 39 bad-data cases rejected, 0 leaked (`seed/verify_constraints.sql`) — see
   [data-model.md](data-model.md) for the full list
+- the importer's tier-word fold merges no two siblings anywhere in the loaded hierarchy
+  (`seed/verify_name_folding.sql`, run by `make verify`). The gazetteer counts the fold
+  rests on were re-checked against the database: 588 subcounties end in `TOWN COUNCIL`,
+  112 in `DIVISION`, 3,228 parishes in `WARD`, and 279 subcounties sit beside their own
+  `… TOWN COUNCIL` under one county
 - facilities load 7,895 of 7,907 rows across all 146 districts, 12 quarantined, none
   unresolvable; cross-district CHW attachment refused in both directions
 - the whole path rebuilds from a dropped database and a deleted `seed/out/` using only
@@ -236,7 +319,8 @@ Phase 5 was verified against 24,573 CHWs — a synthetic fixture loaded into the
 database, since the real register arrives with the importer in phase 6:
 
 - every filter's count was checked against the same count taken in SQL: 1,279 inactive,
-  347 CHEWs, 202 in ABIM, 58 for a two-word name search, 20 for a NIN prefix
+  347 CHEWs, 202 in ABIM, 58 for a two-word name search, 20 for a NIN prefix — the NIN
+  filter has since been removed, and search is name or CHW code
 - paging the CHEW filter to exhaustion returned all 347 rows over 7 pages, in exactly the
   order the database returns them, with no row repeated and none skipped
 - walking back from the last page retraced the forward pages exactly
@@ -247,7 +331,11 @@ database, since the real register arrives with the importer in phase 6:
   `chws_district_name_idx` / `chws_name_sort_idx` (~1–2 ms at 24.5k rows), and NIN
   prefixes an index scan on `chws_nin_prefix_idx`. The trigram index is used for a
   selective name; for a term matching 4% of the table the planner prefers a sequential
-  scan, which at this size is the cheaper plan and not a defect
+  scan, which at this size is the cheaper plan and not a defect.
+  **`chws_nin_prefix_idx` is now unreferenced** — nothing in `internal/store` searches a
+  NIN since the filter was removed. Migrations are append-only, so dropping it is a new
+  migration and not an edit to 0005; it is left in place until something else needs the
+  write cost back
 
 Phase 6's import half was exercised the same way, against the seeded hierarchy and a
 24,573-record register — through the running server, and through a real browser on the

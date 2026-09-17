@@ -16,7 +16,9 @@ which is the only part with no loader of its own.
 | `extract_facilities.py` | `data/MFL Updated - 21 feb.xlsx` → `out/facilities.tsv` |
 | `load_facilities.sql` | 7,895 facilities parented to district; 12 quarantined |
 | `verify_constraints.sql` | 39 bad-data cases, every one of which must say `blocked` |
+| `verify_name_folding.sql` | Asserts the importer's tier-word fold merges no two siblings |
 | `convert_odk_export.py` | ODK export → importer-canonical CSVs, one per district |
+| `convert_echis_export.py` | eCHIS deployment hierarchy → the same, split ready / pending-sex |
 | `import_batches.sh` | Uploads and commits those CSVs against a running server |
 | `package_import.sh` | Packs those CSVs for transfer, and verifies one against a register |
 
@@ -156,6 +158,81 @@ Two source values have nowhere to go and are logged rather than carried: `chw_ty
 free text, and the `or_other` member of the tool list. Supervision is not imported at
 all — the form records it per service domain and carries no date, so `last_supervised_on`
 fills only through the UI.
+
+## The eCHIS conversion
+
+```bash
+export DATABASE_URL=postgres:///chwr
+CADRE=vht  python3 seed/convert_echis_export.py mv_chw_hierarchy.parquet ~/chwr-echis-vht
+CADRE=chew python3 seed/convert_echis_export.py mv_chw_hierarchy.parquet ~/chwr-echis-chew
+```
+
+The second national roster: `cht.mv_chw_hierarchy` in `uganda_dwh`, 43,895 rows over 73
+districts — seventeen more than the ODK export reached. Same contract as the ODK
+converter, and for the same reason: placement is resolved here, against the hierarchy the
+rows will be imported into, and handed over as `location_code`.
+
+Reads the view as CSV, or as the parquet `echis_dwh`'s `export_echis.py` writes (which
+needs pandas; the CSV path is stdlib). Writes nothing to the database.
+
+### It resolves placement far better than the importer can
+
+eCHIS writes the tier into the cell — `Kyotera District`, `Kyebe Subcounty`, `Gombe Ward` —
+and puts the county in a column of its own. Fed straight to the importer's strict cascade,
+the VHT rows place at 52.3%. Resolved here, where every reading of a cell can be tried
+against the real siblings and the county narrows the subcounty, **73.9% place**:
+
+| | VHT | CHEW |
+|---|---|---|
+| rows of that cadre | 38,609 | 5,286 |
+| reached the placement step | 36,428 | 5,286 |
+| resolved to a real location | 26,913 (73.9%) | 3,712 (70.2%) |
+| already on the register | 7,294 | 536 |
+| repeat within the file | 302 | 3 |
+| **written out** | **19,317** | **3,173** |
+| districts | 51 | 38 |
+
+The literal cell is always tried first and a stripped reading only ever second, so a
+fragment can widen the search and never overrule a name that already matched. That is the
+same rule `internal/importer/resolve.go` follows and for the same reason: 588 subcounties
+really are called `… TOWN COUNCIL` and 3,228 parishes really are called `… WARD`.
+
+### It refuses what the register cannot catch
+
+**7,830 rows are people already in the register.** eCHIS carries no NIN, so `chws_nin_uniq`
+cannot see them; the importer only *warns* on a duplicate name at one location; and a CHW
+is never deleted, so a duplicate created by this file would be permanent. The probe is
+therefore done here, against `chws` on the same `(location_id, last_name, first_name)` the
+register indexes — on the token *set*, because eCHIS stores one name string whose order is
+unreliable and `Nandala Moses` must meet `Moses Nandala`.
+
+### Nothing is import-ready until sex is answered
+
+`chws.sex` is `NOT NULL` and the importer requires it. eCHIS does not carry it — 0 of
+43,895 — so the output is split:
+
+| Directory | Contents |
+|---|---|
+| `ready/` | rows the importer can take today, one file per district |
+| `pending/` | placed and canonical in every other column, `sex` blank |
+| `REJECTS.csv` | every dropped row, with the reason and its original cells |
+| `NOTES.csv` | every value blanked rather than carried, with why |
+| `manifest.json` | the run's cadre, and district × file × row count for both directories |
+
+With no `SEX_FILE`, `ready/` is empty and all 22,490 rows are pending. **Sex is never
+guessed.** A defaulted sex is a wrong fact about a person that no one will re-examine, and
+it would flow straight into the reporting the register exists to feed.
+
+`SEX_FILE=map.csv` merges a `chw_id,sex` (or `username,sex`) file and moves those rows to
+`ready/`. That is the intended path: a `pending/` file is a district worklist with one
+empty column — placement, phone and facility already settled — not a conversion that
+failed.
+
+`NAME_FROM_USERNAME=1` derives a name from the username slug for the 1,806 rows that carry
+none. Off by default, and noted in `NOTES.csv` wherever it fires, because a name read off a
+slug is a guess about a person too.
+
+**The outputs carry phone numbers. Do not commit them.** Write them outside the repository.
 
 ## Packaging for another register
 

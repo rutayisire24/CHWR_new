@@ -364,6 +364,61 @@ not name — one parish holds two villages both called `BUHOBA A`. Trigram match
 village is not an error anyone notices. Two matches is `location_ambiguous`, quarantined
 with both candidates and the chain above each, and a human decides.
 
+### The tier word
+
+A district's spreadsheet writes the unit's tier beside its name — `MPIGI T/C`, `Romogi
+Sc`, `Kitayunjwa S/C`, `Ludaracounty`, `Palabek Ogili Subcounty`. Whether that word is
+part of the name depends on the level, and the gazetteer settles it. Canonical names
+ending in each word:
+
+| level | TOWN COUNCIL | DIVISION | WARD | SUBCOUNTY / SC | PARISH |
+|---|---|---|---|---|---|
+| subcounty | 588 | 112 | 0 | 0 | 0 |
+| parish | 0 | 0 | 3,228 | 0 | 0 |
+| village | 327 | 0 | 26 | 0 | 1 |
+
+So at subcounty a trailing `SUBCOUNTY`, `SC` or `COUNTY` is decoration — no canonical
+subcounty carries one, and the column already says which tier this is. `TOWN COUNCIL` and
+`DIVISION` are the opposite: they are the name. `LUWEERO` and `LUWEERO TOWN COUNCIL` are
+two different subcounties of one county, and the hierarchy holds **279 such pairs**.
+
+Hence three treatments, never one:
+
+- redundant tier words are **dropped**
+- identifying ones are **expanded** to the gazetteer's spelling, so `MPIGI T/C` meets
+  `MPIGI TOWN COUNCIL` rather than `MPIGI`
+- at village **nothing is touched at all** — `CELL`, `ZONE`, `TC` and `VILLAGE` all end
+  real village names
+
+This is still exact matching. It changes how a name is spelled, never how closely it must
+agree, and the ambiguity path is unchanged. Note that the collision count alone would have
+passed a bare `TC` strip at subcounty — no canonical subcounty ends in `TC`, because they
+spell it out — yet `Mpigi T/C` would then have matched `MPIGI`, the wrong unit. Redundant
+tier words are dropped; identifying ones are expanded.
+
+`seed/verify_name_folding.sql` asserts against the loaded hierarchy that the tier word
+merges no two siblings anywhere, and `make verify` runs it. It is written to mirror
+`foldName`, and a change to one is a change to both. It reports, separately and without
+failing, the sibling pairs that plain separator-dropping already merges — currently two,
+`ARINGO CENG` / `ARINGOCENG` and `RYENJOK III` / `RYENJOKI II`, both quarantined as
+ambiguous, which is the bounded cost described above arriving in practice.
+
+### When a name matches nothing
+
+The refusal stands: a name that is not among the siblings it was looked for among does not
+place a CHW, and relocating it to wherever it does exist would be exactly the silent guess
+`location_code` refuses to make.
+
+But `No village called Waibuga in Kasonga.` is unactionable on its own, and a district
+officer cannot tell a misspelling from a village in the next parish. So the name is looked
+for once more, **one tier wider** — the subcounty's other parishes, the district's other
+subcounties — purely to build the message. What comes back is offered as `candidates`,
+exactly as an ambiguity is, and the operator settles it with a `location_code`.
+
+The search radius widens; the match does not. Widening stops at the district, which is
+what keeps it from leaking: the district was scope-checked before the cascade began, so a
+wider look is still a look inside the uploader's own district.
+
 County is never a column. It is mandatory in the data — subcounty codes are unique only
 within a county — and it is derived from the path, exactly as the cascading selects derive
 it. A district's spreadsheet will not have it.

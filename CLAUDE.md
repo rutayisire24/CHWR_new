@@ -199,8 +199,15 @@ post-insert check against the derived `district_id`. **A row naming another dist
 refused, never relocated**, and the refusal names neither that district nor the location it
 matched — a district user must not map the country by probing names.
 
-Location names are matched by dropping every separator and nothing fuzzier; two siblings
-matching is an ambiguity, quarantined with both candidates and the code that settles it.
+Location names are matched by dropping every separator and, per level, the administrative
+tier word: at subcounty a trailing `SUBCOUNTY`/`SC` is decoration, while `TOWN COUNCIL` is
+the name — `LUWEERO` and `LUWEERO TOWN COUNCIL` are different subcounties, and 279 such
+pairs exist — so redundant tier words are dropped and identifying ones expanded, and at
+village nothing is folded at all. `seed/verify_name_folding.sql` asserts against the real
+hierarchy that this merges no two siblings; `make verify` runs it. Nothing fuzzier: two
+siblings matching is an ambiguity, quarantined with both candidates and the code that
+settles it. A name matching *nothing* is refused too, but the message looks one tier wider
+— never past the district — to say where the name does exist, so the refusal is actionable.
 `location_code` decides the placement when given, and a contradicting name column is a
 refusal, not a preference. Rules the CHW form already applies — the NIN pattern, the age
 range, the cadre and sex vocabularies — live in `internal/domain` and are shared, so the

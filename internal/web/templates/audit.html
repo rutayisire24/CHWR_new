@@ -12,7 +12,10 @@
       <td>{{datetime .CreatedAt}}</td>
       <td>{{if .ActorEmail}}{{.ActorEmail}}{{else}}—{{end}}</td>
       <td><code>{{.Action}}</code></td>
-      <td>{{.Entity}}{{if .EntityID}} #{{.EntityID}}{{end}}</td>
+      <td>
+        {{if .CHWCode}}<a href="/chws/{{.EntityID}}"><code class="chw-code">{{.CHWCode}}</code></a>
+        {{else}}{{.Entity}}{{if .EntityID}} #{{.EntityID}}{{end}}{{end}}
+      </td>
     </tr>
   {{else}}
     <tr><td colspan="4" class="muted">Nothing recorded yet.</td></tr>
