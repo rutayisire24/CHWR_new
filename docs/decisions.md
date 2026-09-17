@@ -279,6 +279,38 @@ never a silently wrong answer. Trigram matching across 71,207 villages was rejec
 would answer confidently and wrongly, and a CHW filed under the wrong village is not an
 error anyone notices.
 
+**The administrative tier word is folded per level: redundant ones dropped, identifying
+ones expanded, and at village neither.** A district's spreadsheet writes the tier beside
+the name — `Romogi Sc`, `Mpigi T/C`, `Ludaracounty` — and refusing all of them cost real
+rows: on a 31,462-row eCHIS export only 40% placed. Blanket suffix stripping was the
+obvious fix and is wrong. The gazetteer holds 588 subcounties named `… TOWN COUNCIL` and
+112 named `… DIVISION`, and `LUWEERO` sits beside `LUWEERO TOWN COUNCIL` in one county —
+279 such pairs. Stripping the tier word merges them and files a CHW in the wrong one
+silently, which is the single outcome this package exists to prevent. So a tier word is
+dropped only where **no** canonical name at that level carries it, and otherwise expanded
+to the gazetteer's spelling. At village nothing is folded: `CELL`, `ZONE`, `TC` and
+`VILLAGE` all end real village names.
+
+A collision count alone is not the test. Bare `TC` at subcounty collides with nothing —
+canonical names spell `TOWN COUNCIL` out — yet stripping it would match `Mpigi T/C` to
+`MPIGI`, a different subcounty. The rule is about what the word *means* at that level, and
+the collision count only catches the half of the mistake that shows up as a merge.
+`seed/verify_name_folding.sql` checks that half against the real hierarchy, because it is
+a fact about the gazetteer rather than about Go, and `make verify` runs it. On the August
+2026 hierarchy the safe fold takes the same export from 40% placed to 52%, and adds no
+ambiguity at all.
+
+**A name matching nothing is refused, and the refusal says where the name does exist.**
+The alternative — resolving to the one place the name is found one tier up — is the same
+silent guess that preferring a code over a contradicting name would be, and it would
+quietly overrule the parish the file actually named. But `No village called Waibuga in
+Kasonga.` cannot be told from a misspelling by the person who has to fix it. So the
+resolver looks one tier wider purely to build the message and offers what it finds as
+`candidates`, which the report already renders and which a `location_code` already
+settles. The search radius widens; the match does not. Widening stops at the district, so
+it can never name a location outside the uploader's scope — the same reason
+`/api/locations` and the CHW form answer the way they do.
+
 **Excel is read by `excelize`, pinned to v2.9.1.** A hand-rolled reader over `archive/zip`
 is about two hundred lines and was rejected: it would be a second implementation of a
 format whose edge cases — styles, dates as serials, merged cells, scientific notation in a
@@ -326,6 +358,51 @@ flushed every 500, so a national export starts arriving at once and never exists
 The cost is that a failure part-way through cannot become an error page — the status went
 out with the first byte — so the file ends short and the log carries why, the same bargain
 errors.csv makes.
+
+**The CHW code is `KYE00042`: district, then serial, frozen for life.** `chws.id` is a
+surrogate key — correct, and unusable by a district officer reading a printed list at a
+parish or saying a number down a phone. The register needed a second identifier a person
+can carry. Three sub-decisions, each with a rejected alternative:
+
+*No cadre letter.* The first draft was `VKYE00042` / `CKYE00042`, a `v`/`c` for VHT and
+CHEW. Rejected because both encoded facts are mutable — `chws_placement_trg` already fires
+`ON UPDATE OF cadre` — and a two-valued field that is wrong is misleading rather than
+merely vague. Either the letter is true or it should not be there. Dropping it also
+collapses two counters per district into one.
+
+*Frozen, never recomputed.* Rejected: recomputing the code on transfer or re-cadring, and
+reissuing with the old code retained as an alias. An identifier that changes is not one —
+it breaks paper already in the field and the join back through `audit_log` — and Uganda has
+gone from 112 districts to 146 within living memory, so a single split would churn
+thousands of codes at once. The code says where a CHW *entered* the register, which stays
+true; the record's own columns say where they are now.
+
+*Five digits, not four and not base-32.* Four caps a district at 9,999 and the largest
+already holds over 3,000 at partial coverage, with invariant 5 meaning a serial is never
+released. Crockford base-32 was considered for compactness — it drops `I L O U` and folds
+`O`→`0`, `I`/`L`→`1` on input — and rejected: it saves exactly one character over five
+digits, needs an input-normalization rule and a check character to be safe, and still
+leaves `5`/`S`, `2`/`Z`, `8`/`B` confusable. Its home is 128-bit random tokens, not a
+counter that will spend its life under five figures. Digits also let an officer read the
+serial as a count and check it against their own paperwork.
+
+**Two letters of district was impossible, not merely tight.** 41 of the 146 districts begin
+with K, so no scheme where the code starts with the district's own initial can give them
+distinct second letters. Assigning arbitrary pairs is possible — 146 into 676 — but
+produces `AA` for Kaabong and `ER` for Kaberamaido, at which point the code is a lookup
+table and the official numeric district code in `locations.code` would have done. Three
+letters gives every district a code starting with its own initial with room to curate:
+`KYE` Kyenjojo, `KYG` Kyegegwa, and a code ends in `C` if and only if the district is a
+city. The 146 are reviewed and checked in as `data/district_codes.tsv`, and carried into
+`district_codes` by migration 0009 rather than by a seed step, because the trigger that
+assigns codes cannot wait for a seed the way the hierarchy can.
+
+**The listing's search box takes a code as well as a name.** This is not the NIN exclusion
+in reverse. A NIN is a national identifier and searching by one lets the register be probed
+with it; a CHW code is issued by this register and exists to be looked up. `Scope` still
+decides which rows come back. A code has a shape a name cannot, so `NormalizeCHWCode`
+recognises one and matches it exactly — forgiving case, spaces and the hyphen someone adds
+to make it readable, because a code arrives copied off paper.
 
 ## Known costs
 

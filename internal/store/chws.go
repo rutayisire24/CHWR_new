@@ -25,7 +25,7 @@ type CHWs struct {
 // text so pgx needs no type registration, and nin is coalesced because "not
 // recorded" is the common case, not an error.
 const chwColumns = `
-    c.id, coalesce(c.nin,''), c.first_name, c.last_name, c.sex::text, c.cadre::text,
+    c.id, c.chw_code, coalesce(c.nin,''), c.first_name, c.last_name, c.sex::text, c.cadre::text,
     c.age_years, c.age_captured_on, c.location_id, c.district_id,
     l.name, d.name, c.status::text, c.deactivated_at, coalesce(c.deactivation_reason,''),
     c.created_by, c.updated_by, c.created_at, c.updated_at`
@@ -38,7 +38,7 @@ const chwFrom = `
 func scanCHW(row pgx.Row) (domain.CHW, error) {
 	var c domain.CHW
 	var sex, cadre, status string
-	err := row.Scan(&c.ID, &c.NIN, &c.FirstName, &c.LastName, &sex, &cadre,
+	err := row.Scan(&c.ID, &c.Code, &c.NIN, &c.FirstName, &c.LastName, &sex, &cadre,
 		&c.AgeYears, &c.AgeCapturedOn, &c.LocationID, &c.DistrictID,
 		&c.LocationName, &c.DistrictName, &status, &c.DeactivatedAt, &c.DeactivationReason,
 		&c.CreatedBy, &c.UpdatedBy, &c.CreatedAt, &c.UpdatedAt)
@@ -108,8 +108,9 @@ func (s *CHWs) ByNIN(ctx context.Context, sc auth.Scope, nin string) (domain.CHW
 // Filter narrows a listing. The zero Filter is "everything in the scope",
 // which is what the register shows when nobody has typed anything.
 type Filter struct {
-	// Query matches a name or a NIN. Which of the two is decided by the shape
-	// of the input, not by a radio button the user has to get right.
+	// Query matches a name, anywhere within it. It does not match a NIN: a
+	// register is browsed by the name a clerk is holding, and a search that
+	// answered to a national identity number invites someone to probe for one.
 	Query string
 	Cadre domain.Cadre
 	// Status empty means both. A register that hid inactive CHWs by default
@@ -148,26 +149,6 @@ type Page struct {
 	HasNext bool
 }
 
-// ninish reports whether a query looks like someone reaching for a NIN rather
-// than a name: NINs start with two letters and carry digits, and no Ugandan
-// surname does.
-func ninish(q string) bool {
-	if len(q) < 3 {
-		return false
-	}
-	hasDigit := false
-	for _, r := range q {
-		switch {
-		case r >= '0' && r <= '9':
-			hasDigit = true
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
-		default:
-			return false // a space, a hyphen: that is a name
-		}
-	}
-	return hasDigit
-}
-
 // where builds the predicate the listing and the count share. Keeping it in one
 // place is not tidiness: a count that filtered differently from the page it
 // counts would be a bug nobody notices until the numbers disagree.
@@ -195,9 +176,17 @@ func (f Filter) where(sc auth.Scope) (string, []any) {
 			" AND l.path LIKE (SELECT path FROM locations WHERE id = $%d) || '%%'", len(args))
 	}
 	if q := strings.TrimSpace(f.Query); q != "" {
-		if ninish(q) {
-			args = append(args, strings.ToUpper(q)+"%")
-			where += fmt.Sprintf(" AND c.nin LIKE $%d", len(args))
+		if code, ok := domain.NormalizeCHWCode(q); ok {
+			// One box, two things it can hold. A CHW code has a shape a name
+			// cannot, so recognising it costs nothing and saves an operator
+			// holding a printed list from knowing which field to use.
+			//
+			// This is not the NIN exception in reverse: a NIN is a national
+			// identifier and searching by one lets a register be probed with
+			// it, whereas a code is issued by this register and exists to be
+			// looked up. The Scope still decides whether the row comes back.
+			args = append(args, code)
+			where += fmt.Sprintf(" AND c.chw_code = $%d", len(args))
 		} else {
 			// The trigram index is built on this exact expression, so the
 			// search has to be written against it rather than against the two

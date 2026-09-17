@@ -23,8 +23,9 @@ type Export struct {
 // "no" from "not asked", because a file that spelled both as empty would throw
 // away the distinction the whole schema is built around.
 type ExportRow struct {
-	ID  int64
-	NIN string
+	ID   int64
+	Code string
+	NIN  string
 
 	FirstName     string
 	LastName      string
@@ -120,7 +121,7 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	          FROM chw_service_domains csd JOIN service_domains sd ON sd.id = csd.domain_id
 	         GROUP BY csd.chw_id
 	    )
-	    SELECT c.id, coalesce(c.nin,''), c.first_name, c.last_name,
+	    SELECT c.id, c.chw_code, coalesce(c.nin,''), c.first_name, c.last_name,
 	           c.sex::text, c.cadre::text, c.age_years, c.age_captured_on,
 	           d.name, coalesce(sub.name,''), coalesce(par.name,''), coalesce(vil.name,''),
 	           coalesce(l.code_path,''),
@@ -158,7 +159,7 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	for rows.Next() {
 		var r ExportRow
 		var sex, cadre, status, education, frequency string
-		if err := rows.Scan(&r.ID, &r.NIN, &r.FirstName, &r.LastName,
+		if err := rows.Scan(&r.ID, &r.Code, &r.NIN, &r.FirstName, &r.LastName,
 			&sex, &cadre, &r.AgeYears, &r.AgeCapturedOn,
 			&r.District, &r.Subcounty, &r.Parish, &r.Village, &r.LocationCode,
 			&status, &r.DeactivatedAt, &r.DeactivationReason,

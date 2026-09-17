@@ -58,6 +58,10 @@ type Lookup interface {
 // quarantined with both candidates rather than resolved. Over-matching here
 // produces a question, never a silently wrong answer.
 //
+// This is the whole of how a name is compared, but not the whole of how one is
+// read: foldName below adds the administrative tier word, which is decoration
+// at one level and part of the name at another.
+//
 // Nothing fuzzier than this, ever. Identity in locations is (parent_id, code)
 // and explicitly not name — one parish holds two villages both called BUHOBA A
 // — so a trigram match across 71,207 villages would answer confidently and
@@ -74,6 +78,83 @@ func normalizeName(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// foldName is normalizeName plus the administrative tier word, handled by the
+// level being matched.
+//
+// A district's spreadsheet writes the tier beside the name — MPIGI T/C, Romogi
+// Sc, Kitayunjwa S/C, Ludaracounty, Palabek Ogili Subcounty. Whether that word
+// is part of the name depends entirely on the level, and the gazetteer settles
+// it. Canonical names ending in each word, by level:
+//
+//	                TOWN COUNCIL  DIVISION  WARD  SUBCOUNTY/SC  PARISH
+//	subcounty            588        112        0        0          0
+//	parish                 0          0     3228        0          0
+//	village              327          0       26        0          1
+//
+// So at subcounty a trailing SUBCOUNTY, SC or COUNTY is decoration: no
+// canonical subcounty carries one, and the column already says which tier this
+// is. TOWN COUNCIL and DIVISION are the opposite — they are the name. LUWEERO
+// and LUWEERO TOWN COUNCIL are two different subcounties of one county, and
+// the hierarchy holds 279 such pairs. Dropping the tier word there would merge
+// them and file a CHW in the wrong one silently, which is the one outcome this
+// package exists to prevent.
+//
+// Hence three treatments, never one:
+//
+//   - redundant tier words are dropped
+//   - identifying ones are expanded to their canonical spelling, so MPIGI T/C
+//     meets MPIGI TOWN COUNCIL rather than MPIGI
+//   - at village nothing is touched at all, because CELL, ZONE, TC and VILLAGE
+//     all end real village names
+//
+// This is still exact matching. It changes how a name is spelled, never how
+// closely it must agree, and the ambiguity path is unchanged: a fold that
+// matched two siblings would be quarantined with both, not guessed. Nothing
+// fuzzier than this belongs here either.
+//
+// seed/verify_name_folding.sql asserts against the loaded hierarchy that this
+// merges no two siblings anywhere. The two are written to mirror each other and
+// a change to one is a change to both.
+func foldName(level domain.Level, s string) string {
+	n := normalizeName(s)
+	switch level {
+	case domain.LevelSubcounty:
+		// Expansion first: TC must become TOWNCOUNCIL before the drop step
+		// below can look at the result, and the two sets are disjoint so the
+		// order is the only thing that makes them compose.
+		n = expandSuffix(n, "TC", "TOWNCOUNCIL")
+		// Longest first: SUBCOUNTY itself ends in COUNTY.
+		n = dropSuffix(n, "SUBCOUNTIES", "SUBCOUNTY", "COUNTY", "SC")
+	case domain.LevelParish:
+		n = dropSuffix(n, "PARISH")
+	}
+	return n
+}
+
+// dropSuffix removes the first of these tier words the name ends with. A name
+// that is nothing but its tier word is left alone: it is unmatchable either
+// way, and "" would match every other name reduced to nothing.
+func dropSuffix(n string, words ...string) string {
+	for _, w := range words {
+		if len(n) > len(w) && strings.HasSuffix(n, w) {
+			return n[:len(n)-len(w)]
+		}
+	}
+	return n
+}
+
+// expandSuffix rewrites an abbreviated tier word to the spelling the gazetteer
+// uses. Already-canonical names pass through unchanged.
+func expandSuffix(n, short, long string) string {
+	if strings.HasSuffix(n, long) {
+		return n
+	}
+	if len(n) > len(short) && strings.HasSuffix(n, short) {
+		return n[:len(n)-len(short)] + long
+	}
+	return n
 }
 
 // Placement is where a row's CHW goes: the location itself and the district
@@ -126,7 +207,7 @@ func NewResolver(ctx context.Context, lookup Lookup, sc auth.Scope) (*Resolver, 
 		facilities: make(map[int64][]domain.Facility),
 	}
 	for _, d := range districts {
-		key := normalizeName(d.Name)
+		key := foldName(domain.LevelDistrict, d.Name)
 		r.districts[key] = append(r.districts[key], d)
 	}
 	return r, nil
@@ -214,7 +295,7 @@ func (r *Resolver) checkNames(row Row, chain []domain.Place, code string) *domai
 				Message: fmt.Sprintf("The code %s is a %s, so it has no %s. The row says %s.",
 					code, chain[len(chain)-1].Level.Label(), pair.column, named)}
 		}
-		if normalizeName(named) != normalizeName(actual.Name) {
+		if foldName(pair.level, named) != foldName(pair.level, actual.Name) {
 			return &domain.Problem{Field: pair.column, Code: domain.ProblemCodeMismatch,
 				Message: fmt.Sprintf("The code %s is %s %s. The row says %s.",
 					code, actual.Name, strings.ToLower(pair.level.Label()), named)}
@@ -235,7 +316,7 @@ func (r *Resolver) byNames(ctx context.Context, row Row, cadre domain.Cadre) (*P
 		return nil, []domain.Problem{{Field: ColDistrict, Code: domain.ProblemRequired,
 			Message: "Name the district."}}
 	}
-	matches := r.districts[normalizeName(districtName)]
+	matches := r.districts[foldName(domain.LevelDistrict, districtName)]
 	switch len(matches) {
 	case 0:
 		// A district outside the scope and a district that does not exist get
@@ -282,17 +363,15 @@ func (r *Resolver) byNames(ctx context.Context, row Row, cadre domain.Cadre) (*P
 		}
 
 		var found []domain.Place
-		wanted := normalizeName(name)
+		wanted := foldName(step.level, name)
 		for _, s := range siblings {
-			if normalizeName(s.Name) == wanted {
+			if foldName(step.level, s.Name) == wanted {
 				found = append(found, s)
 			}
 		}
 		switch len(found) {
 		case 0:
-			return nil, []domain.Problem{{Field: step.column, Code: domain.ProblemLocationMissing,
-				Message: fmt.Sprintf("No %s called %s in %s.",
-					step.column, name, place.Chain[len(place.Chain)-1].Name)}}
+			return nil, []domain.Problem{r.notHere(ctx, step.column, step.level, name, place)}
 		case 1:
 		default:
 			return nil, []domain.Problem{r.ambiguous(ctx, step.column, name, found)}
@@ -350,7 +429,28 @@ func outsideScope(column string) domain.Problem {
 // makes: two siblings sharing a name is rare, and "which BUHOBA A" is
 // unanswerable without the parish above it.
 func (r *Resolver) ambiguous(ctx context.Context, column, name string, matches []domain.Place) domain.Problem {
-	candidates := make([]domain.Candidate, 0, len(matches))
+	return domain.Problem{Field: column, Code: domain.ProblemLocationAmbig,
+		Message: fmt.Sprintf("More than one %s here is called %s. Put its code in the %s column to say which.",
+			column, name, ColCode),
+		Candidates: r.candidates(ctx, matches)}
+}
+
+// candidatesFound caps how many places a message will list. A name that means
+// one thing produces one; the cap is for the pathological file, so the report
+// stays readable rather than complete.
+const candidatesFound = 5
+
+// candidates describes places for a human to choose between: the name, the
+// chain above it — "which BUHOBA A" is unanswerable without the parish — and
+// the code to put in the location_code column.
+//
+// The chain is fetched per candidate, which is a query the common path never
+// makes: both callers are on a path a row has already failed.
+func (r *Resolver) candidates(ctx context.Context, matches []domain.Place) []domain.Candidate {
+	if len(matches) > candidatesFound {
+		matches = matches[:candidatesFound]
+	}
+	out := make([]domain.Candidate, 0, len(matches))
 	for _, m := range matches {
 		c := domain.Candidate{LocationID: m.ID, Name: m.Name, Code: m.Code}
 		if chain, err := r.lookup.Ancestors(ctx, r.scope, m.ID); err == nil {
@@ -362,10 +462,64 @@ func (r *Resolver) ambiguous(ctx context.Context, column, name string, matches [
 			}
 			c.Path = strings.Join(names, " > ")
 		}
-		candidates = append(candidates, c)
+		out = append(out, c)
 	}
-	return domain.Problem{Field: column, Code: domain.ProblemLocationAmbig,
-		Message: fmt.Sprintf("More than one %s here is called %s. Put its code in the %s column to say which.",
-			column, name, ColCode),
-		Candidates: candidates}
+	return out
+}
+
+// notHere answers a rung that matched nothing.
+//
+// The refusal stands either way — a name that is not among the siblings it was
+// looked for among does not place a CHW, and relocating it to wherever it does
+// exist would be exactly the silent guess byCode refuses to make. But "no
+// village called Waibuga in Kasonga" is unactionable on its own, and a district
+// officer reading it cannot tell a misspelling from a village in the next
+// parish.
+//
+// So the name is looked for once more, one tier wider — the subcounty's other
+// parishes, the district's other subcounties — purely to build the message.
+// The search radius widens; the match does not. What comes back is offered as
+// candidates, and the operator settles it with a code the same way they settle
+// an ambiguity.
+//
+// Widening stops at the district, which is what keeps it from leaking: the
+// district was scope-checked before the cascade began, so a wider look is still
+// a look inside the uploader's own district, and childrenAt carries the Scope
+// regardless.
+func (r *Resolver) notHere(ctx context.Context, column string, level domain.Level, name string, place *Placement) domain.Problem {
+	problem := domain.Problem{Field: column, Code: domain.ProblemLocationMissing,
+		Message: fmt.Sprintf("No %s called %s in %s.",
+			column, name, place.Chain[len(place.Chain)-1].Name)}
+
+	// The district rung has nothing above it to widen into, and a subcounty
+	// that matched nothing in the district is not somewhere else in it.
+	if len(place.Chain) < 2 {
+		return problem
+	}
+	wider := place.Chain[len(place.Chain)-2]
+
+	siblings, err := r.childrenAt(ctx, wider.ID, level)
+	if err != nil {
+		return problem // the refusal is already correct; the hint is a bonus
+	}
+	wanted := foldName(level, name)
+	var found []domain.Place
+	for _, s := range siblings {
+		if foldName(level, s.Name) == wanted {
+			found = append(found, s)
+		}
+	}
+	if len(found) == 0 {
+		return problem
+	}
+
+	if len(found) == 1 {
+		problem.Message += fmt.Sprintf(" There is one elsewhere in %s — put its code in the %s column.",
+			wider.Name, ColCode)
+	} else {
+		problem.Message += fmt.Sprintf(" There are %d elsewhere in %s — put the right code in the %s column.",
+			len(found), wider.Name, ColCode)
+	}
+	problem.Candidates = r.candidates(ctx, found)
+	return problem
 }

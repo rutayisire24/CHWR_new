@@ -31,9 +31,10 @@ internal/importer/   CSV/Excel ingest: readers, name resolution, row validation
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_chws, 0004_facilities_mfl,
                      0005_chw_listing, 0006_imports, 0007_import_lease,
-                     0008_import_record
+                     0008_import_record, 0009_chw_codes
 seed/                hierarchy extraction + load
-data/                source workbooks and the district-to-region map (checked in)
+data/                source workbooks, the district-to-region map and the
+                     curated three-letter district codes (all checked in)
 docs/                detailed reference — see docs/README.md
 ```
 
@@ -126,10 +127,20 @@ The location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is
 skipped in the UI and derived from the path.
 
-The listing searches one box for either a name or a NIN, decided by the shape of the
-input, and pages with a **keyset** on `(lower(last_name), lower(first_name), id)` — never
+Every CHW carries a **`chw_code`** — `KYE00042`, three letters of district and a
+five-digit serial — assigned by trigger on insert, never supplied and **never changed**.
+It is what a district officer reads off a printed list; `id` stays the key everything
+joins on. It encodes no cadre: a VHT may be trained as a CHEW, and a two-valued letter
+that is wrong is worse than absent. It is not recomputed on transfer or on a district
+split either — the code says where a CHW *entered* the register. The three-letter codes
+live in `data/district_codes.tsv` and are loaded by the migration, not the seed, because
+the trigger cannot wait for one.
+
+The listing searches one box, by name **or CHW code** — never by NIN — and pages with a **keyset** on `(lower(last_name), lower(first_name), id)` — never
 an offset. A cursor is a position, not a permission: the `Scope` still decides which rows
-past it are visible.
+past it are visible. A code is matched exactly and is safe to search because this register
+issued it; a NIN is a national identifier and searching by one lets the register be probed
+with it.
 
 CHW mutations run in a transaction that also writes their `audit_log` row
 (`store.Audit.RecordTx`), which is what makes invariant 6 structural rather than
@@ -188,8 +199,15 @@ post-insert check against the derived `district_id`. **A row naming another dist
 refused, never relocated**, and the refusal names neither that district nor the location it
 matched — a district user must not map the country by probing names.
 
-Location names are matched by dropping every separator and nothing fuzzier; two siblings
-matching is an ambiguity, quarantined with both candidates and the code that settles it.
+Location names are matched by dropping every separator and, per level, the administrative
+tier word: at subcounty a trailing `SUBCOUNTY`/`SC` is decoration, while `TOWN COUNCIL` is
+the name — `LUWEERO` and `LUWEERO TOWN COUNCIL` are different subcounties, and 279 such
+pairs exist — so redundant tier words are dropped and identifying ones expanded, and at
+village nothing is folded at all. `seed/verify_name_folding.sql` asserts against the real
+hierarchy that this merges no two siblings; `make verify` runs it. Nothing fuzzier: two
+siblings matching is an ambiguity, quarantined with both candidates and the code that
+settles it. A name matching *nothing* is refused too, but the message looks one tier wider
+— never past the district — to say where the name does exist, so the refusal is actionable.
 `location_code` decides the placement when given, and a contradicting name column is a
 refusal, not a preference. Rules the CHW form already applies — the NIN pattern, the age
 range, the cadre and sex vocabularies — live in `internal/domain` and are shared, so the
@@ -214,9 +232,9 @@ batches, so the national register never sits in memory.
 
 **Its columns are the importer's columns.** A row that comes out can go back in, junction
 sets and all, which is why `internal/http/export.go` spells them with the `importer.Col*`
-constants rather than string literals. The register-only columns beside them — the id, the
-derived placement, the status, the timestamps, supervision — are named as unknown by an
-import and ignored, which is right for values an upload must not set.
+constants rather than string literals. The register-only columns beside them — the id, the CHW
+code, the derived placement, the status, the timestamps, supervision — are named as unknown
+by an import and ignored, which is right for values an upload must not set.
 
 ## Auth
 

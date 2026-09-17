@@ -123,8 +123,9 @@ seed-facilities: ## Extract and load the Master Facility List
 
 seed: migrate seed-hierarchy seed-facilities verify ## Migrate, load the hierarchy and facilities, then verify
 
-verify: ## Probe the schema with the bad-data suite — 39 cases, all must say blocked
+verify: ## Probe the schema with the bad-data suite, then the importer's name folding
 	psql -d "$(DATABASE_URL)" -f seed/verify_constraints.sql
+	psql -d "$(DATABASE_URL)" -f seed/verify_name_folding.sql
 
 admin: build ## Provision a national admin: make admin EMAIL=you@example.org NAME="Your Name"
 	@test -n "$(EMAIL)" || { echo "  EMAIL is required: make admin EMAIL=you@example.org NAME=\"Your Name\""; exit 1; }

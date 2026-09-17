@@ -79,7 +79,11 @@ const (
 // CHW is the core register record — `chws`, without the optional survey
 // attributes that live on chw_profiles.
 type CHW struct {
-	ID        int64
+	ID int64
+	// Code is the human-legible permanent identifier, e.g. KYE00042: the
+	// district's three-letter code and a serial. Assigned by trigger on
+	// insert, never supplied and never changed, so it is absent from CHWInput.
+	Code      string
 	NIN       string // empty when not recorded; unique where present
 	FirstName string
 	LastName  string

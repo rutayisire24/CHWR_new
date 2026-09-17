@@ -91,7 +91,15 @@ BEGIN
                                            format('INSERT INTO chw_profiles(chw_id,facility_id) VALUES(%s,%s)',chw,fac_other)],
       ['reattached across districts',      format('UPDATE chw_profiles SET facility_id=%s WHERE chw_id=%s',fac_other,chw2)],
       ['moved to another district while attached',
-                                           format('UPDATE chws SET location_id=%s WHERE id=%s',par_other,chw2)]
+                                           format('UPDATE chws SET location_id=%s WHERE id=%s',par_other,chw2)],
+      -- The CHW code is assigned by the register, and permanent (0009)
+      ['chw_code supplied by the caller',
+                                           format('INSERT INTO chws(first_name,last_name,sex,cadre,location_id,chw_code) VALUES(''Mary'',''Akello'',''female'',''vht'',%s,''ZZZ00001'')',vil)],
+      ['chw_code changed after assignment', format('UPDATE chws SET chw_code=''ZZZ00001'' WHERE id=%s',chw)],
+      ['chw_code cleared',                  format('UPDATE chws SET chw_code=NULL WHERE id=%s',chw)],
+      ['district code of the wrong shape',  'INSERT INTO district_codes VALUES(''999'',''ZZZZ'',''Verify'')'],
+      ['district code that is not numeric', 'INSERT INTO district_codes VALUES(''99A'',''ZZZ'',''Verify'')'],
+      ['three-letter code claimed twice',   'INSERT INTO district_codes VALUES(''999'',''KYE'',''Verify'')']
     ];
 
     FOR i IN 1..array_length(cases,1) LOOP

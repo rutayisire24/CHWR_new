@@ -34,6 +34,30 @@ var ninPattern = regexp.MustCompile(`^[A-Z]{2}[A-Z0-9]{11}[A-Z]$`)
 // changed to pass is a value worth reporting as changed.
 func ValidNIN(nin string) bool { return ninPattern.MatchString(nin) }
 
+// chwCodePattern is the CHECK on chws.chw_code: three letters of district,
+// five digits of serial. The database assigns the value, so this never
+// validates one on the way in — it is how a search box recognises that what was
+// typed is a code and not a name.
+var chwCodePattern = regexp.MustCompile(`^[A-Z]{3}[0-9]{5}$`)
+
+// NormalizeCHWCode returns s as a canonical CHW code and reports whether it is
+// one. Reading is forgiving on purpose: a code arrives copied off a printed
+// list or said down a phone, so case, spaces and the hyphen someone added to
+// make it readable are all stripped before the shape is checked.
+//
+// Unlike ValidNIN this normalizes for its caller. A NIN that had to be changed
+// to pass is worth reporting as changed; a code that had to be changed to be
+// looked up is just someone typing.
+func NormalizeCHWCode(s string) (string, bool) {
+	s = strings.ToUpper(strings.Map(func(r rune) rune {
+		if r == ' ' || r == '-' || r == '\t' {
+			return -1
+		}
+		return r
+	}, s))
+	return s, chwCodePattern.MatchString(s)
+}
+
 // ValidAge reports whether an age is one the register will hold.
 func ValidAge(years int) bool { return years >= MinAge && years <= MaxAge }
 

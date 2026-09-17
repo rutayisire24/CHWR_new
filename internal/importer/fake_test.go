@@ -12,13 +12,20 @@ import (
 //
 //	ACHOLI region
 //	  ABIM district
-//	    ABIM COUNTY > MORULEM subcounty > ALEREK parish > BUHOBA A, BUHOBA A, KANU
-//	                                    > OKUDI parish  > BUHOBA A
+//	    ABIM COUNTY > MORULEM subcounty            > ALEREK parish > BUHOBA A, BUHOBA A, KANU-EAST
+//	                                               > OKUDI parish  > BUHOBA A
+//	                > MORULEM TOWN COUNCIL subcounty > CENTRAL WARD parish > MARKET CELL
 //	  GULU district
 //	    OMORO COUNTY > BUNGATIRA subcounty > PAWEL parish > LAYIBI village
 //
 // Two villages called BUHOBA A in one parish is the real case from the source
 // workbook, and the reason identity is (parent_id, code) rather than name.
+//
+// MORULEM beside MORULEM TOWN COUNCIL is the other real case, and the reason
+// foldName expands a tier word rather than dropping it: the hierarchy holds 279
+// such pairs, and a fold that merged them would place a CHW in the wrong one
+// without anything to notice. CENTRAL WARD and MARKET CELL carry the tier words
+// that end real parish and village names.
 const (
 	acholi   = 1
 	abim     = 10
@@ -30,6 +37,10 @@ const (
 	kanu     = 16
 	okudi    = 17
 	buhobaA3 = 18
+
+	morulemTC = 30
+	centralWd = 31
+	marketCel = 32
 
 	gulu      = 20
 	omoro     = 21
@@ -55,6 +66,9 @@ var tree = map[int64]node{
 	kanu:      {place: domain.Place{ID: kanu, Level: domain.LevelVillage, Name: "KANU-EAST", Code: "004"}, parent: alerek},
 	okudi:     {place: domain.Place{ID: okudi, Level: domain.LevelParish, Name: "OKUDI", Code: "039"}, parent: morulem},
 	buhobaA3:  {place: domain.Place{ID: buhobaA3, Level: domain.LevelVillage, Name: "BUHOBA A", Code: "001"}, parent: okudi},
+	morulemTC: {place: domain.Place{ID: morulemTC, Level: domain.LevelSubcounty, Name: "MORULEM TOWN COUNCIL", Code: "05"}, parent: abimCty},
+	centralWd: {place: domain.Place{ID: centralWd, Level: domain.LevelParish, Name: "CENTRAL WARD", Code: "001"}, parent: morulemTC},
+	marketCel: {place: domain.Place{ID: marketCel, Level: domain.LevelVillage, Name: "MARKET CELL", Code: "001"}, parent: centralWd},
 	gulu:      {place: domain.Place{ID: gulu, Level: domain.LevelDistrict, Name: "GULU", Code: "102"}, parent: acholi},
 	omoro:     {place: domain.Place{ID: omoro, Level: domain.LevelCounty, Name: "OMORO COUNTY", Code: "241"}, parent: gulu},
 	bungatira: {place: domain.Place{ID: bungatira, Level: domain.LevelSubcounty, Name: "BUNGATIRA", Code: "01"}, parent: omoro},

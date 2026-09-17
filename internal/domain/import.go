@@ -100,8 +100,10 @@ type Problem struct {
 	Field   string      `json:"field,omitempty"`
 	Code    ProblemCode `json:"code"`
 	Message string      `json:"message"`
-	// Candidates carries the places an ambiguous name could have meant, so the
-	// operator picks rather than guesses. Empty for every other code.
+	// Candidates carries the places a name could have meant, so the operator
+	// picks rather than guesses: every match, when the name was ambiguous, and
+	// where the name does exist, when it was not among the siblings it was
+	// looked for among. Empty for every other code.
 	Candidates []Candidate `json:"candidates,omitempty"`
 }
 

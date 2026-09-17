@@ -1,7 +1,7 @@
 {{define "title"}}{{if .Page.CHW.ID}}Edit CHW{{else}}Add CHW{{end}} · CHW Registry{{end}}
 
 {{define "content"}}
-<h1>{{if .Page.CHW.ID}}Edit {{.Page.CHW.FullName}}{{else}}Add a community health worker{{end}}</h1>
+<h1>{{if .Page.CHW.ID}}Edit {{.Page.CHW.FullName}} <code class="chw-code">{{.Page.CHW.Code}}</code>{{else}}Add a community health worker{{end}}</h1>
 
 {{if .Page.Duplicates}}
 <div class="card warnbox">
