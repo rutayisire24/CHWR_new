@@ -54,22 +54,23 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `POST /logout` | signed in | deletes the session row, rotates the CSRF token |
 | `GET /{$}` | signed in | dashboard: scoped counts, five charts, two tables |
 | `GET POST /account/password` | signed in | self-service change; the only way past a forced reset |
-| `GET /chws` | `chw.view` | listing: `?q=`, `?cadre=`, `?status=`, a location id, `?after=` / `?before=` |
-| `GET /chws/{id}` | `chw.view` | detail, with the ancestor breadcrumb |
-| `GET POST /chws/new` | `chw.create` | |
-| `GET /chws/{id}/edit`, `POST /chws/{id}` | `chw.update` | |
-| `GET POST /chws/{id}/profile` | `chw.update` | the optional attributes, tools and service domains |
-| `POST /chws/{id}/deactivate` | `chw.deactivate` | reason required by the handler |
-| `POST /chws/{id}/reactivate` | `chw.deactivate` | |
-| `GET /api/locations` | `chw.view` | `?level=&under=`, JSON, feeds the cascade |
-| `GET /chws/export.csv` | `export` | the listing's own filters and Scope, streamed as CSV |
-| `GET /imports` | `chw.import` | upload form, column reference, recent batches (scoped, pending first) |
-| `GET /imports/template.csv` | `chw.import` | blank template; a district user's carries their district |
-| `POST /imports` | `chw.import` | multipart; validates and stages. Writes nothing to `chws` |
-| `GET /imports/{id}` | `chw.import` | the report: tallies, refusals with reasons, the decision |
-| `GET /imports/{id}/errors.csv` | `chw.import` | every refused row, the file's own columns plus `error` |
-| `POST /imports/{id}/commit` | `chw.import` | `?skip_duplicates` — writes the ready rows |
-| `POST /imports/{id}/discard` | `chw.import` | marks the batch; the staged rows stay |
+| `GET /health-workers` | `health_worker.view` | listing: `?q=`, `?cadre=` (a slug), `?status=`, a location id, `?after=` / `?before=` |
+| `GET /health-workers/{id}` | `health_worker.view` | detail: the ancestor breadcrumb, the profile, and every posting held |
+| `GET POST /health-workers/new` | `health_worker.create` | the person and their first deployment |
+| `GET /health-workers/{id}/edit`, `POST /health-workers/{id}` | `health_worker.update` | a changed cadre or location ends the posting and opens another |
+| `POST /health-workers/{id}/facility` | `health_worker.update` | attach, change or clear the supervising facility on the open posting |
+| `GET POST /health-workers/{id}/profile` | `health_worker.update` | the CHW category's optional attributes, tools and service domains |
+| `POST /health-workers/{id}/deactivate` | `health_worker.deactivate` | reason required; ends the open posting in the same transaction |
+| `POST /health-workers/{id}/reactivate` | `health_worker.deactivate` | opens no posting; the edit form places them |
+| `GET /api/locations` | `health_worker.view` | `?level=&under=`, JSON, feeds the cascade |
+| `GET /health-workers/export.csv` | `export` | the listing's own filters and Scope, streamed as CSV |
+| `GET /imports` | `health_worker.import` | upload form, column reference, recent batches (scoped, pending first) |
+| `GET /imports/template.csv` | `health_worker.import` | blank template; a district user's carries their district |
+| `POST /imports` | `health_worker.import` | multipart; validates and stages. Writes nothing to the register |
+| `GET /imports/{id}` | `health_worker.import` | the report: tallies, refusals with reasons, the decision |
+| `GET /imports/{id}/errors.csv` | `health_worker.import` | every refused row, the file's own columns plus `error` |
+| `POST /imports/{id}/commit` | `health_worker.import` | `?skip_duplicates` — writes the ready rows |
+| `POST /imports/{id}/discard` | `health_worker.import` | marks the batch; the staged rows stay |
 | `GET /users`, `/users/new`, `/users/{id}` and their posts | `user.manage` | national admin only |
 | `POST /users/{id}/status`, `/users/{id}/reset` | `user.manage` | |
 | `GET /audit` | `audit.view` | scoped: a district manager reads their district's slice |
@@ -88,18 +89,22 @@ Validation happens three times over, deliberately:
 | Handler | `domain.ValidationError` collects per-field messages; the form redisplays what was typed |
 | Schema | CHECKs and triggers — the actual guarantee |
 
-Two schema rules the profile makes reachable are pre-checked in the handler purely so the
-operator gets an instruction instead of a 500: a supervising facility must be in the CHW's
-own district, and a CHW who still reports to a facility cannot be moved to another
-district until that attachment is changed. Both triggers stay exactly as they are — the
-pre-check is a message, not the enforcement.
-
 The handler layer exists because a CHECK violation is a 500, not a field message. It
-never replaces the schema: `decodeCHW` checks a placement's level against the cadre, and
-`chws_set_placement` still refuses the same case if the check is ever wrong.
+never replaces the schema: `decodeWorker` checks a placement's level against the cadre
+row's `placement_level`, and `deployments_set_placement` still refuses the same case if
+the check is ever wrong. The same handler refuses a new placement for an inactive worker
+with an instruction to reactivate first — the trigger would refuse it anyway, as a 500 —
+while still letting that worker's name or NIN be corrected.
+
+The supervising facility is not on the register form. It is chosen on the worker's page
+from the open posting's own district, government facilities first, and a posted facility
+from any other district is treated as tampering and refused outright;
+`deployments_facility_district_trg` is the guarantee. A transfer within a district carries
+the facility, and one across districts leaves it behind and says so in the flash, so a
+move is never refused for a stale attachment.
 
 Store methods return `domain.ErrNotFound`, `ErrConflict` or `ErrForbidden`; handlers map
-those to a 404, a field message, or the forbidden page. A CHW outside the caller's scope
+those to a 404, a field message, or the forbidden page. A worker outside the caller's scope
 is `ErrNotFound`, never `ErrForbidden` — existence is itself scoped information.
 
 ## Templates
@@ -119,12 +124,13 @@ expired in the same response.
 `Scope`. `internal/store/stats.go` holds every query; the handler runs them and marshals
 one payload for the canvases.
 
-**The lede is one hero figure and three tiles.** Total CHWs, with an active/inactive
-meter; then VHTs, CHEWs, and the areas reached out of the areas that exist. Every tile is
+**The lede is one hero figure and a tile per cadre.** Total health workers, with an
+active/inactive meter; then one tile for each active cadre row — VHTs and CHEWs today, the
+next cadre the moment it is inserted — and the areas reached out of the areas that exist. Every tile is
 a count of the register itself, and each links into the listing filtered to it.
 
 Completeness measures are deliberately *not* tiles. A "% of records carrying a NIN" or a
-"% supervised" reads as a fact about community health workers when it is a fact about the
+"% supervised" reads as a fact about health workers when it is a fact about the
 register's own filling-in, and a headline `0%` in particular reads as "nobody is
 supervised" when it means "almost nobody has been asked". Those measures live in the
 Record completeness chart, where the whole row of them sits together and the framing is
@@ -146,12 +152,14 @@ because an off-by-one there would not fail: it would group by the wrong tier and
 draw a chart.
 
 **Zero-filled from the hierarchy side.** `Areas` and `Reach` join outward from
-`locations`, not inward from `chws`, so a district with nobody in it is a row and counts
-against coverage. That is the finding, not a row to omit.
+`locations`, not inward from the register, so a district with nobody in it is a row and counts
+against coverage. That is the finding, not a row to omit. Workers are counted through the
+same posting the listing sees them through (`seenThrough`), so a chart and the register
+beneath it cannot disagree.
 
 **Completeness counts answers, not yeses.** Every profile column is nullable and "no" and
 "not asked" are different answers, so the completeness bars count records carrying an
-answer of any kind. The two junction tables are folded to one row per CHW and joined
+answer of any kind. The two junction tables are folded to one row per worker and joined
 rather than probed with `EXISTS` per row — the same answer for about a fortieth of the
 work at 24,000 records.
 
@@ -174,12 +182,12 @@ as the no-JavaScript rendering.
 The palette lives in `app.css` as `--viz-*`, assigned by the job the colour does:
 identity, magnitude, whole-and-part, or de-emphasis. Slot 1 is the brand blue itself. No
 chart carries more than two identities, and the status green/amber/red stay out entirely —
-on this site green means one thing, "this CHW is active", and a chart that borrowed it for
+on this site green means one thing, "this worker is active", and a chart that borrowed it for
 a series would spend that meaning.
 
 ## The export
 
-`GET /chws/export.csv` is the listing as a file. It takes the same query string, decodes
+`GET /health-workers/export.csv` is the listing as a file. It takes the same query string, decodes
 it with the same `decodeFilter`, and hands the result to `store.Export.Rows` with the
 caller's `Scope` — so a filter that selects 20 records on screen exports those 20, and a
 district user exports their district. The page and the file cannot disagree, because they
@@ -208,7 +216,7 @@ One search box, not two. Whether the input is a name or a NIN is decided by its 
 two leading letters and a digit, no spaces or punctuation, means NIN — because a radio
 button asking the user to classify their own input is a button they get wrong. A NIN
 matches from the start, the way someone reads one off a form; a name matches anywhere
-within `first_name || ' ' || last_name`, which is the exact expression `chws_name_trgm`
+within `first_name || ' ' || last_name`, which is the exact expression `health_workers_name_trgm`
 is built on, so the search has to be written against it rather than against the two
 columns separately.
 
@@ -235,7 +243,7 @@ scan that never counts, and counting on every page would give that away.
 
 `store.Filter` builds its predicate in one place, shared by the listing and the count: a
 count that filtered differently from the page it counts is a bug nobody notices until the
-two numbers disagree. Phase 6's export will take the same `Filter`.
+two numbers disagree. The export takes the same `Filter`.
 
 ## The profile form
 
@@ -252,13 +260,13 @@ from posting the answer to a question nobody asked, and what keeps
 `phone_branch_exclusive` and `incentive_details_require_yes` from ever seeing a crossing.
 
 The handler assumes none of that. It re-derives every branch server-side: a primary phone
-is read only when the CHW owns one, an incentive amount only when they receive one, a
+is read only when the worker owns one, an incentive amount only when they receive one, a
 supervision month only when supervision happened. A post that claims otherwise is
 corrected to the safe reading rather than rejected, because the only way to produce one is
 to tamper with the form, and a message about it would mean nothing to the person reading.
 
 Two interlocks work the same way, in the UI for the operator and in the handler for the
-data: a tool's condition is only asked about a tool the CHW holds, and training is a
+data: a tool's condition is only asked about a tool the worker holds, and training is a
 subset of what they provide (`trained_implies_provides`).
 
 The junction sets are **replaced, not diffed**. They are the answer to a multi-select, so
@@ -267,7 +275,8 @@ a way for the form and the table to disagree.
 
 ## The cascading selects
 
-`internal/web/static/locations.js` is the only JavaScript in the project. Each dependent
+`internal/web/static/locations.js` drives the cascade; `profile.js` the profile branches
+and `dashboard.js` the charts, and that is all the JavaScript there is. Each dependent
 `<select>` declares the select it hangs off (`data-under`) and the level it fetches
 (`data-level`), so the chain lives in the HTML rather than in the script.
 
@@ -278,8 +287,9 @@ from the path server-side.
 
 Two details that are easy to get wrong:
 
-- Cadre decides the depth. A CHEW is placed at parish level, so the village select is
-  hidden **and cleared and disabled** — hiding alone would still post its value.
+- Cadre decides the depth, and the depth is data: each cadre radio carries its row's
+  `placement_level` as `data-level`. A CHEW is placed at parish level, so the village
+  select is hidden **and cleared and disabled** — hiding alone would still post its value.
 - On edit, the server sends the existing placement down as `data-selected` and the script
   rebuilds the chain one level at a time. Those pending values are copied into a JS array
   at startup, because resetting a select has to forget its pending selection, and reading
@@ -296,7 +306,7 @@ dialled. `ENV=prod` is what puts `Secure` on the session, CSRF and flash cookies
 
 `TRUSTED_PROXY` is the addresses whose `X-Forwarded-For` may be read. `clientIP`
 otherwise records the peer's own address and believes no header, because anyone can send
-one and `audit_log` doubles as the CHW change history. Behind a proxy the peer is the
+one and `audit_log` doubles as the register's change history. Behind a proxy the peer is the
 proxy, so leaving this empty there costs every audit row its client address; setting it
 to something too broad accepts a forged one. See [deploy.md](deploy.md).
 
@@ -308,7 +318,8 @@ administrator and prints a one-use password.
 
 `go test ./...` covers the pure logic: the capability matrix, `Scope` and its SQL
 fragment, argon2id round-trips and malformed-hash rejection, the password policy, the
-open-redirect guard, the NIN pattern, and which posted field is the placement.
+open-redirect guard, the NIN pattern, which posted field is the placement, and whether
+saving the register form must open a new posting (`redeployment`).
 
 Anything touching SQL, triggers or scope is verified against a live database instead —
 see the verification list in [roadmap.md](roadmap.md). The cascading selects need a real

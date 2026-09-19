@@ -19,7 +19,6 @@ type ProfileRecord struct {
 	PhoneForReporting *bool  `json:"phone_for_reporting,omitempty"`
 	PhoneAlternate    string `json:"phone_alternate,omitempty"`
 
-	FacilityID       *int64                `json:"facility_id,omitempty"`
 	ServiceStartYear *int16                `json:"service_start_year,omitempty"`
 	HouseholdsServed *int32                `json:"households_served,omitempty"`
 	Education        domain.EducationLevel `json:"education,omitempty"`
@@ -57,7 +56,7 @@ type DomainChoice struct {
 // "nothing recorded" distinguishable from "recorded as nothing".
 func (p ProfileRecord) Answered() bool {
 	return p.OwnsPhone != nil || p.PhonePrimary != "" || p.PhoneForReporting != nil ||
-		p.PhoneAlternate != "" || p.FacilityID != nil || p.ServiceStartYear != nil ||
+		p.PhoneAlternate != "" || p.ServiceStartYear != nil ||
 		p.HouseholdsServed != nil || p.Education != "" ||
 		p.EnglishSpeak != nil || p.EnglishRead != nil || p.EnglishWrite != nil ||
 		p.OtherLanguagesRaw != "" || p.ReceivesIncentive != nil ||
@@ -68,11 +67,11 @@ func (p ProfileRecord) Answered() bool {
 // profileFields reads the optional attributes of one row.
 //
 // A bad value here refuses the whole row, as it does anywhere else in the file.
-// The alternative — importing the CHW and dropping the field that would not
+// The alternative — importing the worker and dropping the field that would not
 // parse — is what the profile *form* does when a hidden branch is posted, and it
 // is exactly wrong on an import: nothing is dropped silently, and a district
 // that wrote a phone number is owed either the number or a reason.
-func (im *Importer) profileFields(ctx context.Context, r Row, districtID int64, res *Resolver) (ProfileRecord, []domain.Problem) {
+func (im *Importer) profileFields(ctx context.Context, r Row) (ProfileRecord, []domain.Problem) {
 	var rec ProfileRecord
 	var problems []domain.Problem
 	add := func(field string, code domain.ProblemCode, format string, args ...any) {
@@ -151,10 +150,6 @@ func (im *Importer) profileFields(ctx context.Context, r Row, districtID int64, 
 
 	rec.Tools = im.parseTools(ctx, r, add)
 	rec.Domains = im.parseDomains(ctx, r, add)
-
-	if name := r.Value(ColFacility); name != "" {
-		rec.FacilityID = im.resolveFacility(ctx, name, districtID, res, add)
-	}
 
 	return rec, problems
 }
@@ -294,12 +289,12 @@ func (im *Importer) parseDomains(ctx context.Context, r Row, add addProblem) []D
 	return out
 }
 
-// resolveFacility finds the facility a CHW reports to, by name, within their
-// own district.
+// resolveFacility finds the facility a deployment is supervised by, by name,
+// within its own district.
 //
-// The district is the CHW's, not the uploader's: chw_profiles_facility_district
-// refuses a cross-district attachment in both directions, and a facility of that
-// name elsewhere in the country is not the one they meant.
+// The district is the deployment's, not the uploader's:
+// deployments_facility_district_trg refuses a cross-district attachment, and a
+// facility of that name elsewhere in the country is not the one they meant.
 func (im *Importer) resolveFacility(ctx context.Context, name string, districtID int64,
 	res *Resolver, add addProblem) *int64 {
 
@@ -325,7 +320,7 @@ func (im *Importer) resolveFacility(ctx context.Context, name string, districtID
 	switch len(found) {
 	case 0:
 		add(ColFacility, domain.ProblemLocationMissing,
-			"No facility called %s in this CHW's district.", name)
+			"No facility called %s in this district.", name)
 		return nil
 	case 1:
 		id := found[0].ID

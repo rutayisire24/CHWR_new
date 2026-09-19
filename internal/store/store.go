@@ -19,29 +19,32 @@ import (
 
 // Store bundles the per-aggregate stores over one pool.
 type Store struct {
-	Users     *Users
-	Sessions  *Sessions
-	Audit     *Audit
-	Locations *Locations
-	CHWs      *CHWs
-	Profiles  *Profiles
-	Stats     *Stats
-	Imports   *Imports
-	Export    *Export
+	Users       *Users
+	Sessions    *Sessions
+	Audit       *Audit
+	Locations   *Locations
+	Workers     *Workers
+	Deployments *Deployments
+	Profiles    *Profiles
+	Stats       *Stats
+	Imports     *Imports
+	Export      *Export
 }
 
 // New builds every store over the shared pool.
 func New(pool *pgxpool.Pool) *Store {
+	deployments := &Deployments{pool: pool}
 	return &Store{
-		Users:     &Users{pool: pool},
-		Sessions:  &Sessions{pool: pool},
-		Audit:     &Audit{pool: pool},
-		Locations: &Locations{pool: pool},
-		CHWs:      &CHWs{pool: pool},
-		Profiles:  &Profiles{pool: pool},
-		Stats:     &Stats{pool: pool},
-		Imports:   &Imports{pool: pool},
-		Export:    &Export{pool: pool},
+		Users:       &Users{pool: pool},
+		Sessions:    &Sessions{pool: pool},
+		Audit:       &Audit{pool: pool},
+		Locations:   &Locations{pool: pool},
+		Workers:     &Workers{pool: pool, deployments: deployments},
+		Deployments: deployments,
+		Profiles:    &Profiles{pool: pool},
+		Stats:       &Stats{pool: pool},
+		Imports:     &Imports{pool: pool},
+		Export:      &Export{pool: pool},
 	}
 }
 

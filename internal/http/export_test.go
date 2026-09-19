@@ -63,12 +63,12 @@ func TestExportFilenameSaysWhatItHolds(t *testing.T) {
 		absent []string
 	}{
 		{"whole register", national, store.Filter{},
-			[]string{"chw-register"}, []string{"filtered"}},
+			[]string{"health-worker-register"}, []string{"filtered"}},
 		{"one district", district, store.Filter{},
-			[]string{"chw-register", "abim"}, []string{"filtered"}},
+			[]string{"health-worker-register", "abim"}, []string{"filtered"}},
 		{"a search", national, store.Filter{Query: "okello"},
 			[]string{"filtered"}, nil},
-		{"a cadre", national, store.Filter{Cadre: domain.CadreCHEW},
+		{"a cadre", national, store.Filter{Cadre: "chew"},
 			[]string{"filtered"}, nil},
 		{"a location", district, store.Filter{LocationID: 42},
 			[]string{"abim", "filtered"}, nil},

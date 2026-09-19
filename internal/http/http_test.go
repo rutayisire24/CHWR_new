@@ -53,12 +53,12 @@ func TestDeepestLocation(t *testing.T) {
 		{"nothing chosen", url.Values{"district_id": {""}}, 0},
 		{"empty form", url.Values{}, 0},
 		{"a non-numeric id is not a placement", url.Values{
-			"district_id": {"72"}, "village_id": {"'; drop table chws--"},
+			"district_id": {"72"}, "village_id": {"'; drop table health_workers--"},
 		}, 72},
 	}
 
 	for _, c := range cases {
-		r := httptest.NewRequest(http.MethodPost, "/chws/new", strings.NewReader(c.form.Encode()))
+		r := httptest.NewRequest(http.MethodPost, "/health-workers/new", strings.NewReader(c.form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("%s: parse form: %v", c.name, err)
@@ -190,19 +190,23 @@ func TestCursorRoundTrip(t *testing.T) {
 // A filter arrives from a bookmarked URL as often as from the form. Anything
 // unrecognised is dropped rather than rejected.
 func TestDecodeFilter(t *testing.T) {
+	cadres := []domain.Cadre{
+		{ID: 1, Slug: "vht", PlacementLevel: domain.LevelVillage},
+		{ID: 2, Slug: "chew", PlacementLevel: domain.LevelParish},
+	}
 	cases := []struct {
 		name       string
 		query      string
 		wantQuery  string
-		wantCadre  domain.Cadre
-		wantStatus domain.CHWStatus
+		wantCadre  string
+		wantStatus domain.WorkerStatus
 		wantLoc    int64
 		wantActive bool
 	}{
 		{"empty", "", "", "", "", 0, false},
 		{"a search term", "?q=+Okello+", "Okello", "", "", 0, true},
-		{"cadre and status", "?cadre=chew&status=inactive", "", domain.CadreCHEW, domain.CHWInactive, 0, true},
-		{"a bad cadre is dropped", "?cadre=doctor", "", "", "", 0, false},
+		{"cadre and status", "?cadre=chew&status=inactive", "", "chew", domain.WorkerInactive, 0, true},
+		{"a cadre no longer offered is dropped", "?cadre=doctor", "", "", "", 0, false},
 		{"a bad status is dropped", "?status=retired", "", "", "", 0, false},
 		{"the deepest location wins", "?district_id=72&subcounty_id=2296&parish_id=4160", "", "", "", 4160, true},
 		{"a village beats a parish", "?parish_id=4160&village_id=51696", "", "", "", 51696, true},
@@ -211,8 +215,8 @@ func TestDecodeFilter(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		r := httptest.NewRequest(http.MethodGet, "/chws"+c.query, nil)
-		f, view := decodeFilter(r)
+		r := httptest.NewRequest(http.MethodGet, "/health-workers"+c.query, nil)
+		f, view := decodeFilter(r, cadres)
 
 		if f.Query != c.wantQuery {
 			t.Errorf("%s: query = %q, want %q", c.name, f.Query, c.wantQuery)
@@ -234,7 +238,7 @@ func TestDecodeFilter(t *testing.T) {
 
 // Paging keeps the filters, and changing a filter starts the paging over.
 func TestPageURL(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/chws?q=Okello&cadre=vht&after=stale", nil)
+	r := httptest.NewRequest(http.MethodGet, "/health-workers?q=Okello&cadre=vht&after=stale", nil)
 	cursor := &store.Cursor{LastName: "Okello", FirstName: "Grace", ID: 42}
 
 	next := pageURL(r, true, "after", cursor)
@@ -269,10 +273,10 @@ func TestAreaHref(t *testing.T) {
 		level domain.Level
 		want  string
 	}{
-		{domain.LevelDistrict, "/chws?district_id=42"},
-		{domain.LevelSubcounty, "/chws?subcounty_id=42"},
-		{domain.LevelParish, "/chws?parish_id=42"},
-		{domain.LevelVillage, "/chws?village_id=42"},
+		{domain.LevelDistrict, "/health-workers?district_id=42"},
+		{domain.LevelSubcounty, "/health-workers?subcounty_id=42"},
+		{domain.LevelParish, "/health-workers?parish_id=42"},
+		{domain.LevelVillage, "/health-workers?village_id=42"},
 		// The listing has no region filter, so a region bar links nowhere
 		// rather than to a URL that quietly ignores its own parameter.
 		{domain.LevelRegion, ""},
@@ -306,8 +310,8 @@ func TestPct(t *testing.T) {
 }
 
 // The audit trail's IP column is "who changed this record, from where", and
-// audit_log doubles as the CHW change history. What may be believed about it is
-// therefore worth pinning.
+// audit_log doubles as the register's change history. What may be believed
+// about it is therefore worth pinning.
 func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
 	proxy := netip.MustParsePrefix("127.0.0.1/32")
 	behindProxy := &Server{cfg: config.Config{TrustedProxies: []netip.Prefix{proxy}}}

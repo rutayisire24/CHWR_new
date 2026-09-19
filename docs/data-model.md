@@ -1,13 +1,19 @@
 # Data model
 
-Four migrations, applied in order, embedded in the binary and run by `goose` at startup.
+Five migrations, applied in order, embedded in the binary and run by `goose` at startup.
 All verified against PostgreSQL 18.
 
-- `0001_locations.sql` — hierarchy, facilities, import quarantine
+- `0001_locations.sql` — hierarchy, facilities with their MFL attributes
 - `0002_users_auth.sql` — users, sessions, audit log
-- `0003_chws.sql` — the register, profiles, multi-select junctions
-- `0004_facilities_mfl.sql` — facility attributes from the MFL, CHW-to-facility district agreement
-- `0005_chw_listing.sql` — indexes for browsing: name sort, district+name sort, NIN prefix
+- `0003_health_workers.sql` — the person, the cadre taxonomy, deployments, and the
+  triggers that tie them together
+- `0004_chw_profile.sql` — the Community Health Workers category's profile, junctions and
+  vocabularies
+- `0005_imports.sql` — import staging, the commit claim, the resolved record, quarantine
+
+These five replaced an earlier CHW-only sequence (`0003_chws` … `0008_import_record`).
+A database migrated under the old sequence does not upgrade in place; it is rebuilt and
+re-seeded. See [decisions.md](decisions.md).
 
 ## Locations
 
@@ -63,21 +69,20 @@ of 7,907 rows, misses 4,201 and is ambiguous for 10; district resolves for all 7
 [data-sources.md](data-sources.md) for the profiling and
 [decisions.md](decisions.md) for the rejected alternatives.
 
-### CHW-to-facility
+### Worker-to-facility
 
-`chw_profiles.facility_id` is the supervising and reporting site — an optional attachment,
-not a placement. Placement remains cadre-driven and untouched by it.
+`deployments.facility_id` is the supervising and reporting site — an optional attachment
+on a posting, not a placement. Placement remains cadre-driven and untouched by it.
 
-Two triggers keep the districts in agreement:
+Because the attachment and the placement share one row, one trigger keeps the districts in
+agreement: `deployments_facility_district_trg` fires after insert and after any change of
+`facility_id`, `location_id` or `cadre_id`, and refuses a row whose facility is outside the
+deployment's own district. That covers both directions the old schema needed two triggers
+for — attaching across districts, and moving a posting that would strand its facility.
 
-- `chw_profiles_facility_district_trg` refuses an attachment to a facility outside the
-  CHW's district, on insert and on any change of `facility_id`
-- `chws_facility_after_move_trg` refuses a move that would strand an existing attachment
-  in the district the CHW just left
-
-The second raises rather than clearing the column, so a transfer must reassign or clear the
-facility in the same transaction. A silent null would be a data loss the audit log could
-only report after the fact.
+It raises rather than clearing the column. The application avoids the case by construction:
+a transfer ends the old posting and opens a new one, carrying the facility only when the
+new district is the old one.
 
 ## Users, sessions, audit
 
@@ -88,28 +93,72 @@ only report after the fact.
 persisted.
 
 `audit_log` records actor, action, entity, `before`/`after` JSONB, IP and timestamp, plus
-a `district_id` so district admins can read their own slice. It doubles as CHW change
-history — there is no separate versioning table.
+a `district_id` so district admins can read their own slice. It doubles as the register's
+change history — there is no separate versioning table. Worker changes are
+`health_worker.*`, postings `deployment.start` / `.end` / `.update`, and the CHW profile
+`chw.profile_update`.
 
-## CHWs
+## Health workers
 
-`chws` holds identity only; optional survey answers live in `chw_profiles`; multi-valued
-answers live in junctions.
+The register is of **people**, not postings.
+
+```
+health_workers   who the person is: NIN, names, sex, age, status
+  └ deployments  one cadre, one location, one period — at most one open at a time
+      └ cadres   VHT, CHEW, … each with its own placement_level
+          └ cadre_categories   Community Health Workers, …
+```
+
+`health_workers` holds identity only. What a worker does and where is a `deployments`
+row; a transfer or a promotion ends one row and opens another, so the register itself
+answers "who was deployed at X on date D". A partial unique index,
+`deployments_one_active_idx ON (health_worker_id) WHERE ended_on IS NULL`, allows one open
+posting per worker — relaxing that later is dropping the index.
+
+A deployment ends with a date and a reason together (`deployments_end_complete`), never
+before it started (`deployments_dates_ordered`), and is never deleted.
+
+### Cadres are data
+
+`cadre_categories` holds the category (Community Health Workers); `cadres` the types within
+it, each carrying the level it is placed at and the spellings an import may use:
+
+| slug | label | `placement_level` | `import_aliases` |
+|---|---|---|---|
+| `vht` | Village Health Team member | village | `village health team` |
+| `chew` | Community Health Extension Worker | parish | `chw`, `community health extension worker` |
+
+A new cadre is an `INSERT`, not a migration. Each category owns its own profile surface —
+`chw_profiles` and its junctions belong to the CHW category; a future one gets its own.
 
 ### Placement
 
-```
-cadre = 'chew'  ->  location_id must be a parish
-cadre = 'vht'   ->  location_id must be a village
-```
+`deployments_set_placement()` reads the required level from the posting's `cadres` row —
+there is no `CASE` to edit — refuses a location at any other level, and derives
+`district_id` by walking `path` to the district ancestor. It also refuses an open posting
+for an inactive worker.
+
+It fires on `INSERT OR UPDATE OF location_id, cadre_id, health_worker_id`. Including
+`cadre_id` matters: re-cadring a VHT to CHEW without moving them would otherwise leave them
+at the wrong level. Verified to reject.
 
 One `location_id` rather than nullable `parish_id`/`village_id` columns, which could both
-be set or both be empty. `chws_set_placement()` enforces the level and derives
-`district_id` by walking `path` to the district ancestor.
+be set or both be empty.
 
-The trigger fires on `INSERT OR UPDATE OF location_id, cadre`. Including `cadre` matters:
-re-cadring a VHT to CHEW without moving them would otherwise leave them at the wrong
-level. Verified to reject.
+### The district anchor
+
+Scoping reads `health_workers.district_id`, which `deployments_sync_worker_district` copies
+from each posting as it is written. It deliberately does **not** clear when a posting ends:
+the last district still owns the record of a worker between postings or out of the
+workforce, which a join against the active deployment could not express. It follows the
+latest *written* posting, so a transfer must end the old row before opening the new one —
+the order `Deployments.changeTx` uses.
+
+`health_workers_check_deactivation` refuses to mark a worker inactive while a posting is
+open; deactivation ends the posting first, in the same transaction.
+
+Reads see a worker through one posting — the open one, else the most recent — via a
+lateral join (`workerFrom` in `internal/store/workers.go`).
 
 ### Constraints carried from the ODK form
 
@@ -122,20 +171,18 @@ level. Verified to reject.
 | phone columns | `^[0-9]{9}$` | form regex |
 
 `nin` is nullable with a partial unique index: the form does not require it and labels it
-"NIN / Alternative No". `chws_dup_probe_idx` on `(location_id, lower(last_name),
-lower(first_name))` supports soft duplicate detection where NIN is absent.
+"NIN / Alternative No". Soft duplicate detection where NIN is absent — the same name at
+the same location — runs on `deployments_location_idx`, which covers open postings only.
 
 ### Indexes for browsing
 
-0003 indexed the register for the questions the schema itself asks — scope, placement,
-cadre, duplicate probing — plus `chws_name_trgm` for name search. 0005 adds the three the
-list UI needs:
-
 | Index | Answers |
 |---|---|
-| `chws_name_sort_idx (lower(last_name), lower(first_name), id)` | the national listing and its keyset comparison |
-| `chws_district_name_idx (district_id, lower(...), lower(...), id)` | the same inside one district, without scanning the national order |
-| `chws_nin_prefix_idx (nin text_pattern_ops) WHERE nin IS NOT NULL` | `LIKE 'CM90%'` as an index scan; `chws_nin_uniq` only answers equality |
+| `health_workers_name_sort_idx (lower(last_name), lower(first_name), id)` | the listing and its keyset comparison |
+| `health_workers_district_idx (district_id)` | every scoped read |
+| `health_workers_name_trgm` | name search, on the first and last name joined by a space |
+| `health_workers_nin_prefix_idx (nin text_pattern_ops) WHERE nin IS NOT NULL` | `LIKE 'CM90%'` as an index scan; `health_workers_nin_uniq` only answers equality |
+| `deployments_district_idx`, `deployments_location_idx` | open postings by district and by place |
 
 `lower()` because the source data is inconsistently cased and a case-sensitive sort
 interleaves the same surname three ways.
@@ -156,12 +203,15 @@ Three CHECKs encode branching that the form expressed as `relevant` conditions:
 
 ### Junctions
 
-`chw_service_domains(chw_id, domain_id, provides, trained)` collapses what the form
+`chw_profiles` is 1:1 on the worker, not the posting: the survey answers — phones,
+education, incentive — stay true across a transfer.
+
+`chw_service_domains(health_worker_id, domain_id, provides, trained)` collapses what the form
 modelled as two nested multi-selects over one 12-value vocabulary.
 `trained_implies_provides` mirrors the form's `choice_filter`: a CHW cannot be trained on
 a service they do not provide.
 
-`chw_tools(chw_id, tool_id, functional)` puts functionality on the junction row, because
+`chw_tools(health_worker_id, tool_id, functional)` puts functionality on the junction row, because
 the form's `tool_functional` is choice-filtered to tools already held. A single global
 flag could not say *which* tool is broken.
 
@@ -170,20 +220,22 @@ free text verbatim.
 
 ## Vocabularies
 
-Closed lists are Postgres enums: `cadre`, `sex`, `chw_status`, `education_level`,
-`incentive_frequency`, `user_role`, `user_status`, `location_level`. A closed two-value
-list belongs in the type system, where an invalid value cannot be inserted.
+Closed lists are Postgres enums: `sex`, `worker_status`, `education_level`,
+`incentive_frequency`, `user_role`, `user_status`, `location_level`. A closed list belongs
+in the type system, where an invalid value cannot be inserted.
 
-Only `tools` (7) and `service_domains` (12) are reference tables, because they are junction
-targets and MoH may extend them. Both are seeded in `0003`.
+Cadres are **not** an enum: MoH will add cadres, and each carries a placement level, so
+they are rows (`0003`). `tools` (7), `service_domains` (12) and `languages` are reference
+tables for the same reason — junction targets MoH may extend — seeded in `0004`.
 
 The source Tool list includes a member called `None`. It is deliberately absent from the
 `tools` table — it means "no tools", which is the empty set, not a tool named None.
 
 ## Import staging
 
-`0006` adds the tables a bulk upload passes through, and `0007` the claim that keeps two
-commits off one batch. See [import.md](import.md) for the flow they serve.
+`0005` adds the tables a bulk upload passes through, the claim
+(`import_batches.committing_at`) that keeps two commits off one batch, and
+`import_quarantine`. See [import.md](import.md) for the flow they serve.
 
 `import_batches` is one uploaded file: its name, its format, the uploader, and
 **`district_id` — the uploader's scope at upload time**, `NULL` for a national one. Batches
@@ -193,20 +245,20 @@ reach cannot. `columns` keeps the header exactly as the file spelled it, in orde
 is what `errors.csv` is rebuilt from.
 
 `import_rows` is one line: `raw` as it arrived, a verdict, the resolved `location_id`, the
-`problems` array, `chw_id` once it becomes a record — and `record` (`0008`), the resolved
-register record the commit will write, as JSON.
+`problems` array, `health_worker_id` once it becomes a record — and `record`, the resolved
+register record the commit will write, as JSON, in worker, deployment and profile sections.
 
 `record` exists because not every field is a pure function of its own cell. A facility is
-resolved by name within the CHW's district, so re-deriving it at commit would answer from
+resolved by name within the deployment's district, so re-deriving it at commit would answer from
 a register that has moved since the report — a facility renamed in between would silently
-change which one a CHW reports to. `raw` answers "what did the file say"; `record` is what
+change which one a worker reports to. `raw` answers "what did the file say"; `record` is what
 was reviewed, and what is written.
 
 Two constraints carry rules that would otherwise live only in Go:
 
 | Constraint | Says |
 |---|---|
-| `import_batches_commit_complete` | a status and its timestamp cannot disagree — the shape `chws_deactivation_complete` already uses |
+| `import_batches_commit_complete` | a status and its timestamp cannot disagree — the shape `health_workers_deactivation_complete` already uses |
 | `import_rows_refusal_explained` | a `rejected` or `failed` row must carry at least one problem. A refusal without a stated reason is the silent drop invariant 7 forbids |
 
 `import_batches.district_id` gets the same trigger `users.district_id` has, refusing an id
@@ -214,25 +266,27 @@ that is not a district.
 
 Two foreign keys are deliberately restrictive. `import_quarantine.batch_id` refuses the
 deletion of a batch that produced quarantine rows, so no future pruning can destroy the
-record of a refusal by tidying away the batch it came from. And `import_rows.chw_id` means
-a CHW cannot be deleted while an import row points at them — invariant 5 arriving from a
+record of a refusal by tidying away the batch it came from. And
+`import_rows.health_worker_id` means a worker cannot be deleted while an import row points at them — invariant 5 arriving from a
 second direction.
 
 ## Verified rejections
 
-`seed/verify_constraints.sql` probes the schema with 39 bad-data cases against a live
-database carrying the full national hierarchy. **39 blocked, 0 leaked.** It also asserts
-one positive case by construction: attaching a CHW to a facility in their own district must
-succeed, or the whole block aborts. It runs in a
+`seed/verify_constraints.sql` probes the schema with 45 bad-data cases against a live
+database carrying the full national hierarchy. **45 blocked, 0 leaked.** It also asserts
+positive cases by construction: creating a worker with their first deployment, attaching a
+posting to a facility in its own district, and ending a posting before deactivating must
+all succeed, or the whole block aborts. It runs in a
 transaction and rolls back, and raises if anything leaks — run it after any schema change.
 
 | Group | Cases |
 |---|---|
 | Hierarchy ladder | region given a parent · district with no parent · county off a region · subcounty off a district · parish off a county · village off a subcounty · duplicate code under one parent |
-| Cadre placement | VHT at parish · CHEW at village · CHW at subcounty · CHW at district · re-cadre without moving |
-| CHW fields | malformed NIN · duplicate NIN · age below minimum · age above maximum · inactive without `deactivated_at` · active with `deactivated_at` |
+| Cadre placement | VHT at parish · CHEW at village · VHT at subcounty · CHEW at district · re-cadre without moving |
+| Deployments | a second open posting · ended without a reason · a reason without an end · ended before it started |
+| Worker fields | malformed NIN · duplicate NIN · age below minimum · age above maximum · inactive without `deactivated_at` · active with `deactivated_at` · deactivated with an open posting · deployed while inactive |
 | Users and RBAC | national admin with a district · national viewer with a district · district role without a district · `district_id` pointing at a village · duplicate email |
 | Facilities | parented to a village · parented to a subcounty |
-| CHW to facility | attached to another district's facility · reattached across districts · moved to another district while attached |
+| Posting to facility | attached across districts · attached across districts at insert · moved to another district while attached |
 | Profile branching | incentive amount without receiving · incentive above maximum · incentive below minimum · phone-owner given fallback number · non-owner given primary phone · malformed phone · households below minimum · supervision date without yes · supervision date mid-month |
-| Junctions | trained on unoffered service · duplicate tool for one CHW |
+| Junctions | trained on unoffered service · duplicate tool for one worker |

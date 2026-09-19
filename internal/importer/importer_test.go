@@ -155,11 +155,11 @@ func TestAcceptsACleanVHTAndCHEW(t *testing.T) {
 	if vht.Row.Status != domain.RowReady {
 		t.Fatalf("VHT status = %s (%v)", vht.Row.Status, vht.Row.Problems)
 	}
-	if vht.Record.LocationID != kanu {
-		t.Errorf("VHT placed at %d, want the village %d", vht.Record.LocationID, kanu)
+	if vht.Record.Deployment.LocationID != kanu {
+		t.Errorf("VHT placed at %d, want the village %d", vht.Record.Deployment.LocationID, kanu)
 	}
-	if vht.Record.Sex != domain.SexFemale || vht.Record.Cadre != domain.CadreVHT {
-		t.Errorf("VHT parsed as %s/%s", vht.Record.Sex, vht.Record.Cadre)
+	if vht.Record.Sex != domain.SexFemale || vht.Record.Deployment.Cadre != "vht" {
+		t.Errorf("VHT parsed as %s/%s", vht.Record.Sex, vht.Record.Deployment.Cadre)
 	}
 	if vht.Record.AgeYears == nil || *vht.Record.AgeYears != 34 {
 		t.Errorf("age = %v, want 34", vht.Record.AgeYears)
@@ -169,11 +169,11 @@ func TestAcceptsACleanVHTAndCHEW(t *testing.T) {
 		t.Fatalf("CHEW status = %s (%v)", chew.Row.Status, chew.Row.Problems)
 	}
 	// Cadre decides placement: a CHEW stops at the parish.
-	if chew.Record.LocationID != alerek {
-		t.Errorf("CHEW placed at %d, want the parish %d", chew.Record.LocationID, alerek)
+	if chew.Record.Deployment.LocationID != alerek {
+		t.Errorf("CHEW placed at %d, want the parish %d", chew.Record.Deployment.LocationID, alerek)
 	}
-	if chew.Record.Cadre != domain.CadreCHEW {
-		t.Errorf("CHW read as %s, want chew", chew.Record.Cadre)
+	if chew.Record.Deployment.Cadre != "chew" {
+		t.Errorf("cadre read as %s, want chew", chew.Record.Deployment.Cadre)
 	}
 }
 
@@ -209,8 +209,8 @@ func TestCadreCarryingMoreThanOneIsRefusedNotTruncated(t *testing.T) {
 		if !hasCode(s, domain.ProblemCadreMulti) {
 			t.Errorf("cadre %q gave %v, want cadre_multi", cadre, codes(s))
 		}
-		if s.Record.Cadre != "" {
-			t.Errorf("cadre %q was truncated to %q", cadre, s.Record.Cadre)
+		if s.Record.Deployment.Cadre != "" {
+			t.Errorf("cadre %q was truncated to %q", cadre, s.Record.Deployment.Cadre)
 		}
 	}
 
@@ -252,8 +252,8 @@ func TestNamesMatchThroughPunctuationAndCase(t *testing.T) {
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
-	if s.Record.LocationID != kanu {
-		t.Errorf("placed at %d, want KANU-EAST %d", s.Record.LocationID, kanu)
+	if s.Record.Deployment.LocationID != kanu {
+		t.Errorf("placed at %d, want KANU-EAST %d", s.Record.Deployment.LocationID, kanu)
 	}
 }
 
@@ -278,7 +278,7 @@ func TestAmbiguousVillageOffersBothCandidates(t *testing.T) {
 	if !hasCode(s, domain.ProblemLocationAmbig) {
 		t.Fatalf("codes = %v", codes(s))
 	}
-	if s.Record.LocationID != 0 {
+	if s.Record.Deployment.LocationID != 0 {
 		t.Fatal("an ambiguous name was resolved anyway")
 	}
 	candidates := s.Row.Problems[0].Candidates
@@ -305,8 +305,8 @@ func TestLocationCodeSettlesAnAmbiguousName(t *testing.T) {
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
-	if s.Record.LocationID != buhobaA2 {
-		t.Errorf("placed at %d, want the village with code 003 (%d)", s.Record.LocationID, buhobaA2)
+	if s.Record.Deployment.LocationID != buhobaA2 {
+		t.Errorf("placed at %d, want the village with code 003 (%d)", s.Record.Deployment.LocationID, buhobaA2)
 	}
 }
 
@@ -382,7 +382,7 @@ func TestALocationCodeCannotReachAnotherDistrict(t *testing.T) {
 // ------------------------------------------------------------- the register
 
 func TestDuplicateNINAgainstTheRegisterNamesTheRecord(t *testing.T) {
-	lookup := &fakeLookup{nins: map[string]domain.CHW{
+	lookup := &fakeLookup{nins: map[string]domain.HealthWorker{
 		"CM90210987654X": {ID: 7, FirstName: "Betty", LastName: "Aber"},
 	}}
 	s := only(t, validate(t, auth.National(),
@@ -410,7 +410,7 @@ func TestTwoRowsSharingANINRejectEachOther(t *testing.T) {
 		if !hasCode(s, domain.ProblemDuplicateNINInFile) {
 			t.Errorf("row %d codes = %v", i, codes(s))
 		}
-		if s.Record.LocationID != 0 {
+		if s.Record.Deployment.LocationID != 0 {
 			t.Errorf("row %d kept a placement after being refused", i)
 		}
 		// The message names both lines, so neither has to be hunted for.
@@ -436,8 +436,9 @@ func TestNINIsTidiedBeforeTheSharedRuleIsAsked(t *testing.T) {
 // Two people in one village genuinely share a name, which is why the register's
 // own form warns and asks for a second submit rather than refusing.
 func TestDuplicateNameAtALocationWarnsAndStillImports(t *testing.T) {
-	lookup := &fakeLookup{names: map[int64][]domain.CHW{
-		kanu: {{ID: 9, FirstName: "Grace", LastName: "Okello", LocationName: "KANU-EAST"}},
+	lookup := &fakeLookup{names: map[int64][]domain.HealthWorker{
+		kanu: {{ID: 9, FirstName: "Grace", LastName: "Okello",
+			Deployment: &domain.Deployment{LocationName: "KANU-EAST"}}},
 	}}
 	s := only(t, validate(t, auth.National(),
 		"Grace,Okello,f,vht,,,ABIM,MORULEM,ALEREK,KANU-EAST,\n", lookup))
@@ -448,7 +449,7 @@ func TestDuplicateNameAtALocationWarnsAndStillImports(t *testing.T) {
 	if !s.Row.Status.Importable() {
 		t.Error("a warned row is not importable")
 	}
-	if s.Record.LocationID != kanu {
+	if s.Record.Deployment.LocationID != kanu {
 		t.Error("a warned row lost its placement")
 	}
 	if len(s.Row.Blocking()) != 0 {

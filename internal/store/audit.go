@@ -16,8 +16,8 @@ import (
 )
 
 // Audit appends to audit_log. Every mutation lands here with before/after
-// JSONB; the table doubles as the CHW change history, which is why there is no
-// separate versioning table.
+// JSONB; the table doubles as the register's change history, which is why
+// there is no separate versioning table.
 type Audit struct {
 	pool *pgxpool.Pool
 }
@@ -25,21 +25,27 @@ type Audit struct {
 // Action names are `entity.verb`. They are the vocabulary the audit screen
 // filters on, so they are constants rather than free text at call sites.
 const (
-	ActionLogin          = "auth.login"
-	ActionLoginFailed    = "auth.login_failed"
-	ActionLogout         = "auth.logout"
-	ActionPasswordChange = "auth.password_change"
-	ActionUserCreate     = "user.create"
-	ActionUserUpdate     = "user.update"
-	ActionUserStatus     = "user.status"
-	ActionUserReset      = "user.password_reset"
-	ActionCHWCreate      = "chw.create"
-	ActionCHWUpdate      = "chw.update"
-	ActionCHWDeactivate  = "chw.deactivate"
-	ActionCHWReactivate  = "chw.reactivate"
-	ActionProfileUpdate  = "chw.profile_update"
-	// Bulk import. The batch's own decisions; the CHWs it creates each write
-	// their own chw.create row, because that is the register's change history.
+	ActionLogin            = "auth.login"
+	ActionLoginFailed      = "auth.login_failed"
+	ActionLogout           = "auth.logout"
+	ActionPasswordChange   = "auth.password_change"
+	ActionUserCreate       = "user.create"
+	ActionUserUpdate       = "user.update"
+	ActionUserStatus       = "user.status"
+	ActionUserReset        = "user.password_reset"
+	ActionWorkerCreate     = "health_worker.create"
+	ActionWorkerUpdate     = "health_worker.update"
+	ActionWorkerDeactivate = "health_worker.deactivate"
+	ActionWorkerReactivate = "health_worker.reactivate"
+	// A posting opens, closes, and — for a facility re-attachment — is edited.
+	// A transfer is an end plus a start in one transaction.
+	ActionDeploymentStart  = "deployment.start"
+	ActionDeploymentEnd    = "deployment.end"
+	ActionDeploymentUpdate = "deployment.update"
+	ActionProfileUpdate    = "chw.profile_update"
+	// Bulk import. The batch's own decisions; the workers it creates each write
+	// their own health_worker.create row, because that is the register's
+	// change history.
 	ActionImportUpload  = "import.upload"
 	ActionImportCommit  = "import.commit"
 	ActionImportDiscard = "import.discard"

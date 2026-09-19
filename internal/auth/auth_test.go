@@ -76,17 +76,17 @@ func TestCapabilityMatrix(t *testing.T) {
 		{domain.RoleDistrictManager, CapUserManage, false},
 		{domain.RoleDistrictViewer, CapUserManage, false},
 
-		{domain.RoleNationalAdmin, CapCHWCreate, true},
-		{domain.RoleNationalViewer, CapCHWCreate, false},
-		{domain.RoleDistrictManager, CapCHWCreate, true},
-		{domain.RoleDistrictViewer, CapCHWCreate, false},
+		{domain.RoleNationalAdmin, CapWorkerCreate, true},
+		{domain.RoleNationalViewer, CapWorkerCreate, false},
+		{domain.RoleDistrictManager, CapWorkerCreate, true},
+		{domain.RoleDistrictViewer, CapWorkerCreate, false},
 
-		{domain.RoleNationalViewer, CapCHWView, true},
-		{domain.RoleDistrictViewer, CapCHWView, true},
+		{domain.RoleNationalViewer, CapWorkerView, true},
+		{domain.RoleDistrictViewer, CapWorkerView, true},
 		{domain.RoleDistrictViewer, CapExport, true},
-		{domain.RoleDistrictViewer, CapCHWDeactivate, false},
+		{domain.RoleDistrictViewer, CapWorkerDeactivate, false},
 
-		// Bulk import is the two roles that may create a CHW, and no others:
+		// Bulk import is the two roles that may create a health worker, and no others:
 		// a viewer must not be able to write the register a thousand rows at
 		// a time when they cannot write it one at a time.
 		{domain.RoleNationalAdmin, CapImport, true},
@@ -98,7 +98,7 @@ func TestCapabilityMatrix(t *testing.T) {
 		{domain.RoleNationalViewer, CapAuditView, false},
 		{domain.RoleDistrictManager, CapAuditView, true},
 
-		{domain.Role("root"), CapCHWView, false},
+		{domain.Role("root"), CapWorkerView, false},
 	}
 
 	for _, c := range cases {

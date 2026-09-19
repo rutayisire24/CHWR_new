@@ -41,14 +41,19 @@ var exportColumns = []string{
 	"created_at", "updated_at",
 }
 
-// chwsExport streams the register as CSV, through the same Scope and the same
-// Filter as the listing behind it. A district user exports their district; a
-// filtered listing exports what it shows.
-func (s *Server) chwsExport(w http.ResponseWriter, r *http.Request) {
+// workersExport streams the register as CSV, through the same Scope and the
+// same Filter as the listing behind it. A district user exports their district;
+// a filtered listing exports what it shows.
+func (s *Server) workersExport(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sc := auth.ScopeFrom(ctx)
 	user := auth.MustUser(ctx)
-	filter, _ := decodeFilter(r)
+	cadres, err := s.store.Deployments.Cadres(ctx)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	filter, _ := decodeFilter(r, cadres)
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
@@ -67,7 +72,7 @@ func (s *Server) chwsExport(w http.ResponseWriter, r *http.Request) {
 	const flushEvery = 500
 	written := 0
 
-	err := s.store.Export.Rows(ctx, sc, filter, func(row store.ExportRow) error {
+	err = s.store.Export.Rows(ctx, sc, filter, func(row store.ExportRow) error {
 		if err := out.Write(exportRecord(row)); err != nil {
 			return err
 		}
@@ -93,7 +98,7 @@ func exportRecord(r store.ExportRow) []string {
 	return []string{
 		strconv.FormatInt(r.ID, 10),
 		r.NIN, r.FirstName, r.LastName,
-		string(r.Sex), string(r.Cadre), intPtrString(r.AgeYears), dateString(&r.AgeCapturedOn),
+		string(r.Sex), r.Cadre, intPtrString(r.AgeYears), dateString(&r.AgeCapturedOn),
 		r.District, r.Subcounty, r.Parish, r.Village,
 		r.LocationCode,
 		string(r.Status), timeDateString(r.DeactivatedAt), r.DeactivationReason,
@@ -173,7 +178,7 @@ func timeDateString(t *time.Time) string { return dateString(t) }
 // — a partial export that looks like a full one is a file someone will later
 // mistake for the register.
 func exportFilename(user domain.User, f store.Filter) string {
-	parts := []string{"chw-register"}
+	parts := []string{"health-worker-register"}
 	if user.DistrictName != "" {
 		parts = append(parts, strings.ToLower(strings.ReplaceAll(user.DistrictName, " ", "-")))
 	}

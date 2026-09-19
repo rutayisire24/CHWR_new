@@ -147,7 +147,7 @@ func TestCSRFRefusesOversizedUpload(t *testing.T) {
 func TestCSRFStillHandlesURLEncodedForms(t *testing.T) {
 	const token = "token-from-the-cookie"
 
-	r := httptest.NewRequest(http.MethodPost, "/chws/new",
+	r := httptest.NewRequest(http.MethodPost, "/health-workers/new",
 		strings.NewReader(CSRFField+"="+token+"&first_name=Grace"))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.AddCookie(&http.Cookie{Name: CSRFCookie, Value: token})

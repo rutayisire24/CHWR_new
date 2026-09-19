@@ -65,32 +65,34 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	// The register. Viewing is every role; writing needs the manage capability,
 	// and the Scope inside each store call is what keeps a district manager to
 	// their own district.
-	viewCHWs := func(h http.HandlerFunc) http.Handler {
-		return auth.RequireAuth(auth.RequireCapability(auth.CapCHWView, pages)(h))
+	viewWorkers := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(auth.CapWorkerView, pages)(h))
 	}
-	editCHWs := func(c auth.Capability, h http.HandlerFunc) http.Handler {
+	editWorkers := func(c auth.Capability, h http.HandlerFunc) http.Handler {
 		return auth.RequireAuth(auth.RequireCapability(c, pages)(h))
 	}
-	mux.Handle("GET /chws", viewCHWs(s.chwsList))
+	mux.Handle("GET /health-workers", viewWorkers(s.workersList))
 	// The export carries the listing's own filters and the caller's Scope, and
 	// is the one register route a viewer may have that writes a file.
 	mayExport := func(h http.HandlerFunc) http.Handler {
 		return auth.RequireAuth(auth.RequireCapability(auth.CapExport, pages)(h))
 	}
-	mux.Handle("GET /chws/export.csv", mayExport(s.chwsExport))
-	mux.Handle("GET /chws/new", editCHWs(auth.CapCHWCreate, s.chwNew))
-	mux.Handle("POST /chws/new", editCHWs(auth.CapCHWCreate, s.chwCreate))
-	mux.Handle("GET /chws/{id}", viewCHWs(s.chwShow))
-	mux.Handle("GET /chws/{id}/edit", editCHWs(auth.CapCHWUpdate, s.chwEdit))
-	mux.Handle("POST /chws/{id}", editCHWs(auth.CapCHWUpdate, s.chwUpdate))
-	mux.Handle("GET /chws/{id}/profile", editCHWs(auth.CapCHWUpdate, s.chwProfileForm))
-	mux.Handle("POST /chws/{id}/profile", editCHWs(auth.CapCHWUpdate, s.chwProfileSave))
-	mux.Handle("POST /chws/{id}/deactivate", editCHWs(auth.CapCHWDeactivate, s.chwDeactivate))
-	mux.Handle("POST /chws/{id}/reactivate", editCHWs(auth.CapCHWDeactivate, s.chwReactivate))
+	mux.Handle("GET /health-workers/export.csv", mayExport(s.workersExport))
+	mux.Handle("GET /health-workers/new", editWorkers(auth.CapWorkerCreate, s.workerNew))
+	mux.Handle("POST /health-workers/new", editWorkers(auth.CapWorkerCreate, s.workerCreate))
+	mux.Handle("GET /health-workers/{id}", viewWorkers(s.workerShow))
+	mux.Handle("GET /health-workers/{id}/edit", editWorkers(auth.CapWorkerUpdate, s.workerEdit))
+	mux.Handle("POST /health-workers/{id}", editWorkers(auth.CapWorkerUpdate, s.workerUpdate))
+	mux.Handle("POST /health-workers/{id}/facility", editWorkers(auth.CapWorkerUpdate, s.workerSetFacility))
+	mux.Handle("GET /health-workers/{id}/profile", editWorkers(auth.CapWorkerUpdate, s.workerProfileForm))
+	mux.Handle("POST /health-workers/{id}/profile", editWorkers(auth.CapWorkerUpdate, s.workerProfileSave))
+	mux.Handle("POST /health-workers/{id}/deactivate", editWorkers(auth.CapWorkerDeactivate, s.workerDeactivate))
+	mux.Handle("POST /health-workers/{id}/reactivate", editWorkers(auth.CapWorkerDeactivate, s.workerReactivate))
 
-	// Bulk import. Its own capability rather than chw.create: an upload is a
-	// different act from adding one CHW, and the Scope inside every store call
-	// is what keeps a district manager's file to their own district.
+	// Bulk import. Its own capability rather than health_worker.create: an
+	// upload is a different act from adding one worker, and the Scope inside
+	// every store call is what keeps a district manager's file to their own
+	// district.
 	mayImport := func(h http.HandlerFunc) http.Handler {
 		return auth.RequireAuth(auth.RequireCapability(auth.CapImport, pages)(h))
 	}
@@ -103,7 +105,7 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("POST /imports/{id}/discard", mayImport(s.importDiscard))
 
 	// Feeds the cascading selects. Read-only, and scoped like every other read.
-	mux.Handle("GET /api/locations", viewCHWs(s.locationsJSON))
+	mux.Handle("GET /api/locations", viewWorkers(s.locationsJSON))
 
 	viewAudit := func(h http.HandlerFunc) http.Handler {
 		return auth.RequireAuth(auth.RequireCapability(auth.CapAuditView, pages)(h))

@@ -21,8 +21,10 @@ type dashboardPage struct {
 	// Areas is the chart tier — regions nationally, subcounties inside a
 	// district. League is the tier below it, as a table: a national reader
 	// wants the district league, a district manager the parish one.
+	// AreaCadres is the cadre vocabulary the per-area counts line up with.
 	Areas       []areaRow
 	AreaLevel   domain.Level
+	AreaCadres  []domain.Cadre
 	League      []areaRow
 	LeagueLevel domain.Level
 	// LeagueTop is the leader's headcount, which the inline bars are drawn
@@ -34,8 +36,8 @@ type dashboardPage struct {
 	Cadres    []store.CadreSplit
 	Fields    []store.FieldFill
 	Services  []store.ServiceCount
-	// ServicesFrom is how many CHWs answered the service question at all. The
-	// bars are a share of that, not of the register.
+	// ServicesFrom is how many workers answered the service question at all.
+	// The bars are a share of that, not of the register.
 	ServicesFrom int64
 
 	// AnyService is false before the first import lands. The card then shows
@@ -127,14 +129,15 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	areas, err := s.store.Stats.Areas(ctx, sc, areaLevel, areaLimit)
+	areas, areaCadres, err := s.store.Stats.Areas(ctx, sc, areaLevel, areaLimit)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	page.Areas = withLinks(areas, areaLevel)
+	page.AreaCadres = areaCadres
 
-	league, err := s.store.Stats.Areas(ctx, sc, leagueLevel, 12)
+	league, _, err := s.store.Stats.Areas(ctx, sc, leagueLevel, 12)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -197,7 +200,7 @@ func marshalCharts(p dashboardPage) (template.JS, error) {
 		d.Ages.Values = append(d.Ages.Values, float64(b.Count))
 	}
 	for _, c := range p.Cadres {
-		d.Cadres = append(d.Cadres, c.Cadre.Label())
+		d.Cadres = append(d.Cadres, c.Label)
 		d.Active = append(d.Active, float64(c.Active))
 		d.Inactive = append(d.Inactive, float64(c.Inactive))
 		d.Female = append(d.Female, float64(c.Female))
@@ -245,7 +248,7 @@ func areaHref(level domain.Level, id int64) string {
 	if field == "" {
 		return "" // a region is not a filter the listing takes
 	}
-	return fmt.Sprintf("/chws?%s=%d", field, id)
+	return fmt.Sprintf("/health-workers?%s=%d", field, id)
 }
 
 // pct is a share of the register, to one decimal. It returns 0 for an empty

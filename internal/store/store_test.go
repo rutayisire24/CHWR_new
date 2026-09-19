@@ -2,6 +2,7 @@ package store
 
 import (
 	"testing"
+	"time"
 
 	"chwr/internal/domain"
 )
@@ -76,5 +77,46 @@ func TestAgeBandLabelsCoverTheBuckets(t *testing.T) {
 	}
 	if ageBandLabels[9] != "65+" {
 		t.Errorf("last band is %q; least(9, …) folds every older age into it, so it is open at the top", ageBandLabels[9])
+	}
+}
+
+// Saving the register form opens a posting only when it has to. Both ways of
+// getting this wrong are silent: a missed redeployment leaves a reactivated
+// worker active with nowhere to serve, and a spurious one ends a posting on
+// every save and fills the history with transfers that never happened.
+func TestRedeployment(t *testing.T) {
+	ended := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	vht := func(endedOn *time.Time) *domain.Deployment {
+		return &domain.Deployment{CadreID: 1, LocationID: 51675, EndedOn: endedOn}
+	}
+	sameVHT := WorkerInput{CadreID: 1, LocationID: 51675}
+	otherVillage := WorkerInput{CadreID: 1, LocationID: 51676}
+	chewAtParish := WorkerInput{CadreID: 2, LocationID: 5199}
+
+	cases := []struct {
+		name       string
+		status     domain.WorkerStatus
+		deployment *domain.Deployment
+		in         WorkerInput
+		want       bool
+		reason     string
+	}{
+		{"placed and unchanged", domain.WorkerActive, vht(nil), sameVHT, false, ""},
+		{"moved to another village", domain.WorkerActive, vht(nil), otherVillage, true, "transfer"},
+		{"promoted, which moves them too", domain.WorkerActive, vht(nil), chewAtParish, true, "recadre"},
+		{"never deployed", domain.WorkerActive, nil, sameVHT, true, "transfer"},
+		// The prefilled form posts the placement they left from.
+		{"reactivated, same placement", domain.WorkerActive, vht(&ended), sameVHT, true, "transfer"},
+		{"reactivated, new placement", domain.WorkerActive, vht(&ended), otherVillage, true, "transfer"},
+		// Correcting a retired worker's name must not try to deploy them.
+		{"inactive, unchanged", domain.WorkerInactive, vht(&ended), sameVHT, false, ""},
+		{"inactive, moved", domain.WorkerInactive, vht(&ended), otherVillage, true, "transfer"},
+	}
+	for _, c := range cases {
+		before := domain.HealthWorker{Status: c.status, Deployment: c.deployment}
+		got, reason := redeployment(before, c.in)
+		if got != c.want || reason != c.reason {
+			t.Errorf("%s: redeployment = (%v, %q), want (%v, %q)", c.name, got, reason, c.want, c.reason)
+		}
 	}
 }

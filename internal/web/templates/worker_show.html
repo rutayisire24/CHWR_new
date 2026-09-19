@@ -1,9 +1,9 @@
-{{define "title"}}{{.Page.CHW.FullName}} · CHW Registry{{end}}
+{{define "title"}}{{.Page.Worker.FullName}} · Health Worker Registry{{end}}
 
 {{define "content"}}
 <div class="row-between">
-  <h1>{{.Page.CHW.FullName}} <span class="pill {{.Page.CHW.Status}}">{{.Page.CHW.Status}}</span></h1>
-  {{if .Page.CanEdit}}<a class="button" href="/chws/{{.Page.CHW.ID}}/edit">Edit</a>{{end}}
+  <h1>{{.Page.Worker.FullName}} <span class="pill {{.Page.Worker.Status}}">{{.Page.Worker.Status}}</span></h1>
+  {{if .Page.CanEdit}}<a class="button" href="/health-workers/{{.Page.Worker.ID}}/edit">Edit</a>{{end}}
 </div>
 
 <p class="crumbs">
@@ -12,26 +12,78 @@
 
 <div class="card">
   <dl class="detail">
-    <dt>Cadre</dt><dd>{{.Page.CHW.Cadre.Label}}</dd>
-    <dt>Sex</dt><dd>{{.Page.CHW.Sex.Label}}</dd>
+    <dt>Sex</dt><dd>{{.Page.Worker.Sex.Label}}</dd>
     <dt>Age</dt>
     <dd>
-      {{if .Page.CHW.AgeYears}}{{.Page.CHW.AgeYears}} years
-        <span class="muted">as recorded on {{date .Page.CHW.AgeCapturedOn}}</span>
+      {{if .Page.Worker.AgeYears}}{{.Page.Worker.AgeYears}} years
+        <span class="muted">as recorded on {{date .Page.Worker.AgeCapturedOn}}</span>
       {{else}}<span class="muted">not recorded</span>{{end}}
     </dd>
     <dt>NIN</dt>
-    <dd>{{if .Page.CHW.NIN}}<code>{{.Page.CHW.NIN}}</code>{{else}}<span class="muted">not recorded</span>{{end}}</dd>
-    <dt>Placement</dt><dd>{{.Page.CHW.LocationName}}, {{.Page.CHW.DistrictName}} district</dd>
-    <dt>Added</dt><dd>{{datetime .Page.CHW.CreatedAt}}</dd>
-    <dt>Last changed</dt><dd>{{datetime .Page.CHW.UpdatedAt}}</dd>
+    <dd>{{if .Page.Worker.NIN}}<code>{{.Page.Worker.NIN}}</code>{{else}}<span class="muted">not recorded</span>{{end}}</dd>
+    {{with .Page.Worker.Deployment}}
+    <dt>Cadre</dt><dd>{{.Cadre.Label}}</dd>
+    <dt>Placement</dt><dd>{{.LocationName}}, {{.DistrictName}} district</dd>
+    <dt>In this posting</dt><dd>since {{date .StartedOn}}{{if not .Active}} — ended {{date .EndedOn}}{{end}}</dd>
+    {{end}}
+    <dt>Added</dt><dd>{{datetime .Page.Worker.CreatedAt}}</dd>
+    <dt>Last changed</dt><dd>{{datetime .Page.Worker.UpdatedAt}}</dd>
   </dl>
 </div>
+
+{{with $w := .Page.Worker}}
+<div class="card">
+  <div class="row-between">
+    <h2>Supervising facility</h2>
+  </div>
+  {{if and $w.Deployment $w.Deployment.Active}}
+    <p>{{if $w.Deployment.FacilityName}}{{$w.Deployment.FacilityName}}{{else}}<span class="muted">None attached.</span>{{end}}</p>
+    {{if $.Page.CanEdit}}
+    <form method="post" action="/health-workers/{{$w.ID}}/facility" class="inline-form">
+      {{template "csrf" $}}
+      <label for="facility_id">Attach or change</label>
+      <select id="facility_id" name="facility_id">
+        <option value="">— none —</option>
+        {{range $.Page.Facilities}}
+        <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      <button type="submit">Save</button>
+    </form>
+    <p class="hint">Government facilities of {{$w.Deployment.DistrictName}} district first. The facility is an
+      attachment on the current posting, not a placement.</p>
+    {{end}}
+  {{else}}
+    <p class="muted">There is no open posting to attach a facility to.</p>
+  {{end}}
+</div>
+
+{{if $.Page.History}}
+<div class="card">
+  <h2>Postings</h2>
+  <table class="grid">
+    <thead><tr><th>Cadre</th><th>Placement</th><th>District</th><th>From</th><th>To</th><th>Why it ended</th></tr></thead>
+    <tbody>
+    {{range $.Page.History}}
+      <tr class="{{if not .Active}}dim{{end}}">
+        <td>{{.Cadre.Label}}</td>
+        <td>{{.LocationName}}</td>
+        <td>{{.DistrictName}}</td>
+        <td>{{date .StartedOn}}</td>
+        <td>{{if .EndedOn}}{{date .EndedOn}}{{else}}<span class="pill active">current</span>{{end}}</td>
+        <td>{{.EndReason}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+{{end}}
 
 <div class="card">
   <div class="row-between">
     <h2>Profile</h2>
-    {{if .Page.CanEdit}}<a href="/chws/{{.Page.CHW.ID}}/profile">{{if .Page.Profile.Answered}}Edit{{else}}Add{{end}} profile</a>{{end}}
+    {{if .Page.CanEdit}}<a href="/health-workers/{{.Page.Worker.ID}}/profile">{{if .Page.Profile.Answered}}Edit{{else}}Add{{end}} profile</a>{{end}}
   </div>
 
   {{if .Page.Profile.Answered}}
@@ -43,8 +95,6 @@
         {{else}}<span class="muted">alternative number</span>{{end}}
       {{else}}<span class="muted">owns a phone: {{yesno .Page.Profile.OwnsPhone}}</span>{{end}}
     </dd>
-    <dt>Supervising facility</dt>
-    <dd>{{if .Page.Profile.FacilityName}}{{.Page.Profile.FacilityName}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
     <dt>Serving since</dt>
     <dd>{{if .Page.Profile.ServiceStartYear}}{{.Page.Profile.ServiceStartYear}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
     <dt>Households served</dt>
@@ -96,23 +146,23 @@
   {{end}}
 </div>
 
-{{if not .Page.CHW.Active}}
+{{if not .Page.Worker.Active}}
 <div class="card">
   <h2>Deactivated</h2>
-  <p>{{optdate .Page.CHW.DeactivatedAt}} — {{.Page.CHW.DeactivationReason}}</p>
+  <p>{{optdate .Page.Worker.DeactivatedAt}} — {{.Page.Worker.DeactivationReason}}</p>
   {{if .Page.CanEdit}}
-  <form method="post" action="/chws/{{.Page.CHW.ID}}/reactivate">
+  <form method="post" action="/health-workers/{{.Page.Worker.ID}}/reactivate">
     {{template "csrf" .}}
-    <button type="submit">Return to active service</button>
+    <button type="submit">Return to the workforce</button>
   </form>
   {{end}}
 </div>
 {{else if .Page.CanEdit}}
 <div class="card danger">
   <h2>Deactivate</h2>
-  <p class="muted">CHWs are never deleted. Deactivating keeps the record and its history,
-    and records why they left.</p>
-  <form method="post" action="/chws/{{.Page.CHW.ID}}/deactivate">
+  <p class="muted">Health workers are never deleted. Deactivating ends the current posting,
+    keeps the record and its history, and records why they left.</p>
+  <form method="post" action="/health-workers/{{.Page.Worker.ID}}/deactivate">
     {{template "csrf" .}}
     <label for="reason">Reason</label>
     <input id="reason" name="reason" required minlength="5"
@@ -122,5 +172,5 @@
 </div>
 {{end}}
 
-<p><a href="/chws">Back to the register</a></p>
+<p><a href="/health-workers">Back to the register</a></p>
 {{end}}

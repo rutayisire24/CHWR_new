@@ -2,29 +2,27 @@ package domain
 
 import "testing"
 
-// Cadre determines placement: CHEWs sit at parish level, VHTs at village
-// level. chws_set_placement is the enforcement; this is the copy the form asks
-// with, so the two must not drift.
-func TestCadrePlacementLevel(t *testing.T) {
-	if got := CadreCHEW.PlacementLevel(); got != LevelParish {
-		t.Errorf("CHEW placement = %s, want parish", got)
-	}
-	if got := CadreVHT.PlacementLevel(); got != LevelVillage {
-		t.Errorf("VHT placement = %s, want village", got)
-	}
-}
+// A cadre is matched against an import cell by its slug or one of its aliases,
+// with case and separators folded away. The ODK export alone spells one cadre
+// four ways, and normalising them is what lets an import of the existing
+// register land at all.
+func TestCadreMatchesImport(t *testing.T) {
+	vht := Cadre{Slug: "vht", ImportAliases: []string{"village health team"}}
+	chew := Cadre{Slug: "chew", ImportAliases: []string{"chw", "community health extension worker"}}
 
-func TestCadreValid(t *testing.T) {
-	for _, c := range Cadres {
-		if !c.Valid() {
-			t.Errorf("%s is in Cadres but reports invalid", c)
+	for _, in := range []string{"vht", "VHT", " Vht ", "Village Health Team", "village-health-team"} {
+		if !vht.MatchesImport(in) {
+			t.Errorf("vht.MatchesImport(%q) = false, want true", in)
 		}
 	}
-	// The source form offered a multi-select with "other"; the decision was to
-	// drop it, so anything outside the two enum members is rejected.
-	for _, c := range []Cadre{"", "other", "CHEW", "vht "} {
-		if Cadre(c).Valid() {
-			t.Errorf("Cadre(%q) reports valid", c)
+	for _, in := range []string{"chew", "CHEW", "CHW", "chw", "Community Health Extension Worker"} {
+		if !chew.MatchesImport(in) {
+			t.Errorf("chew.MatchesImport(%q) = false, want true", in)
+		}
+	}
+	for _, bad := range []string{"", "other", "vht chew", "nurse", "midwife"} {
+		if vht.MatchesImport(bad) || chew.MatchesImport(bad) {
+			t.Errorf("MatchesImport(%q) accepted", bad)
 		}
 	}
 }

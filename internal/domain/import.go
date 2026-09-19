@@ -89,8 +89,9 @@ const (
 )
 
 // Warning reports whether the code lets the row through. Exactly one does:
-// a duplicate name at a location is a warning, which is why chws_dup_probe_idx
-// exists and why the CHW form asks for a second submit rather than refusing.
+// a duplicate name at a location is a warning — two people in one village
+// genuinely share a name — which is why the worker form asks for a second
+// submit rather than refusing.
 func (c ProblemCode) Warning() bool { return c == ProblemPossibleDuplicate }
 
 // Problem is one thing wrong with one row. It is stored as JSONB, so the tags
@@ -178,15 +179,15 @@ type ImportRow struct {
 
 	// LocationID is the resolved placement, nil when resolution failed.
 	LocationID *int64
-	// Record is the resolved register record this row will create, as JSON.
-	// It is stored beside Raw rather than rebuilt at commit: a facility is
-	// resolved by name within the CHW's district, so re-resolving it later
-	// would answer from a register that has moved since the report. Nil for a
-	// refused row.
+	// Record is the resolved register record this row will create, as JSON:
+	// worker, deployment and profile sections. It is stored beside Raw rather
+	// than rebuilt at commit: a facility is resolved by name within the
+	// deployment's district, so re-resolving it later would answer from a
+	// register that has moved since the report. Nil for a refused row.
 	Record   []byte
 	Problems []Problem
-	// CHWID is set once the row becomes a register record.
-	CHWID *int64
+	// HealthWorkerID is set once the row becomes a register record.
+	HealthWorkerID *int64
 }
 
 // Blocking returns the problems that refused the row, leaving out the ones

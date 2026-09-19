@@ -1,7 +1,7 @@
-{{define "title"}}{{if .Page.CHW.ID}}Edit CHW{{else}}Add CHW{{end}} · CHW Registry{{end}}
+{{define "title"}}{{if .Page.Worker.ID}}Edit worker{{else}}Add a worker{{end}} · Health Worker Registry{{end}}
 
 {{define "content"}}
-<h1>{{if .Page.CHW.ID}}Edit {{.Page.CHW.FullName}}{{else}}Add a community health worker{{end}}</h1>
+<h1>{{if .Page.Worker.ID}}Edit {{.Page.Worker.FullName}}{{else}}Add a health worker{{end}}</h1>
 
 {{if .Page.Duplicates}}
 <div class="card warnbox">
@@ -9,7 +9,7 @@
   <p>This name is already recorded at the same location:</p>
   <ul>
     {{range .Page.Duplicates}}
-    <li><a href="/chws/{{.ID}}">{{.FullName}}</a> — {{.Cadre.Label}}, {{.LocationName}},
+    <li><a href="/health-workers/{{.ID}}">{{.FullName}}</a>{{if .Deployment}} — {{.Deployment.Cadre.Label}}, {{.Deployment.LocationName}}{{end}},
       {{if .NIN}}NIN <code>{{.NIN}}</code>{{else}}no NIN recorded{{end}}, {{.Status}}</li>
     {{end}}
   </ul>
@@ -18,19 +18,19 @@
 </div>
 {{end}}
 
-<form method="post" action="{{.Page.Action}}" class="card" id="chw-form" data-location-cascade>
+<form method="post" action="{{.Page.Action}}" class="card" id="worker-form" data-location-cascade>
   {{template "csrf" .}}
   {{if .Page.Duplicates}}<input type="hidden" name="confirm_duplicate" value="1">{{end}}
 
   <div class="two-up">
     <div>
       <label for="first_name">First name</label>
-      <input id="first_name" name="first_name" required value="{{.Page.CHW.FirstName}}">
+      <input id="first_name" name="first_name" required value="{{.Page.Worker.FirstName}}">
       {{template "field-error" .Page.Errors.first_name}}
     </div>
     <div>
       <label for="last_name">Last name</label>
-      <input id="last_name" name="last_name" required value="{{.Page.CHW.LastName}}">
+      <input id="last_name" name="last_name" required value="{{.Page.Worker.LastName}}">
       {{template "field-error" .Page.Errors.last_name}}
     </div>
   </div>
@@ -39,7 +39,7 @@
   <div class="radios">
     {{range .Page.Cadres}}
     <label class="radio">
-      <input type="radio" name="cadre" value="{{.Value}}" data-level="{{.Level}}"
+      <input type="radio" name="cadre_id" value="{{.ID}}" data-level="{{.Level}}"
              {{if .Selected}}checked{{end}} required>
       {{.Label}} <span class="muted">— placed at {{.Level}} level</span>
     </label>
@@ -67,7 +67,7 @@
     </div>
     <div>
       <label for="nin">NIN or alternative number</label>
-      <input id="nin" name="nin" maxlength="14" value="{{.Page.CHW.NIN}}"
+      <input id="nin" name="nin" maxlength="14" value="{{.Page.Worker.NIN}}"
              pattern="[A-Za-z]{2}[A-Za-z0-9]{11}[A-Za-z]">
       <span class="hint">Optional. Must be unique where recorded.</span>
       {{template "field-error" .Page.Errors.nin}}
@@ -75,7 +75,8 @@
   </div>
 
   <h2 class="section">Placement</h2>
-  <p class="hint">County is derived from the path and is not selected here.</p>
+  <p class="hint">A change of cadre or placement ends the current posting and opens a new one.
+    County is derived from the path and is not selected here.</p>
 
   <div class="two-up">
     <div>
@@ -114,8 +115,8 @@
   </div>
   {{template "field-error" .Page.Errors.location}}
 
-  <button type="submit">{{if .Page.CHW.ID}}Save changes{{else}}Add to register{{end}}</button>
-  <a class="cancel" href="{{if .Page.CHW.ID}}/chws/{{.Page.CHW.ID}}{{else}}/chws{{end}}">Cancel</a>
+  <button type="submit">{{if .Page.Worker.ID}}Save changes{{else}}Add to register{{end}}</button>
+  <a class="cancel" href="{{if .Page.Worker.ID}}/health-workers/{{.Page.Worker.ID}}{{else}}/health-workers{{end}}">Cancel</a>
 </form>
 
 <script src="/static/locations.js" defer></script>

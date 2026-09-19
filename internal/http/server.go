@@ -39,14 +39,14 @@ type page struct {
 // nav is which sections the signed-in user may reach, resolved once so
 // templates ask a boolean rather than re-deriving the capability matrix.
 type nav struct {
-	CHWs    bool
+	Workers bool
 	Imports bool
 	Users   bool
 	Audit   bool
-	Section string // first path segment, so /chws/42 still marks Register
+	Section string // first path segment, so /health-workers/42 still marks Register
 }
 
-// section reduces a path to its first segment: a CHW detail page marks the
+// section reduces a path to its first segment: a worker detail page marks the
 // same rail entry as the listing it was reached from.
 func section(path string) string {
 	if i := strings.Index(strings.TrimPrefix(path, "/"), "/"); i >= 0 {
@@ -66,7 +66,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if u, ok := auth.UserFrom(r.Context()); ok {
 		p.User = &u
 		p.Nav = nav{
-			CHWs:    auth.Can(u.Role, auth.CapCHWView),
+			Workers: auth.Can(u.Role, auth.CapWorkerView),
 			Imports: auth.Can(u.Role, auth.CapImport),
 			Users:   auth.Can(u.Role, auth.CapUserManage),
 			Audit:   auth.Can(u.Role, auth.CapAuditView),
@@ -116,8 +116,8 @@ func (s *Server) secure() bool { return s.cfg.Prod() }
 // clientIP is the address the session row and the audit trail record.
 //
 // By default it is the peer's own, and no header is believed: anyone can send
-// X-Forwarded-For, and audit_log doubles as the CHW change history, so a
-// forged one would be a lie in the register's own provenance.
+// X-Forwarded-For, and audit_log doubles as the register's change history, so
+// a forged one would be a lie in the register's own provenance.
 //
 // Behind a reverse proxy the peer is the proxy, and every row would say so.
 // TRUSTED_PROXY names the proxies whose header may be read — a list of

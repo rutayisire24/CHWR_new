@@ -15,9 +15,9 @@ import (
 )
 
 // Imports is the staging area behind bulk upload: a batch per file, a row per
-// line, and the tallies the report is drawn from. It writes nothing to `chws` —
-// that is CHWs.CreateTx's job, joined to this package's row marking inside one
-// transaction so the two cannot disagree.
+// line, and the tallies the report is drawn from. It writes nothing to
+// `health_workers` — that is Workers.CreateTx's job, joined to this package's
+// row marking inside one transaction so the two cannot disagree.
 //
 // docs/import.md is the design.
 type Imports struct {
@@ -248,7 +248,7 @@ func (s *Imports) Rows(ctx context.Context, sc auth.Scope, batchID int64,
 	}
 
 	q := `
-	    SELECT batch_id, row_number, raw, status::text, location_id, problems, record, chw_id
+	    SELECT batch_id, row_number, raw, status::text, location_id, problems, record, health_worker_id
 	      FROM import_rows
 	     WHERE batch_id = $1 AND row_number > $2`
 	args := []any{batchID, afterRow}
@@ -276,7 +276,7 @@ func (s *Imports) Rows(ctx context.Context, sc auth.Scope, batchID int64,
 		var status string
 		var raw, problems []byte
 		var number int32
-		if err := rows.Scan(&r.BatchID, &number, &raw, &status, &r.LocationID, &problems, &r.Record, &r.CHWID); err != nil {
+		if err := rows.Scan(&r.BatchID, &number, &raw, &status, &r.LocationID, &problems, &r.Record, &r.HealthWorkerID); err != nil {
 			return nil, fmt.Errorf("scan import row: %w", err)
 		}
 		r.Number = int(number)
@@ -294,12 +294,12 @@ func (s *Imports) Rows(ctx context.Context, sc auth.Scope, batchID int64,
 
 // MarkImportedTx records that a staged row became a register record, inside the
 // transaction that created it. That is the whole point of the Tx pair: a
-// process killed mid-commit cannot leave a CHW on the register whose import row
-// still reads "ready" and would be created again on the next attempt.
-func (s *Imports) MarkImportedTx(ctx context.Context, tx pgx.Tx, batchID int64, rowNumber int, chwID int64) error {
+// process killed mid-commit cannot leave a worker on the register whose import
+// row still reads "ready" and would be created again on the next attempt.
+func (s *Imports) MarkImportedTx(ctx context.Context, tx pgx.Tx, batchID int64, rowNumber int, workerID int64) error {
 	_, err := tx.Exec(ctx, `
-	    UPDATE import_rows SET status = 'imported', chw_id = $3
-	     WHERE batch_id = $1 AND row_number = $2`, batchID, rowNumber, chwID)
+	    UPDATE import_rows SET status = 'imported', health_worker_id = $3
+	     WHERE batch_id = $1 AND row_number = $2`, batchID, rowNumber, workerID)
 	if err != nil {
 		return fmt.Errorf("mark row %d of batch %d imported: %w", rowNumber, batchID, translate(err))
 	}
@@ -415,8 +415,8 @@ func (s *Imports) Release(ctx context.Context, id int64) error {
 }
 
 // Commit closes a batch once its rows have been written. The rows themselves
-// are created by the caller through CHWs.CreateTx — this records the decision
-// and the final tally, and writes the batch's audit row.
+// are created by the caller through Workers.CreateTx — this records the
+// decision and the final tally, and writes the batch's audit row.
 func (s *Imports) Commit(ctx context.Context, sc auth.Scope, actor domain.User,
 	id int64, skipDuplicates bool, ip netip.Addr) (domain.Batch, error) {
 
@@ -556,8 +556,9 @@ func (s *Imports) auditTx(ctx context.Context, tx pgx.Tx, actor domain.User, act
 
 // auditBatch is the JSONB shape written to audit_log: the decision and the
 // tally, which is what a reader of the history wants to know about an upload.
-// The rows themselves are not copied — each imported CHW writes its own
-// chw.create row, and that is where the register's change history lives.
+// The rows themselves are not copied — each imported worker writes its own
+// health_worker.create row, and that is where the register's change history
+// lives.
 func auditBatch(b domain.Batch) map[string]any {
 	return map[string]any{
 		"id":              b.ID,

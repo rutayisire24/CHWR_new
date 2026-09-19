@@ -154,15 +154,18 @@ pg_restore --dbname=chwr_restore --no-owner --no-privileges /var/backups/chwr/ch
 
 # Does it hold what it should?
 psql -d chwr_restore -c "SELECT
-    (SELECT count(*) FROM locations) AS locations,
-    (SELECT count(*) FROM chws)      AS chws,
-    (SELECT count(*) FROM audit_log) AS audit"
+    (SELECT count(*) FROM locations)      AS locations,
+    (SELECT count(*) FROM health_workers) AS health_workers,
+    (SELECT count(*) FROM deployments)    AS deployments,
+    (SELECT count(*) FROM audit_log)      AS audit"
 
 # And is it still a register, rather than a table of rows? A restored schema
 # that lost its triggers would accept anything.
-psql -d chwr_restore -c "INSERT INTO chws (first_name,last_name,sex,cadre,location_id,district_id)
-    VALUES ('A','B','female','chew',(SELECT id FROM locations WHERE level='village' LIMIT 1),0)"
-# expected: ERROR: a chew must be placed at parish level, got village
+psql -d chwr_restore -c "INSERT INTO deployments (health_worker_id,cadre_id,location_id,district_id)
+    VALUES ((SELECT health_worker_id FROM deployments WHERE ended_on IS NULL LIMIT 1),
+            (SELECT id FROM cadres WHERE slug='chew'),
+            (SELECT id FROM locations WHERE level='village' LIMIT 1),0)"
+# expected: ERROR: cadre chew must be placed at parish level, got village
 ```
 
 This procedure was run against a 24,573-record database: 2.1 MB dump, every table's count

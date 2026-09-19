@@ -1,9 +1,9 @@
 -- +goose Up
--- 0006: bulk import staging.
+-- 0005: bulk import staging
 --
--- An upload validates every row and writes nothing to `chws`. It stages the
--- rows here, the operator reads the report, and only then does a commit turn
--- ready rows into register records. See docs/import.md.
+-- An upload validates every row and writes nothing to `health_workers`. It
+-- stages the rows here, the operator reads the report, and only then does a
+-- commit turn ready rows into register records. See docs/import.md.
 --
 -- The staged rows are a table rather than session state or a re-read of the
 -- file, because the register moves between the two requests — a NIN gets
@@ -49,10 +49,15 @@ CREATE TABLE import_batches (
     -- between warning_rows and imported_rows a month later.
     skip_duplicates boolean NOT NULL DEFAULT false,
 
-    created_at   timestamptz NOT NULL DEFAULT now(),
-    committed_at timestamptz,
-    -- Same shape as chws_deactivation_complete: a status and its timestamp
-    -- cannot disagree.
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    committed_at  timestamptz,
+    -- Held while a commit is running; a lease, so a crashed run expires.
+    -- Committing walks tens of seconds at the row cap, and two concurrent runs
+    -- would both write the rows neither had marked yet (measured: a 1,200-row
+    -- file double-submitted created 2,033 workers).
+    committing_at timestamptz,
+    -- Same shape as health_workers_deactivation_complete: a status and its
+    -- timestamp cannot disagree.
     CONSTRAINT import_batches_commit_complete CHECK (
         (status = 'committed') = (committed_at IS NOT NULL)
     )
@@ -93,20 +98,26 @@ CREATE TABLE import_rows (
     raw    jsonb NOT NULL,
     status import_row_status NOT NULL,
 
+    -- The resolved register record this row will create (worker + deployment +
+    -- profile), NULL for a refused row. `raw` answers "what did the file say";
+    -- `record` is what the commit writes — re-deriving it at commit would
+    -- answer from a register that has moved since the report.
+    record jsonb,
+
     -- The resolved placement. Its level is the cadre's business, checked by the
-    -- importer and then by chws_set_placement on the way in.
+    -- importer and then by deployments_set_placement on the way in.
     location_id bigint REFERENCES locations(id),
     -- [{"field":…,"code":…,"message":…,"candidates":…}]
     problems    jsonb NOT NULL DEFAULT '[]'::jsonb,
     -- Set once the row becomes a register record.
-    chw_id      bigint REFERENCES chws(id),
+    health_worker_id bigint REFERENCES health_workers(id),
 
     PRIMARY KEY (batch_id, row_number),
-    CONSTRAINT import_rows_imported_has_chw CHECK (
-        (status = 'imported') = (chw_id IS NOT NULL)
+    CONSTRAINT import_rows_imported_has_worker CHECK (
+        (status = 'imported') = (health_worker_id IS NOT NULL)
     ),
-    -- A refusal without a stated reason is the silent drop invariant 7 exists
-    -- to forbid.
+    -- A refusal without a stated reason is the silent drop the quarantine
+    -- invariant exists to forbid.
     CONSTRAINT import_rows_refusal_explained CHECK (
         status NOT IN ('rejected','failed') OR jsonb_array_length(problems) > 0
     )
@@ -115,12 +126,23 @@ CREATE TABLE import_rows (
 -- The report groups by verdict; the commit walks the ready and warned rows.
 CREATE INDEX import_rows_status_idx ON import_rows (batch_id, status);
 
--- import_quarantine has been waiting for this since 0001. Linking it to the
--- batch is what makes the permanent record traceable back to the upload that
--- produced it; it stays nullable, because the hierarchy and facility seeders
--- write here too and have no batch.
-ALTER TABLE import_quarantine
-    ADD COLUMN batch_id bigint REFERENCES import_batches(id);
-
-CREATE INDEX quarantine_batch_idx ON import_quarantine (batch_id) WHERE batch_id IS NOT NULL;
-
+-- Rows the seeders and imports could not resolve. Nothing is dropped silently.
+-- The admin-units hierarchy loads clean; expected occupants are the ~21
+-- facilities whose parent slug matches a subcounty rather than a district,
+-- plus rejected rows from worker imports. batch_id stays nullable: the
+-- hierarchy and facility seeders write here too and have no batch.
+CREATE TABLE import_quarantine (
+    id          bigserial PRIMARY KEY,
+    source      text NOT NULL,          -- 'admin_units' | 'facilities' | 'chw_csv'
+    row_ref     text,                   -- source row number or natural key
+    payload     jsonb NOT NULL,
+    reason      text NOT NULL,          -- 'parent_missing' | 'parent_ambiguous' | 'parent_level_mismatch' | 'validation_failed'
+    detail      text,
+    candidates  jsonb,
+    batch_id    bigint REFERENCES import_batches(id),
+    resolved_at timestamptz,
+    resolved_by bigint,
+    imported_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX quarantine_unresolved_idx ON import_quarantine (source, reason) WHERE resolved_at IS NULL;
+CREATE INDEX quarantine_batch_idx      ON import_quarantine (batch_id) WHERE batch_id IS NOT NULL;

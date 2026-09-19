@@ -68,8 +68,10 @@ func TestProfileFieldsParse(t *testing.T) {
 	if !isTrue(p.OwnsPhone) || p.PhonePrimary != "772123456" || !isTrue(p.PhoneForReporting) {
 		t.Errorf("phone: owner=%v primary=%q reporting=%v", p.OwnsPhone, p.PhonePrimary, p.PhoneForReporting)
 	}
-	if p.FacilityID == nil || *p.FacilityID != 101 {
-		t.Errorf("facility = %v, want 101", p.FacilityID)
+	// The facility is an attachment on the posting, not a survey answer, so it
+	// lands on the deployment section of the record.
+	if s.Record.Deployment.FacilityID == nil || *s.Record.Deployment.FacilityID != 101 {
+		t.Errorf("facility = %v, want 101", s.Record.Deployment.FacilityID)
 	}
 	if p.ServiceStartYear == nil || *p.ServiceStartYear != 2019 {
 		t.Errorf("service year = %v", p.ServiceStartYear)
@@ -287,15 +289,15 @@ func TestEnglishNoneIsARecordedNo(t *testing.T) {
 	}
 }
 
-// A facility is matched inside the CHW's own district, because
-// chw_profiles_facility_district refuses a cross-district attachment in both
-// directions and a facility of that name elsewhere is not the one they meant.
-func TestFacilityIsMatchedInTheCHWsOwnDistrict(t *testing.T) {
+// A facility is matched inside the deployment's own district, because
+// deployments_facility_district_trg refuses a cross-district attachment and a
+// facility of that name elsewhere is not the one they meant.
+func TestFacilityIsMatchedInItsOwnDistrict(t *testing.T) {
 	s := profile(t, ",,,,GULU REGIONAL REFERRAL,,,,,,,,,,,,", nil)
 	if !hasCode(s, domain.ProblemLocationMissing) {
 		t.Fatalf("a facility from another district was accepted: %v", codes(s))
 	}
-	if !strings.Contains(s.Row.Summary(), "this CHW's district") {
+	if !strings.Contains(s.Row.Summary(), "this district") {
 		t.Errorf("message: %q", s.Row.Summary())
 	}
 
@@ -313,7 +315,7 @@ func TestAmbiguousFacilityIsRefused(t *testing.T) {
 	if !hasCode(s, domain.ProblemLocationAmbig) {
 		t.Errorf("codes = %v", codes(s))
 	}
-	if s.Record.Profile.FacilityID != nil {
+	if s.Record.Deployment.FacilityID != nil {
 		t.Error("an ambiguous facility was resolved anyway")
 	}
 }
@@ -358,8 +360,8 @@ func TestTheStagedRecordRoundTrips(t *testing.T) {
 	if !sameRecord(back, s.Record) {
 		t.Errorf("the record did not survive the round trip:\n staged  %+v\n decoded %+v", s.Record, back)
 	}
-	if back.Profile.FacilityID == nil || *back.Profile.FacilityID != 100 {
-		t.Errorf("facility did not survive: %v", back.Profile.FacilityID)
+	if back.Deployment.FacilityID == nil || *back.Deployment.FacilityID != 100 {
+		t.Errorf("facility did not survive: %v", back.Deployment.FacilityID)
 	}
 }
 

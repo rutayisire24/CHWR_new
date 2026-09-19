@@ -7,35 +7,36 @@ import "chwr/internal/domain"
 type Capability string
 
 const (
-	CapCHWView       Capability = "chw.view"
-	CapCHWCreate     Capability = "chw.create"
-	CapCHWUpdate     Capability = "chw.update"
-	CapCHWDeactivate Capability = "chw.deactivate"
-	CapImport        Capability = "chw.import"
-	CapUserManage    Capability = "user.manage"
-	CapAuditView     Capability = "audit.view"
-	CapExport        Capability = "export"
+	CapWorkerView       Capability = "health_worker.view"
+	CapWorkerCreate     Capability = "health_worker.create"
+	CapWorkerUpdate     Capability = "health_worker.update"
+	CapWorkerDeactivate Capability = "health_worker.deactivate"
+	CapImport           Capability = "health_worker.import"
+	CapUserManage       Capability = "user.manage"
+	CapAuditView        Capability = "audit.view"
+	CapExport           Capability = "export"
 )
 
 // matrix mirrors docs/rbac.md exactly. Presence means the role holds the
 // capability; how far it reaches is the Scope's job, not this table's — a
-// district_manager holds chw.create, and Scope confines it to their district.
+// district_manager holds health_worker.create, and Scope confines it to their
+// district.
 var matrix = map[domain.Role]map[Capability]bool{
 	domain.RoleNationalAdmin: {
-		CapCHWView: true, CapCHWCreate: true, CapCHWUpdate: true,
-		CapCHWDeactivate: true, CapUserManage: true, CapAuditView: true,
+		CapWorkerView: true, CapWorkerCreate: true, CapWorkerUpdate: true,
+		CapWorkerDeactivate: true, CapUserManage: true, CapAuditView: true,
 		CapExport: true, CapImport: true,
 	},
 	domain.RoleNationalViewer: {
-		CapCHWView: true, CapExport: true,
+		CapWorkerView: true, CapExport: true,
 	},
 	domain.RoleDistrictManager: {
-		CapCHWView: true, CapCHWCreate: true, CapCHWUpdate: true,
-		CapCHWDeactivate: true, CapAuditView: true, CapExport: true,
+		CapWorkerView: true, CapWorkerCreate: true, CapWorkerUpdate: true,
+		CapWorkerDeactivate: true, CapAuditView: true, CapExport: true,
 		CapImport: true,
 	},
 	domain.RoleDistrictViewer: {
-		CapCHWView: true, CapExport: true,
+		CapWorkerView: true, CapExport: true,
 	},
 }
 

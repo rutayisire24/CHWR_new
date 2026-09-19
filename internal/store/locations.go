@@ -98,8 +98,8 @@ func (l *Locations) Descendants(ctx context.Context, sc auth.Scope, ancestorID i
 }
 
 // Ancestors returns a location's chain from region down to the location
-// itself. The CHW form uses it to prefill the cascading selects on edit, and
-// the detail page to show where a CHW actually sits.
+// itself. The worker form uses it to prefill the cascading selects on edit,
+// and the detail page to show where a deployment actually sits.
 func (l *Locations) Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]domain.Place, error) {
 	const q = `
 	    SELECT a.id, a.level::text, a.name, coalesce(a.code,'')
@@ -133,10 +133,10 @@ func (l *Locations) Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]d
 	return out, nil
 }
 
-// LevelOf reports a location's level, and the district it belongs to. The CHW
-// handlers use it to reject a placement whose level does not match the cadre
-// before the trigger has to, and to keep a district user from placing a CHW
-// outside their scope.
+// LevelOf reports a location's level, and the district it belongs to. The
+// worker handlers use it to reject a placement whose level does not match the
+// cadre before the trigger has to, and to keep a district user from placing a
+// worker outside their scope.
 func (l *Locations) LevelOf(ctx context.Context, id int64) (domain.Level, int64, error) {
 	const q = `
 	    SELECT c.level::text, coalesce(d.id, 0)
@@ -232,12 +232,12 @@ func (l *Locations) insideScope(ctx context.Context, sc auth.Scope, id int64) (b
 type Counts struct {
 	Locations  int64
 	Facilities int64
-	CHWs       int64
+	Workers    int64
 }
 
-// Counts reports hierarchy and facility totals, plus the CHW total inside the
-// scope. The first two are national by nature — the hierarchy is the same
-// country for everyone — so only the CHW count is filtered.
+// Counts reports hierarchy and facility totals, plus the health-worker total
+// inside the scope. The first two are national by nature — the hierarchy is
+// the same country for everyone — so only the worker count is filtered.
 func (l *Locations) Counts(ctx context.Context, sc auth.Scope) (Counts, error) {
 	var c Counts
 	if err := l.pool.QueryRow(ctx, `SELECT count(*) FROM locations`).Scan(&c.Locations); err != nil {
@@ -247,14 +247,14 @@ func (l *Locations) Counts(ctx context.Context, sc auth.Scope) (Counts, error) {
 		return Counts{}, fmt.Errorf("count facilities: %w", err)
 	}
 
-	q := `SELECT count(*) FROM chws WHERE true`
+	q := `SELECT count(*) FROM health_workers WHERE true`
 	var args []any
 	if frag, extra := sc.Filter("district_id", len(args)+1); frag != "" {
 		q += frag
 		args = append(args, extra...)
 	}
-	if err := l.pool.QueryRow(ctx, q, args...).Scan(&c.CHWs); err != nil {
-		return Counts{}, fmt.Errorf("count chws: %w", err)
+	if err := l.pool.QueryRow(ctx, q, args...).Scan(&c.Workers); err != nil {
+		return Counts{}, fmt.Errorf("count health workers: %w", err)
 	}
 	return c, nil
 }

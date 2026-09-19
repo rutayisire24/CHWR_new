@@ -3,8 +3,8 @@ package domain
 import "testing"
 
 // The NIN rule is the source form's own constraint, repeated in Go so a typo is
-// a field message rather than a CHECK violation. It lives here because the CHW
-// form and the bulk importer must apply the same one.
+// a field message rather than a CHECK violation. It lives here because the
+// worker form and the bulk importer must apply the same one.
 func TestValidNIN(t *testing.T) {
 	valid := []string{"CM90210987654X", "CF12345678901A"}
 	invalid := []string{
@@ -38,32 +38,6 @@ func TestValidAge(t *testing.T) {
 	for _, bad := range []int{-1, 0, 17, 100, 1990} {
 		if ValidAge(bad) {
 			t.Errorf("ValidAge(%d) = true, want false", bad)
-		}
-	}
-}
-
-// The ODK export spells one cadre four ways. Normalising them is what lets an
-// import of the existing register land at all; it is not leniency about which
-// cadres exist, of which there are exactly two.
-func TestParseCadre(t *testing.T) {
-	cases := map[string]Cadre{
-		"vht":                 CadreVHT,
-		"VHT":                 CadreVHT,
-		" Vht ":               CadreVHT,
-		"Village Health Team": CadreVHT,
-		"chew":                CadreCHEW,
-		"CHEW":                CadreCHEW,
-		"CHW":                 CadreCHEW,
-	}
-	for in, want := range cases {
-		got, ok := ParseCadre(in)
-		if !ok || got != want {
-			t.Errorf("ParseCadre(%q) = (%q, %v), want (%q, true)", in, got, ok, want)
-		}
-	}
-	for _, bad := range []string{"", "other", "vht chew", "nurse", "midwife"} {
-		if got, ok := ParseCadre(bad); ok {
-			t.Errorf("ParseCadre(%q) = (%q, true), want false", bad, got)
 		}
 	}
 }

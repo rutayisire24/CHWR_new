@@ -72,8 +72,8 @@ var codePaths = map[string]int64{
 	"10224101010001": layibi,
 }
 
-// The vocabularies, as 0003 seeds them. Slug and label both match, because a
-// district reading the template's help will write one or the other.
+// The vocabularies, as the migrations seed them. Slug and label both match,
+// because a district reading the template's help will write one or the other.
 var fakeTools = []domain.Tool{
 	{ID: 1, Slug: "bicycle", Label: "Bicycle"},
 	{ID: 2, Slug: "gumboots", Label: "Gumboots"},
@@ -85,6 +85,14 @@ var fakeDomains = []domain.ServiceDomain{
 	{ID: 1, Slug: "iccm", Label: "Management of Common Childhood Illnesses (ICCM)"},
 	{ID: 2, Slug: "maternal_newborn", Label: "Maternal and Newborn Health"},
 	{ID: 7, Slug: "nutrition", Label: "Nutrition Services"},
+}
+
+// The cadre vocabulary, as 0003 seeds it: VHTs at village, CHEWs at parish.
+var fakeCadres = []domain.Cadre{
+	{ID: 1, CategoryID: 1, Slug: "vht", Label: "Village Health Team member",
+		PlacementLevel: domain.LevelVillage, ImportAliases: []string{"village health team"}, Active: true},
+	{ID: 2, CategoryID: 1, Slug: "chew", Label: "Community Health Extension Worker",
+		PlacementLevel: domain.LevelParish, ImportAliases: []string{"chw", "community health extension worker"}, Active: true},
 }
 
 // Facilities, keyed by district. ABIM holds two of the same name, which is not
@@ -105,12 +113,16 @@ var fakeFacilities = map[int64][]domain.Facility{
 type fakeLookup struct {
 	// nins and names are the register as far as duplicate checking is
 	// concerned.
-	nins  map[string]domain.CHW
-	names map[int64][]domain.CHW
+	nins  map[string]domain.HealthWorker
+	names map[int64][]domain.HealthWorker
 	// calls counts ChildrenAt, so a test can prove the resolver caches.
 	calls int
 	// facilityCalls counts FacilitiesIn, for the same reason.
 	facilityCalls int
+}
+
+func (f *fakeLookup) Cadres(ctx context.Context) ([]domain.Cadre, error) {
+	return fakeCadres, nil
 }
 
 func (f *fakeLookup) Tools(ctx context.Context) ([]domain.Tool, error) {
@@ -177,18 +189,18 @@ func (f *fakeLookup) Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]
 	return chain, nil
 }
 
-func (f *fakeLookup) CHWWithNIN(ctx context.Context, nin string) (domain.CHW, error) {
-	if chw, ok := f.nins[nin]; ok {
-		return chw, nil
+func (f *fakeLookup) WorkerWithNIN(ctx context.Context, nin string) (domain.HealthWorker, error) {
+	if w, ok := f.nins[nin]; ok {
+		return w, nil
 	}
-	return domain.CHW{}, domain.ErrNotFound
+	return domain.HealthWorker{}, domain.ErrNotFound
 }
 
-func (f *fakeLookup) NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.CHW, error) {
-	var out []domain.CHW
-	for _, chw := range f.names[locationID] {
-		if strings.EqualFold(chw.FirstName, first) && strings.EqualFold(chw.LastName, last) {
-			out = append(out, chw)
+func (f *fakeLookup) NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.HealthWorker, error) {
+	var out []domain.HealthWorker
+	for _, w := range f.names[locationID] {
+		if strings.EqualFold(w.FirstName, first) && strings.EqualFold(w.LastName, last) {
+			out = append(out, w)
 		}
 	}
 	return out, nil

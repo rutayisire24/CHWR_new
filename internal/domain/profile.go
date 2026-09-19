@@ -90,26 +90,26 @@ func (f IncentiveFrequency) Label() string {
 	return string(f)
 }
 
-// Profile is `chw_profiles`: the optional survey attributes, all nullable,
-// because a record imported from the ODK export may answer none of them.
+// Profile is `chw_profiles`: the Community Health Workers category's survey
+// attributes, all nullable, because a record imported from the ODK export may
+// answer none of them. It hangs off the worker, not the deployment — the
+// answers stay true across a transfer.
 //
 // Pointers rather than zero values throughout: "0 households" and "not asked"
 // are different answers, and the register has to be able to tell them apart.
 type Profile struct {
-	CHWID int64
-	// Exists is false when the CHW has no profile row yet. The form treats
+	HealthWorkerID int64
+	// Exists is false when the worker has no profile row yet. The form treats
 	// that as "nothing recorded", not as an error.
 	Exists bool
 
-	// The form asks whether the CHW owns a phone and then branches; the two
+	// The form asks whether the worker owns a phone and then branches; the two
 	// numbers are alternatives, not two lines for one person.
 	OwnsPhone         *bool
 	PhonePrimary      string
 	PhoneForReporting *bool
 	PhoneAlternate    string
 
-	FacilityID       *int64
-	FacilityName     string // joined for display
 	ServiceStartYear *int16
 	HouseholdsServed *int32
 	Education        EducationLevel
@@ -160,7 +160,7 @@ func (p Profile) SpeaksEnglish() bool {
 	return isTrue(p.EnglishSpeak) || isTrue(p.EnglishRead) || isTrue(p.EnglishWrite)
 }
 
-// Phone is the number to reach the CHW on, whichever branch they fall in.
+// Phone is the number to reach the worker on, whichever branch they fall in.
 func (p Profile) Phone() string {
 	if p.PhonePrimary != "" {
 		return p.PhonePrimary
@@ -171,7 +171,7 @@ func (p Profile) Phone() string {
 // Answered reports whether anything at all has been recorded, so the detail
 // page can say "nothing recorded yet" rather than a table of dashes.
 func (p Profile) Answered() bool {
-	return p.Exists && (p.OwnsPhone != nil || p.FacilityID != nil || p.ServiceStartYear != nil ||
+	return p.Exists && (p.OwnsPhone != nil || p.ServiceStartYear != nil ||
 		p.HouseholdsServed != nil || p.Education != "" || p.EnglishSpeak != nil ||
 		p.OtherLanguagesRaw != "" || p.ReceivesIncentive != nil || p.ReceivedSupervision != nil)
 }
@@ -179,8 +179,8 @@ func (p Profile) Answered() bool {
 func isTrue(b *bool) bool { return b != nil && *b }
 
 // Facility is a health facility as the importer and the picker see it. The
-// register loads the whole Master Facility List; which ones a CHW may attach to
-// is decided by district, not by this shape.
+// register loads the whole Master Facility List; which ones a deployment may
+// attach to is decided by district, not by this shape.
 type Facility struct {
 	ID        int64
 	Name      string

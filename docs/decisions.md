@@ -38,9 +38,10 @@ collisions, but that check was wrong: it deduplicated by `(parent, name)` before
 so it could only ever return zero. The load failed on the real constraint, which is how
 the defect surfaced.
 
-**`district_id` denormalized onto `chws`.** Derivable from `location_id`, but every
-RBAC-scoped query filters on it. A trigger owns the column so placement and scope cannot
-drift.
+**`district_id` denormalized onto `deployments` and `health_workers`.** Derivable from
+`location_id`, but every RBAC-scoped query filters on it. Triggers own both columns so
+placement and scope cannot drift. The worker's copy tracks the latest posting rather than
+the open one, so a district still sees the workers who left it.
 
 **One `location_id`, not `parish_id` + `village_id`.** Two nullable columns could both be
 set or both be empty. One column plus a cadre-dependent trigger makes the invalid states
@@ -238,17 +239,17 @@ the meaning back. Magnitude comparisons are one hue; whole-and-part is two steps
 hue; the only two-identity charts are sex (blue/orange) and active/inactive, which is
 emphasis — one hue plus the de-emphasis grey — rather than two identities.
 
-**Bulk import stages, and a human commits.** An upload writes nothing to `chws`. It
+**Bulk import stages, and a human commits.** An upload writes nothing to the register. It
 validates every row, stores the verdicts, and produces a report; a separate act imports
 them. Re-reading the file at commit was rejected because the register moves between the
 two requests — a NIN gets claimed, a location is deactivated — and what is committed has
 to be the thing that was reviewed.
 
-**Commit calls `CHWs.CreateTx` once per row, inside a transaction it shares with the audit
+**Commit calls `Workers.CreateTx` once per row, inside a transaction it shares with the audit
 row and the staged row's mark.** Bulk `INSERT` or `COPY` would be a second implementation
 of the derived `district_id`, the post-insert scope check and invariant 6, and the second
 implementation is the one that gets it wrong. Marking the row after the insert committed
-was rejected too: a process killed in between leaves a CHW whose import row still reads
+was rejected too: a process killed in between leaves a worker whose import row still reads
 `ready`, and the next attempt creates them twice. The cost is measured and accepted — 3.2
 ms a row, 32 seconds at the 10,000-row cap. All-or-nothing over that many rows was
 rejected because one lost race would discard a correct nine-thousand-row import.
@@ -307,9 +308,9 @@ as fast as it was, since the profile write and its audit row are skipped entirel
 
 **The resolved record is stored on the staged row, not re-derived at commit.** Re-parsing
 `raw` worked while every field was a pure function of its own cell; a facility is resolved
-by name within the CHW's district, and re-resolving at commit would answer from a register
-that has moved — a facility renamed between the report and the commit would silently change
-which one a CHW reports to. Migration 0008 adds `import_rows.record`, and "what is
+by name within the deployment's district, and re-resolving at commit would answer from a
+register that has moved — a facility renamed between the report and the commit would
+silently change which one a worker reports to. `import_rows.record` holds it, and "what is
 committed is what was reviewed" stops being an argument.
 
 **The export's columns are the import's columns.** A file that comes out of the register
@@ -327,7 +328,40 @@ The cost is that a failure part-way through cannot become an error page — the 
 out with the first byte — so the file ends short and the log carries why, the same bargain
 errors.csv makes.
 
+**The register is of people; postings are rows.** The first schema was a CHW register:
+`chws` carried the person, a `cadre` enum and a `location_id` on one row, and a transfer
+overwrote the placement, so "who served at X on date D" was answerable only from audit
+JSONB. It became three things. `health_workers` is the person. `deployments` is a posting
+— one cadre, one location, one period, ended rather than deleted — with at most one open
+per worker, enforced by a partial unique index so that allowing concurrent postings later
+is dropping an index. `cadres` are rows in a two-level taxonomy under `cadre_categories`,
+each carrying its own `placement_level` and `import_aliases`, so the next cadre is an
+`INSERT` that the placement trigger, the form's cascade, the dashboard tiles and the
+importer all pick up without a code change. Rejected: keeping `chws` and adding a
+`deployments` history beside it, which would have left two answers to "where does this
+worker serve"; and a single register table with a nullable column per future cadre's
+attributes. Each category owns its own profile surface instead — `chw_profiles` and its
+junctions belong to the CHW category.
+
+The supervising facility moved from the profile onto the posting, because it is
+location-bound: it now travels with a transfer inside a district and is left behind by one
+across districts, instead of blocking the move.
+
+**The migration sequence was rewritten, not appended to.** `0003_chws` … `0008_import_record`
+were replaced by `0003_health_workers`, `0004_chw_profile` and `0005_imports`, against the
+append-only rule: a history that created `chws` only to dismantle it three migrations
+later would be the schema's most misleading page. The cost
+is recorded below.
+
 ## Known costs
+
+**A database migrated under the old sequence does not upgrade.** Its `goose_db_version`
+already reads 5, so the new `0003`–`0005` never run against it. Such a database is dropped,
+re-migrated and re-seeded — the path in [seeding.md](seeding.md). Its records can come
+across through an export taken before the drop: the export's columns are unchanged and
+`cadre` still carries `vht` / `chew`, so the old file imports. What does not come across is
+anything an import cannot set — deactivations arrive as active workers, and the audit
+history and supervision answers stay behind in the old database.
 
 **`last_supervised_on` is NULL on every imported row.** The form records supervision per
 service domain and carries no date, so decision 7 cannot be sourced from the export. The

@@ -1,7 +1,6 @@
 package http
 
 import (
-	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -18,9 +17,8 @@ import (
 var phonePattern = regexp.MustCompile(`^[0-9]{9}$`)
 
 type profileFormPage struct {
-	CHW         domain.CHW
+	Worker      domain.HealthWorker
 	Profile     domain.Profile
-	Facilities  []facilityOption
 	Educations  []educationOption
 	Frequencies []frequencyOption
 	Tools       []domain.CHWTool
@@ -30,6 +28,8 @@ type profileFormPage struct {
 	Errors      map[string]string
 }
 
+// facilityOption is one row of the supervising-facility picker on the worker
+// page: an attachment on the open posting, not part of this form.
 type facilityOption struct {
 	ID       int64
 	Label    string
@@ -54,7 +54,7 @@ type monthOption struct {
 	Selected bool
 }
 
-func (s *Server) chwProfileForm(w http.ResponseWriter, r *http.Request) {
+func (s *Server) workerProfileForm(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
 		s.notFound(w, r)
@@ -65,13 +65,13 @@ func (s *Server) chwProfileForm(w http.ResponseWriter, r *http.Request) {
 		s.notFoundOrFail(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "chw_profile", p)
+	s.render(w, r, http.StatusOK, "worker_profile", p)
 }
 
-// chwProfileSave writes the profile and both junction sets. The submitted set
-// is the new state — the junctions are the answer to a multi-select, so an
+// workerProfileSave writes the profile and both junction sets. The submitted
+// set is the new state — the junctions are the answer to a multi-select, so an
 // unticked box means "no", not "unchanged".
-func (s *Server) chwProfileSave(w http.ResponseWriter, r *http.Request) {
+func (s *Server) workerProfileSave(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")
 	if !ok {
 		s.notFound(w, r)
@@ -80,32 +80,13 @@ func (s *Server) chwProfileSave(w http.ResponseWriter, r *http.Request) {
 	actor := auth.MustUser(r.Context())
 	sc := auth.ScopeFrom(r.Context())
 
-	chw, err := s.store.CHWs.Get(r.Context(), sc, id)
+	worker, err := s.store.Workers.Get(r.Context(), sc, id)
 	if err != nil {
 		s.notFoundOrFail(w, r, err)
 		return
 	}
 
-	in, draft, v := decodeProfile(r, chw)
-
-	// A CHW's facility must be in the CHW's own district: the attachment is a
-	// reporting line, not a placement, and a CHW reporting across a district
-	// boundary is invisible to whoever supervises them. The picker only offers
-	// this district, so reaching here means the form was tampered with —
-	// chw_profiles_facility_district_trg would refuse it either way, but as a
-	// 500 rather than a message.
-	if in.FacilityID != nil {
-		districtID, err := s.store.Profiles.FacilityDistrict(r.Context(), *in.FacilityID)
-		switch {
-		case errors.Is(err, domain.ErrNotFound):
-			v.Add("facility_id", "That facility no longer exists.")
-		case err != nil:
-			s.fail(w, r, err)
-			return
-		case districtID != chw.DistrictID:
-			v.Add("facility_id", "Choose a facility in "+chw.DistrictName+" district.")
-		}
-	}
+	in, draft, v := decodeProfile(r, worker)
 
 	if v.Any() {
 		p, err := s.profileForm(r, id, draft, true, v.Fields)
@@ -115,7 +96,7 @@ func (s *Server) chwProfileSave(w http.ResponseWriter, r *http.Request) {
 		}
 		p.Tools = mergeTools(p.Tools, in.Tools)
 		p.Domains = mergeDomains(p.Domains, in.Domains)
-		s.render(w, r, http.StatusUnprocessableEntity, "chw_profile", p)
+		s.render(w, r, http.StatusUnprocessableEntity, "worker_profile", p)
 		return
 	}
 
@@ -124,19 +105,19 @@ func (s *Server) chwProfileSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setFlash(w, s.secure(), "ok", "Saved the profile for "+chw.FullName()+".")
-	http.Redirect(w, r, chwPath(id), http.StatusSeeOther)
+	setFlash(w, s.secure(), "ok", "Saved the profile for "+worker.FullName()+".")
+	http.Redirect(w, r, workerPath(id), http.StatusSeeOther)
 }
 
 // decodeProfile reads the profile form. Every CHECK in chw_profiles is
 // mirrored here, because a CHECK violation is a 500 and a field message is not;
 // the schema remains the guarantee.
-func decodeProfile(r *http.Request, chw domain.CHW) (store.ProfileInput, domain.Profile, *domain.ValidationError) {
+func decodeProfile(r *http.Request, worker domain.HealthWorker) (store.ProfileInput, domain.Profile, *domain.ValidationError) {
 	v := domain.NewValidationError()
 	in := store.ProfileInput{}
 
-	// Phone. The form asks whether the CHW owns one and branches: an owner has
-	// a primary number and may report on it; a non-owner may leave an
+	// Phone. The form asks whether the worker owns one and branches: an owner
+	// has a primary number and may report on it; a non-owner may leave an
 	// alternate number to be reached on. phone_branch_exclusive refuses any
 	// crossing of the two.
 	owns := triState(r, "owns_phone")
@@ -155,15 +136,6 @@ func decodeProfile(r *http.Request, chw domain.CHW) (store.ProfileInput, domain.
 		if in.PhoneAlternate != "" && !phonePattern.MatchString(in.PhoneAlternate) {
 			v.Add("phone_alternate", "Nine digits, without the country code — for example 772123456.")
 		}
-	}
-
-	// Supervising facility. It is an attachment, not a placement, and the
-	// trigger refuses one in another district; the picker only offers this
-	// CHW's district, so a mismatch means the form was tampered with.
-	if id, wellFormed := optionalID(r, "facility_id"); !wellFormed {
-		v.Add("facility_id", "Choose a facility from the list.")
-	} else {
-		in.FacilityID = id
 	}
 
 	if year, ok := optionalInt(r, "service_start_year", 1960, 2100, v, "service_start_year",
@@ -245,11 +217,11 @@ func decodeProfile(r *http.Request, chw domain.CHW) (store.ProfileInput, domain.
 	in.Tools = decodeTools(r)
 	in.Domains = decodeDomains(r)
 
-	return in, draftProfile(in, chw), v
+	return in, draftProfile(in, worker), v
 }
 
 // decodeTools reads the tool checklist. Condition is only meaningful for a tool
-// the CHW actually holds — the form choice-filters it the same way.
+// the worker actually holds — the form choice-filters it the same way.
 func decodeTools(r *http.Request) []store.ToolInput {
 	var out []store.ToolInput
 	for _, raw := range r.PostForm["tool"] {
@@ -303,49 +275,29 @@ func contains(haystack []string, needle string) bool {
 	return false
 }
 
-// profileForm assembles the vocabularies, the district's facilities and the
-// supervision date selects.
-func (s *Server) profileForm(r *http.Request, chwID int64, draft domain.Profile, useDraft bool, errs map[string]string) (profileFormPage, error) {
+// profileForm assembles the vocabularies and the supervision date selects.
+func (s *Server) profileForm(r *http.Request, workerID int64, draft domain.Profile, useDraft bool, errs map[string]string) (profileFormPage, error) {
 	sc := auth.ScopeFrom(r.Context())
 
-	chw, err := s.store.CHWs.Get(r.Context(), sc, chwID)
+	worker, err := s.store.Workers.Get(r.Context(), sc, workerID)
 	if err != nil {
 		return profileFormPage{}, err
 	}
 
 	profile := draft
 	if !useDraft {
-		if profile, err = s.store.Profiles.Get(r.Context(), sc, chwID); err != nil {
+		if profile, err = s.store.Profiles.Get(r.Context(), sc, workerID); err != nil {
 			return profileFormPage{}, err
 		}
 	}
 
-	tools, err := s.store.Profiles.Tools(r.Context(), chwID)
+	tools, err := s.store.Profiles.Tools(r.Context(), workerID)
 	if err != nil {
 		return profileFormPage{}, err
 	}
-	domains, err := s.store.Profiles.ServiceDomains(r.Context(), chwID)
+	domains, err := s.store.Profiles.ServiceDomains(r.Context(), workerID)
 	if err != nil {
 		return profileFormPage{}, err
-	}
-	facilities, err := s.store.Profiles.FacilitiesIn(r.Context(), sc, chw.DistrictID)
-	if err != nil {
-		return profileFormPage{}, err
-	}
-
-	options := make([]facilityOption, 0, len(facilities))
-	for _, f := range facilities {
-		label := f.Name
-		if f.Level != "" {
-			label += " · " + f.Level
-		}
-		if f.Ownership != "" && f.Ownership != "GOV" {
-			label += " (" + f.Ownership + ")"
-		}
-		options = append(options, facilityOption{
-			ID: f.ID, Label: label,
-			Selected: profile.FacilityID != nil && *profile.FacilityID == f.ID,
-		})
 	}
 
 	educations := make([]educationOption, 0, len(domain.EducationLevels))
@@ -376,9 +328,8 @@ func (s *Server) profileForm(r *http.Request, chwID int64, draft domain.Profile,
 	}
 
 	return profileFormPage{
-		CHW:         chw,
+		Worker:      worker,
 		Profile:     profile,
-		Facilities:  options,
 		Educations:  educations,
 		Frequencies: frequencies,
 		Tools:       tools,
@@ -419,15 +370,14 @@ func mergeDomains(vocab []domain.CHWServiceDomain, chosen []store.DomainInput) [
 
 // draftProfile turns rejected input back into a Profile so the form
 // redisplays what was typed.
-func draftProfile(in store.ProfileInput, chw domain.CHW) domain.Profile {
+func draftProfile(in store.ProfileInput, worker domain.HealthWorker) domain.Profile {
 	return domain.Profile{
-		CHWID:               chw.ID,
+		HealthWorkerID:      worker.ID,
 		Exists:              true,
 		OwnsPhone:           in.OwnsPhone,
 		PhonePrimary:        in.PhonePrimary,
 		PhoneForReporting:   in.PhoneForReporting,
 		PhoneAlternate:      in.PhoneAlternate,
-		FacilityID:          in.FacilityID,
 		ServiceStartYear:    in.ServiceStartYear,
 		HouseholdsServed:    in.HouseholdsServed,
 		Education:           in.Education,

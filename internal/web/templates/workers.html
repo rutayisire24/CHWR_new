@@ -1,15 +1,15 @@
-{{define "title"}}Register · CHW Registry{{end}}
+{{define "title"}}Register · Health Worker Registry{{end}}
 
 {{define "content"}}
 <div class="row-between">
-  <h1>Community health workers</h1>
+  <h1>Health workers</h1>
   <div class="page-actions">
     {{if .Page.CanExport}}<a class="button ghost" href="{{.Page.ExportURL}}">Download CSV</a>{{end}}
-    {{if .Page.CanEdit}}<a class="button" href="/chws/new">Add CHW</a>{{end}}
+    {{if .Page.CanEdit}}<a class="button" href="/health-workers/new">Add a worker</a>{{end}}
   </div>
 </div>
 
-<form method="get" action="/chws" class="filters-bar" data-location-cascade>
+<form method="get" action="/health-workers" class="filters-bar" data-location-cascade>
   <div class="search">
     <label for="q">Search</label>
     <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name or NIN">
@@ -21,7 +21,7 @@
     <select id="cadre" name="cadre">
       <option value="">Any</option>
       {{range .Page.Cadres}}
-      <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+      <option value="{{.Slug}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
       {{end}}
     </select>
   </div>
@@ -71,7 +71,7 @@
 
   <div class="actions">
     <button type="submit">Search</button>
-    {{if .Page.Filter.Active}}<a class="cancel" href="/chws">Clear</a>{{end}}
+    {{if .Page.Filter.Active}}<a class="cancel" href="/health-workers">Clear</a>{{end}}
   </div>
 </form>
 
@@ -88,19 +88,23 @@
     <tr><th>Name</th><th>Cadre</th><th>Placement</th><th>District</th><th>NIN</th><th>Status</th></tr>
   </thead>
   <tbody>
-  {{range .Page.CHWs}}
+  {{range .Page.Workers}}
     <tr class="{{if not .Active}}dim{{end}}">
-      <td><a href="/chws/{{.ID}}">{{.LastName}}, {{.FirstName}}</a></td>
-      <td>{{.Cadre.Label}}</td>
-      <td>{{.LocationName}}</td>
-      <td>{{.DistrictName}}</td>
+      <td><a href="/health-workers/{{.ID}}">{{.LastName}}, {{.FirstName}}</a></td>
+      {{if .Deployment}}
+      <td>{{.Deployment.Cadre.Label}}</td>
+      <td>{{.Deployment.LocationName}}</td>
+      <td>{{.Deployment.DistrictName}}</td>
+      {{else}}
+      <td colspan="3" class="muted">— not placed —</td>
+      {{end}}
       <td>{{if .NIN}}<code>{{.NIN}}</code>{{else}}<span class="muted">—</span>{{end}}</td>
       <td><span class="pill {{.Status}}">{{.Status}}</span></td>
     </tr>
   {{else}}
     <tr><td colspan="6" class="muted">
-      {{if .Page.Filter.Active}}Nothing matches this search. <a href="/chws">Clear the filters</a>.
-      {{else}}No CHWs on the register yet.{{if .Page.CanEdit}} <a href="/chws/new">Add the first one</a>.{{end}}{{end}}
+      {{if .Page.Filter.Active}}Nothing matches this search. <a href="/health-workers">Clear the filters</a>.
+      {{else}}No health workers on the register yet.{{if .Page.CanEdit}} <a href="/health-workers/new">Add the first one</a>.{{end}}{{end}}
     </td></tr>
   {{end}}
   </tbody>

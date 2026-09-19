@@ -22,13 +22,11 @@ internal/importer/      parse, validate, resolve — no SQL of its own
   validate.go   one row → Record + []Problem, and the cross-file NIN pass
   profile.go    the optional attributes: the branches, the two nested lists
 internal/domain/import.go     Batch, ImportRow, Problem, the status and code vocabularies
-internal/domain/parse.go      the field rules the CHW form and the importer share
+internal/domain/parse.go      the field rules the worker form and the importer share
 internal/store/imports.go     batches, staged rows, the commit claim, quarantine writes
 internal/http/imports.go      the routes, the store adapter, the commit runner
 internal/web/templates/       imports.html, import_report.html
-migrations/0006_imports.sql   staging tables
-migrations/0007_import_lease.sql   the commit claim
-migrations/0008_import_record.sql  the resolved record on a staged row
+migrations/0005_imports.sql   staging tables, the commit claim, the resolved record, quarantine
 docs/import.md                this file
 ```
 
@@ -54,7 +52,7 @@ question the operator can answer by moving it.
 
 ## Two phases: stage, review, commit
 
-An upload validates every row and **writes nothing to `chws`**. It produces a report —
+An upload validates every row and **writes nothing to the register**. It produces a report —
 ready, warned, rejected, each with row numbers and reasons — and the operator commits or
 discards it.
 
@@ -69,7 +67,7 @@ import_batches(id, filename, format, uploaded_by,
                created_at, committed_at)
 
 import_rows(batch_id, row_number, raw jsonb, status,
-            location_id, problems jsonb, chw_id,
+            location_id, problems jsonb, record jsonb, health_worker_id,
             PRIMARY KEY (batch_id, row_number))
 ```
 
@@ -91,7 +89,7 @@ yet — 10,000 rows of raw JSONB is on the order of 10 MB. Note which way it wou
 the time comes: a **pending** batch's rows are the only copy there is, because rejects
 reach `import_quarantine` only at commit, so sweeping one would destroy the only record
 that an upload was attempted and refused. A **committed** batch's rows are the most
-redundant data in the system — every ready row became a CHW with its own `chw.create`
+redundant data in the system — every ready row became a worker with its own `health_worker.create`
 audit row, and every reject is already in quarantine. If anything is ever pruned it is
 `import_rows.raw` on committed batches.
 
@@ -99,13 +97,13 @@ audit row, and every reject is already in quarantine. If anything is ever pruned
 
 | Method and path | Capability | Notes |
 |---|---|---|
-| `GET /imports` | `chw.import` | recent batches, scoped; the upload form; the template link |
-| `GET /imports/template.csv` | `chw.import` | the blank template, district pre-filled for a district user |
-| `POST /imports` | `chw.import` | multipart; parses, validates, stages; redirects to the report |
-| `GET /imports/{id}` | `chw.import` | the report |
-| `GET /imports/{id}/errors.csv` | `chw.import` | the rejected rows, original columns plus `error` |
-| `POST /imports/{id}/commit` | `chw.import` | writes the ready rows |
-| `POST /imports/{id}/discard` | `chw.import` | marks the batch discarded; the staged rows stay |
+| `GET /imports` | `health_worker.import` | recent batches, scoped; the upload form; the template link |
+| `GET /imports/template.csv` | `health_worker.import` | the blank template, district pre-filled for a district user |
+| `POST /imports` | `health_worker.import` | multipart; parses, validates, stages; redirects to the report |
+| `GET /imports/{id}` | `health_worker.import` | the report |
+| `GET /imports/{id}/errors.csv` | `health_worker.import` | the rejected rows, original columns plus `error` |
+| `POST /imports/{id}/commit` | `health_worker.import` | writes the ready rows |
+| `POST /imports/{id}/discard` | `health_worker.import` | marks the batch discarded; the staged rows stay |
 
 A missing required column rejects the **whole file** before anything is staged. There is
 nothing to review when the columns are wrong, and a report claiming three thousand
@@ -117,22 +115,23 @@ column. The district fixes that file and uploads it again; they never have to fi
 
 ## Commit
 
-Commit calls `store.CHWs.CreateTx` and, where the row answered anything,
+Commit calls `store.Workers.CreateTx` and, where the row answered anything,
 `store.Profiles.SaveTx`, once per ready row. Not a bulk `INSERT`, not `COPY`.
 
-That is what keeps invariant 6 structural: the create already writes the CHW's `audit_log`
-row inside the CHW's own transaction, and already re-checks the derived `district_id`
+That is what keeps invariant 6 structural: the create already writes the worker, their
+first deployment and both `audit_log` rows inside one transaction, and already re-checks
+the deployment's derived `district_id`
 against the `Scope` after the trigger has set it. An importer with its own `INSERT` would
 be a second implementation of both, and the second one is the one that gets it wrong.
 
 Both join the *caller's* transaction — the `Tx` half of the pair `Audit.Record` and
-`Audit.RecordTx` already established — so that one transaction carries the CHW, its
-profile, both audit rows, and `Imports.MarkImportedTx` marking the staged row. A profile
-written in a second transaction could be lost while the CHW it describes survived, which
+`Audit.RecordTx` already established — so that one transaction carries the worker, their
+first deployment, their profile, every audit row, and `Imports.MarkImportedTx` marking the staged row. A profile
+written in a second transaction could be lost while the worker it describes survived, which
 is the half-loaded record invariant 7 forbids, one row at a time rather than one file at a
 time. Marking afterwards would leave a
 window one row wide: a process killed between the insert committing and the mark landing
-would leave a CHW on the register whose import row still read `ready`, and the next commit
+would leave a worker on the register whose import row still read `ready`, and the next commit
 attempt would create them a second time. Three writes in one transaction close it.
 
 A row that fails at commit — a NIN claimed between validation and commit, a location
@@ -142,9 +141,9 @@ which did not, and `errors.csv` picks up the remainder. An all-or-nothing transa
 ten thousand inserts was rejected: one lost race would discard a correct nine-thousand-row
 import, and the operator's next move would be to upload the identical file again.
 
-One batch-level `chw.import` audit entry records the file, the counts and the actor. Each
-CHW still gets its own `chw.create` row, because that is where the register's change
-history lives.
+Batch-level `import.upload` and `import.commit` entries record the file, the counts and
+the actor. Each worker still gets their own `health_worker.create` and `deployment.start`
+rows, because that is where the register's change history lives.
 
 ## The district boundary
 
@@ -153,10 +152,10 @@ last one is load-bearing.
 
 | Layer | Mechanism |
 |---|---|
-| Capability | `chw.import`, held by `national_admin` and `district_manager`. A viewer never sees the screen. |
+| Capability | `health_worker.import`, held by `national_admin` and `district_manager`. A viewer never sees the screen. |
 | Template | a district user's downloaded template arrives with the district column filled in. |
 | Resolution | resolution starts from the scope; a row naming another district is rejected `outside_scope`. |
-| Write | `CHWs.Create` derives `district_id` by trigger and rolls back when the `Scope` disallows it. |
+| Write | `Workers.CreateTx` derives the deployment's `district_id` by trigger and rolls back when the `Scope` disallows it. |
 
 The write is the guarantee. The three above exist so the operator gets a row number and a
 sentence instead of a rolled-back transaction.
@@ -252,7 +251,7 @@ escape hatch in the same release would be a dead end.
 | `phone_primary` | their own number, when they own a phone |
 | `phone_for_reporting` | yes / no — is that phone used for reporting |
 | `phone_alternate` | a number to reach them on when they own **no** phone |
-| `facility` | matched by name inside the CHW's own district |
+| `facility` | matched by name inside the deployment's own district |
 | `service_start_year` | 1960–2100 |
 | `households_served` | 3–100,000 |
 | `education` | `none` / `ple` / `uce` / `uace` / `tertiary` |
@@ -301,16 +300,18 @@ commit will write. `raw` answers "what did the file say"; `record` is what was r
 
 Storing it rather than re-deriving it at commit is what the profile columns forced.
 Re-parsing worked while every field was a pure function of its own cell — a name is a name
-— but a facility is resolved by name within the CHW's district, and re-resolving at commit
+— but a facility is resolved by name within the deployment's district, and re-resolving at commit
 would answer from a register that has moved: a facility renamed between the report and the
-commit would silently change which one a CHW reports to. Migration 0008 adds the column,
+commit would silently change which one a worker reports to. `import_rows.record` holds it,
 and "what is committed is what was reviewed" stops being an argument and becomes a fact.
 
 ## Validation
 
 Rules the form already enforces are shared with it rather than restated. The predicates —
 the NIN pattern, the age range, the cadre and sex vocabularies with their case variants —
-move into `internal/domain`, and both `http.decodeCHW` and `importer.Row` call them. The
+move into `internal/domain`, and both `http.decodeWorker` and `importer.Row` call them. The cadre is
+the exception: it matches against the `cadres` rows' slugs and `import_aliases`, so a new
+cadre is importable the moment its row lands. The
 *messages* stay separate: a form says "Enter the first name", a report says
 `row 412 · first_name · empty`. Sharing the rule is what stops the two from drifting;
 sharing the sentence would only make both worse.
@@ -336,7 +337,7 @@ would take four uploads to surface four errors in one row.
 | `lost_race` | raised at commit only: the row was acceptable when the report was produced, and the register moved underneath it |
 
 `possible_duplicate` warns and imports, because two people in one village genuinely share
-a name; that is why `chws_dup_probe_idx` exists and why the CHW form asks for a second
+a name; that is why the probe runs on open postings by location and why the worker form asks for a second
 submit rather than refusing. A checkbox at commit skips the warned rows for an operator
 who would rather check first.
 
@@ -380,16 +381,17 @@ the working set behind one report and is prunable; `import_quarantine` is the pe
 answer to invariant 7 — nothing is dropped silently, and a year later the question is not
 "what did batch 46 say" but "which rows never made it in, and why".
 
-A committed batch's rows also hold `chw_id`, which means a CHW cannot be deleted while an
-import row still points at them. That is invariant 5 — CHWs are never deleted — arriving
-from a second direction, and it is the right answer: the row that says where a CHW came
+A committed batch's rows also hold `health_worker_id`, which means a worker cannot be
+deleted while an import row still points at them. That is invariant 5 — health workers are
+never deleted — arriving from a second direction, and it is the right answer: the row that
+says where a worker came
 from should not be the thing that quietly disappears with them.
 
 `import_quarantine.batch_id` is what makes the permanent record traceable back to the
 upload that produced it. It is nullable, because the hierarchy and facility seeders write
 to that table too and have no batch. Its foreign key is left to restrict rather than
 cascade or null: deleting a batch that produced quarantine rows is refused outright. That
-is the same stance `chws_check_facility_after_move()` takes — raise rather than quietly
+is the same stance `deployments_check_facility_district()` takes — raise rather than quietly
 null a column — and here it means no future pruning can destroy the record of a refusal by
 tidying away the batch it came from.
 
@@ -401,7 +403,7 @@ in [seeding.md](seeding.md) where it can be checked against the source before it
 
 Commit is synchronous, and it is not fast. Measured against the seeded hierarchy and a
 24,573-record register: **10,000 rows validate and stage in 4 seconds, and commit in 32** —
-about 3.2 ms a row. Roughly a quarter of that is `chws_set_placement` deriving the district
+about 3.2 ms a row. Roughly a quarter of that was the placement trigger deriving the district
 by matching the path against all 146 districts, and the rest is the audit row, the row
 mark, and a transaction per record. Batching rows into shared transactions was measured as
 worth under a third of it, and would trade away the property that one bad row does not
@@ -412,8 +414,8 @@ Two consequences, both of which are the design's to own rather than to hide:
 - **The page says so.** The commit button carries the rate, and the operator is told to
   leave the page open. Thirty seconds of nothing is otherwise read as a hang.
 - **A batch is claimed before it is committed** (`import_batches.committing_at`,
-  migration 0007). This is not a nicety. Two runs walking one batch both read the same page
-  of `ready` rows before either marks them, and both write the CHWs on it: a
+  migration 0005). This is not a nicety. Two runs walking one batch both read the same page
+  of `ready` rows before either marks them, and both write the workers on it: a
   double-submitted 1,200-row file was measured creating **2,033 records**. The claim is a
   lease rather than a flag so a process killed mid-commit does not wedge the batch — after
   fifteen minutes another attempt may take it, and resuming is safe because a commit only
@@ -453,6 +455,11 @@ where such a worker would keep its state, and `committing_at` is already the cla
 would take.
 
 ## Verified
+
+This list was verified before the person / cadre / posting rewrite and uses the names of
+that time (`chws`, `chw.create`, `chw_profiles_facility_district`). The rewrite's own
+re-verification of import — refusals, scoping, commit, audit rows and the export round
+trip — is recorded in [roadmap.md](roadmap.md#verification-status).
 
 Against the seeded hierarchy and a 24,573-record register — driven through the running
 server and, for the pages, a real browser on the Selenium grid. Not only unit tests.

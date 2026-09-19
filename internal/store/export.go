@@ -12,14 +12,14 @@ import (
 )
 
 // Export is the register as a file. It is its own file rather than a method on
-// CHWs because it deliberately crosses every aggregate — the record, its
-// profile and both junctions — to produce one row per CHW, which is the one
-// shape none of them owns.
+// Workers because it deliberately crosses every aggregate — the person, their
+// posting, their profile and both junctions — to produce one row per worker,
+// which is the one shape none of them owns.
 type Export struct {
 	pool *pgxpool.Pool
 }
 
-// ExportRow is one CHW, flattened. Pointers where the register distinguishes
+// ExportRow is one worker, flattened. Pointers where the register distinguishes
 // "no" from "not asked", because a file that spelled both as empty would throw
 // away the distinction the whole schema is built around.
 type ExportRow struct {
@@ -29,7 +29,7 @@ type ExportRow struct {
 	FirstName     string
 	LastName      string
 	Sex           domain.Sex
-	Cadre         domain.Cadre
+	Cadre         string // slug of the posting's cadre
 	AgeYears      *int16
 	AgeCapturedOn time.Time
 
@@ -44,7 +44,7 @@ type ExportRow struct {
 	// row re-importable without any name being ambiguous.
 	LocationCode string
 
-	Status             domain.CHWStatus
+	Status             domain.WorkerStatus
 	DeactivatedAt      *time.Time
 	DeactivationReason string
 
@@ -86,45 +86,47 @@ type ExportRow struct {
 // records on screen exports those 20: the file and the page cannot disagree,
 // because they are built from the same predicate.
 //
-// It streams rather than returning a slice because the register is 24,573 rows
-// today and the whole national export has no reason to exist in memory at once.
-// There is no keyset here and no LIMIT: paging is for a reader who moves through
-// a page at a time, and an export is the whole selection by definition.
+// It streams rather than returning a slice because the national register has
+// no reason to exist in memory at once. There is no keyset here and no LIMIT:
+// paging is for a reader who moves through a page at a time, and an export is
+// the whole selection by definition.
 func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(ExportRow) error) error {
 	// Paging fields are ignored on purpose: an export of "page three" would be
 	// a file nobody asked for.
 	f.Limit, f.After, f.Before = 0, nil, nil
 	where, args := f.where(sc)
 
-	// The junction sets are folded to one row per CHW and joined, rather than
-	// probed per row: the dashboard learned the same lesson at this size, where
-	// the per-row form cost 430ms and the join 9ms.
+	// The junction sets are folded to one row per worker and joined, rather
+	// than probed per row: the dashboard learned the same lesson at this size,
+	// where the per-row form cost 430ms and the join 9ms.
 	//
-	// Ancestors come out of locations.path with split_part and are joined by
-	// primary key, which is what keeps a national export off a prefix scan
-	// against all 84,635 locations.
+	// The placement comes from the posting the listing sees the worker
+	// through (the active deployment, else the most recent), and ancestors
+	// come out of locations.path with split_part joined by primary key, which
+	// is what keeps a national export off a prefix scan against all 84,635
+	// locations.
 	q := `
 	    WITH tool_sets AS (
-	        SELECT ct.chw_id,
+	        SELECT ct.health_worker_id,
 	               string_agg(t.slug, ';' ORDER BY t.sort_order) AS held,
 	               string_agg(t.slug, ';' ORDER BY t.sort_order)
 	                   FILTER (WHERE ct.functional) AS working
 	          FROM chw_tools ct JOIN tools t ON t.id = ct.tool_id
-	         GROUP BY ct.chw_id
+	         GROUP BY ct.health_worker_id
 	    ), domain_sets AS (
-	        SELECT csd.chw_id,
+	        SELECT csd.health_worker_id,
 	               string_agg(sd.slug, ';' ORDER BY sd.sort_order)
 	                   FILTER (WHERE csd.provides) AS provides,
 	               string_agg(sd.slug, ';' ORDER BY sd.sort_order)
 	                   FILTER (WHERE csd.trained) AS trained
 	          FROM chw_service_domains csd JOIN service_domains sd ON sd.id = csd.domain_id
-	         GROUP BY csd.chw_id
+	         GROUP BY csd.health_worker_id
 	    )
-	    SELECT c.id, coalesce(c.nin,''), c.first_name, c.last_name,
-	           c.sex::text, c.cadre::text, c.age_years, c.age_captured_on,
-	           d.name, coalesce(sub.name,''), coalesce(par.name,''), coalesce(vil.name,''),
+	    SELECT w.id, coalesce(w.nin,''), w.first_name, w.last_name,
+	           w.sex::text, coalesce(cd.slug,''), w.age_years, w.age_captured_on,
+	           coalesce(dl.name,''), coalesce(sub.name,''), coalesce(par.name,''), coalesce(vil.name,''),
 	           coalesce(l.code_path,''),
-	           c.status::text, c.deactivated_at, coalesce(c.deactivation_reason,''),
+	           w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
 	           p.owns_phone, coalesce(p.phone_primary,''), p.phone_for_reporting,
 	           coalesce(p.phone_alternate,''),
 	           coalesce(fac.name,''), p.service_start_year, p.households_served,
@@ -136,18 +138,25 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	           p.received_supervision, p.last_supervised_on,
 	           coalesce(ts.held,''), coalesce(ts.working,''),
 	           coalesce(ds.provides,''), coalesce(ds.trained,''),
-	           c.created_at, c.updated_at
-	      FROM chws c
-	      JOIN locations l ON l.id = c.location_id
-	      JOIN locations d ON d.id = c.district_id
+	           w.created_at, w.updated_at
+	      FROM health_workers w
+	      LEFT JOIN LATERAL (
+	          SELECT x.* FROM deployments x
+	           WHERE x.health_worker_id = w.id
+	           ORDER BY (x.ended_on IS NULL) DESC, x.started_on DESC, x.id DESC
+	           LIMIT 1
+	      ) dep ON true
+	      LEFT JOIN cadres cd ON cd.id = dep.cadre_id
+	      LEFT JOIN locations l ON l.id = dep.location_id
+	      LEFT JOIN locations dl ON dl.id = dep.district_id
 	      LEFT JOIN locations sub ON sub.id = nullif(split_part(l.path,'/',5),'')::bigint
 	      LEFT JOIN locations par ON par.id = nullif(split_part(l.path,'/',6),'')::bigint
 	      LEFT JOIN locations vil ON vil.id = nullif(split_part(l.path,'/',7),'')::bigint
-	      LEFT JOIN chw_profiles p ON p.chw_id = c.id
-	      LEFT JOIN facilities fac ON fac.id = p.facility_id
-	      LEFT JOIN tool_sets ts ON ts.chw_id = c.id
-	      LEFT JOIN domain_sets ds ON ds.chw_id = c.id` + where + `
-	     ORDER BY lower(c.last_name), lower(c.first_name), c.id`
+	      LEFT JOIN chw_profiles p ON p.health_worker_id = w.id
+	      LEFT JOIN facilities fac ON fac.id = dep.facility_id
+	      LEFT JOIN tool_sets ts ON ts.health_worker_id = w.id
+	      LEFT JOIN domain_sets ds ON ds.health_worker_id = w.id` + where + `
+	     ORDER BY lower(w.last_name), lower(w.first_name), w.id`
 
 	rows, err := e.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -172,8 +181,8 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 			return fmt.Errorf("scan export row: %w", err)
 		}
 		r.Sex = domain.Sex(sex)
-		r.Cadre = domain.Cadre(cadre)
-		r.Status = domain.CHWStatus(status)
+		r.Cadre = cadre
+		r.Status = domain.WorkerStatus(status)
 		r.Education = domain.EducationLevel(education)
 		r.IncentiveFrequency = domain.IncentiveFrequency(frequency)
 

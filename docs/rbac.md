@@ -4,9 +4,9 @@
 
 | Role | Scope | Purpose |
 |---|---|---|
-| `national_admin` | national | Full CHW management, user provisioning, audit |
+| `national_admin` | national | Full health worker management, user provisioning, audit |
 | `national_viewer` | national | Read-only across the country |
-| `district_manager` | one district | CHW management within their district |
+| `district_manager` | one district | Health worker management within their district |
 | `district_viewer` | one district | Read-only within their district |
 
 The four roles are really a 2x2 of **capability** (manage / view) by **scope**
@@ -17,11 +17,11 @@ lookup plus a scope predicate.
 
 | capability | national_admin | national_viewer | district_manager | district_viewer |
 |---|---|---|---|---|
-| `chw.view` | all | all | own district | own district |
-| `chw.create` | yes | — | own district | — |
-| `chw.update` | yes | — | own district | — |
-| `chw.deactivate` | yes | — | own district | — |
-| `chw.import` | all | — | own district | — |
+| `health_worker.view` | all | all | own district | own district |
+| `health_worker.create` | yes | — | own district | — |
+| `health_worker.update` | yes | — | own district | — |
+| `health_worker.deactivate` | yes | — | own district | — |
+| `health_worker.import` | all | — | own district | — |
 | `user.manage` | yes | — | — | — |
 | `audit.view` | all | — | own district | — |
 | `export` | all | all | own district | own district |
@@ -37,7 +37,7 @@ can never mint another district role.
 **2. The store signature.** Every method in `internal/store` takes a `Scope`:
 
 ```go
-func (s *CHWStore) List(ctx context.Context, sc auth.Scope, f Filter) ([]domain.CHW, error)
+func (s *Workers) List(ctx context.Context, sc auth.Scope, f Filter) (Page, error)
 ```
 
 `Scope` carries either "national" or a `DistrictID`, and the query appends
@@ -57,10 +57,16 @@ actually `district`. Both were verified to reject.
 
 ## Scoping mechanics
 
-`chws.district_id` is denormalized from `location_id` by trigger, so every scoped query is
-a plain indexed equality on `chws (district_id, status)` rather than an ancestor walk.
-Placement and scope cannot drift apart, because the application never writes
+`health_workers.district_id` is denormalized by trigger from the worker's latest
+deployment, whose own `district_id` is derived from its `location_id`. Every scoped query
+is therefore a plain indexed equality on `health_workers.district_id` rather than an
+ancestor walk. Placement and scope cannot drift apart, because the application never writes
 `district_id` itself.
+
+The anchor is the latest posting, not the open one, and it survives deactivation: a
+district still sees the workers who left it. A worker transferred to another district
+leaves the old district's view entirely — the record, its history and its profile
+become a 404 there — while both districts keep their slice of the audit log.
 
 For subtree queries that are not district-scoped, `locations.path` supports a prefix scan:
 
@@ -92,8 +98,8 @@ has to evict the intruder.
 | Route guards | `auth.RequireAuth`, `auth.RequireCapability(cap, pages)` in `internal/http/router.go` |
 | CSRF | `auth.CSRF` — double-submit cookie, rotated at login and logout |
 | Forced reset | `RequireAuth` pins a `must_reset` user to `/account/password` |
-| CHW routes | `chw.view` reads `/chws` and `/api/locations`; `chw.create` / `chw.update` / `chw.deactivate` gate the writes |
-| Bulk import | `chw.import` gates every `/imports` route. It is its own capability rather than `chw.create` so that restricting bulk upload later is one line, and so that an upload reads as itself in the audit log. A batch is scoped by `import_batches.district_id`, recorded at upload: another district's report, its error file and its commit are all a 404 |
+| Worker routes | `health_worker.view` reads `/health-workers` and `/api/locations`; `health_worker.create` / `.update` / `.deactivate` gate the writes |
+| Bulk import | `health_worker.import` gates every `/imports` route. It is its own capability rather than `health_worker.create` so that restricting bulk upload later is one line, and so that an upload reads as itself in the audit log. A batch is scoped by `import_batches.district_id`, recorded at upload: another district's report, its error file and its commit are all a 404 |
 
 Two store methods take no `Scope`, both pre-authentication and both documented as such:
 `Users.Credentials`, which the login handler uses, and `Sessions.Authenticate`, which is
@@ -103,9 +109,9 @@ Handler-level safeguards that the schema cannot express: an account cannot disab
 itself, and the last active `national_admin` cannot be demoted or disabled — otherwise
 nobody can provision accounts and recovery needs a database console.
 
-Scoping a CHW write is two checks, not one, because `district_id` is derived by trigger
+Scoping a worker write is two checks, not one, because `district_id` is derived by trigger
 and so does not exist until the row does. The placement's district is checked before the
-write, and the row's own `district_id` is checked inside the same transaction afterwards;
-a placement that would carry a CHW out of the writer's district is rolled back. The
+write, and the new deployment's own `district_id` is checked inside the same transaction afterwards;
+a placement that would carry a worker out of the writer's district is rolled back. The
 location feed answers "out of scope" and "no children" identically — an empty list — so a
 district user cannot map the country by probing ids.

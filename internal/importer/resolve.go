@@ -28,20 +28,23 @@ type Lookup interface {
 	ByCode(ctx context.Context, code string) (int64, error)
 	// Ancestors returns a location's chain, region downward and inclusive.
 	Ancestors(ctx context.Context, sc auth.Scope, id int64) ([]domain.Place, error)
-	// CHWWithNIN returns the CHW already carrying a NIN. The importer asks
-	// nationally: chws_nin_uniq is a national index, so a duplicate in another
-	// district is still a duplicate.
-	CHWWithNIN(ctx context.Context, nin string) (domain.CHW, error)
-	// NamesAt returns CHWs of that name at that location, for the soft
+	// WorkerWithNIN returns the worker already carrying a NIN. The importer
+	// asks nationally: health_workers_nin_uniq is a national index, so a
+	// duplicate in another district is still a duplicate.
+	WorkerWithNIN(ctx context.Context, nin string) (domain.HealthWorker, error)
+	// NamesAt returns workers of that name at that location, for the soft
 	// duplicate probe.
-	NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.CHW, error)
+	NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.HealthWorker, error)
 
+	// Cadres is the cadre vocabulary the cadre column is matched against —
+	// data, not an enum, so a new cadre is importable the moment its row lands.
+	Cadres(ctx context.Context) ([]domain.Cadre, error)
 	// Tools and ServiceDomains are the closed vocabularies the two multi-select
 	// columns name. Both are small and static; the resolver reads each once.
 	Tools(ctx context.Context) ([]domain.Tool, error)
 	ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error)
 	// FacilitiesIn lists a district's facilities, for matching the facility
-	// column by name inside the CHW's own district.
+	// column by name inside the deployment's own district.
 	FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error)
 }
 
@@ -76,8 +79,8 @@ func normalizeName(s string) string {
 	return b.String()
 }
 
-// Placement is where a row's CHW goes: the location itself and the district
-// derived from its chain.
+// Placement is where a row's deployment goes: the location itself and the
+// district derived from its chain.
 type Placement struct {
 	LocationID int64
 	Level      domain.Level
@@ -98,6 +101,7 @@ type Resolver struct {
 	lookup Lookup
 	scope  auth.Scope
 
+	cadres     []domain.Cadre
 	districts  map[string][]domain.Place
 	children   map[childKey][]domain.Place
 	facilities map[int64][]domain.Facility
@@ -108,19 +112,24 @@ type childKey struct {
 	level  domain.Level
 }
 
-// NewResolver preloads the districts the scope allows. For a district user
-// that is one row, and it is the reason a file naming another district is
-// refused row by row rather than resolved and then caught: the other district
-// is not in the map at all.
+// NewResolver preloads the districts the scope allows and the cadre vocabulary.
+// For a district user the districts are one row, and it is the reason a file
+// naming another district is refused row by row rather than resolved and then
+// caught: the other district is not in the map at all.
 func NewResolver(ctx context.Context, lookup Lookup, sc auth.Scope) (*Resolver, error) {
 	districts, err := lookup.Districts(ctx, sc)
 	if err != nil {
 		return nil, fmt.Errorf("load districts: %w", err)
 	}
+	cadres, err := lookup.Cadres(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load cadres: %w", err)
+	}
 
 	r := &Resolver{
 		lookup:     lookup,
 		scope:      sc,
+		cadres:     cadres,
 		districts:  make(map[string][]domain.Place, len(districts)),
 		children:   make(map[childKey][]domain.Place),
 		facilities: make(map[int64][]domain.Facility),
@@ -132,14 +141,14 @@ func NewResolver(ctx context.Context, lookup Lookup, sc auth.Scope) (*Resolver, 
 	return r, nil
 }
 
-// Resolve reads a row's placement. cadre decides which level the placement sits
-// at, so a row whose cadre did not parse resolves as deep as it was given and
-// leaves the level alone.
-func (r *Resolver) Resolve(ctx context.Context, row Row, cadre domain.Cadre) (*Placement, []domain.Problem) {
+// Resolve reads a row's placement. Which level the placement must sit at is
+// the cadre's business, checked by checkPlacementLevel once the cadre column
+// and the location have both been read.
+func (r *Resolver) Resolve(ctx context.Context, row Row) (*Placement, []domain.Problem) {
 	if code := row.Value(ColCode); code != "" {
 		return r.byCode(ctx, row, code)
 	}
-	return r.byNames(ctx, row, cadre)
+	return r.byNames(ctx, row)
 }
 
 // byCode resolves the official code path, and checks the name columns against
@@ -229,7 +238,11 @@ func (r *Resolver) checkNames(row Row, chain []domain.Place, code string) *domai
 // County is never a column. It is mandatory in the data — subcounty codes are
 // unique only within a county — and it is derived from the path, exactly as the
 // cascading selects derive it. A district's spreadsheet will not have it.
-func (r *Resolver) byNames(ctx context.Context, row Row, cadre domain.Cadre) (*Placement, []domain.Problem) {
+//
+// How deep a row *should* go is the cadre's business, not the cascade's: the
+// walk goes as deep as the cells are filled, and checkPlacementLevel compares
+// where it stopped against the level the cadre serves.
+func (r *Resolver) byNames(ctx context.Context, row Row) (*Placement, []domain.Problem) {
 	districtName := row.Value(ColDistrict)
 	if districtName == "" {
 		return nil, []domain.Problem{{Field: ColDistrict, Code: domain.ProblemRequired,
@@ -254,8 +267,8 @@ func (r *Resolver) byNames(ctx context.Context, row Row, cadre domain.Cadre) (*P
 		Chain:      []domain.Place{matches[0]},
 	}
 
-	// The cascade below the district. A CHEW stops at parish; a VHT goes on to
-	// the village.
+	// The cascade below the district: as deep as the cells are filled, which
+	// for today's cadres means parish for a CHEW and village for a VHT.
 	steps := []struct {
 		column string
 		level  domain.Level
@@ -337,7 +350,7 @@ func (r *Resolver) facilitiesIn(ctx context.Context, districtID int64) ([]domain
 // outsideScope is the one answer a district user gets for a location that is
 // not theirs, whether it exists or not. Naming the district it belongs to would
 // let a district user map the country by probing names, which is the same
-// reason /api/locations and the CHW form answer this way.
+// reason /api/locations and the worker form answer this way.
 func outsideScope(column string) domain.Problem {
 	return domain.Problem{Field: column, Code: domain.ProblemOutsideScope,
 		Message: "That location is not in your district."}

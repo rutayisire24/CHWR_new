@@ -3,7 +3,7 @@
 Every field in the National CHWR XLSForm, mapped to its destination. Group prefixes
 (`Hirechy-`, `other_individual-`, …) are stripped.
 
-## Identity — `chws`
+## Identity — `health_workers`, and the posting on `deployments`
 
 | ODK field | Type | Column | Notes |
 |---|---|---|---|
@@ -12,8 +12,8 @@ Every field in the National CHWR XLSForm, mapped to its destination. Group prefi
 | `last_name` | text | `last_name` | labelled "Other Names", space-separated |
 | `Sex` | select_one | `sex` | `male` / `female` |
 | `Age` | integer | `age_years` | form range `> 17 and <= 99` |
-| `chw_type` | select_multiple `type or_other` | `cadre` | see below |
-| `village_select` / `parish_select` | select_one | `location_id` | which one applies depends on cadre |
+| `chw_type` | select_multiple `type or_other` | `deployments.cadre_id` | matched against the `cadres` rows; see below |
+| `village_select` / `parish_select` | select_one | `deployments.location_id` | which one applies is the cadre row's `placement_level` |
 
 ### Cadre
 
@@ -59,7 +59,7 @@ number.
 | ODK field | Type | Column | Notes |
 |---|---|---|---|
 | `service_year` | date, `year` appearance | `service_start_year` | year of first appointment |
-| `facility` | select_one | `facility_id` | primary facility attached to |
+| `facility` | select_one | `deployments.facility_id` | primary facility attached to |
 | `households` | integer | `households_served` | form range `> 2 and <= 100000` |
 | `education` | select_one | `education` | `none` / `ple` / `uce` / `uace` / `tertiary` |
 
@@ -87,7 +87,7 @@ already held**.
 So functionality is per tool, and lives on the junction row:
 
 ```sql
-chw_tools(chw_id, tool_id, functional)
+chw_tools(health_worker_id, tool_id, functional)
 ```
 
 A single global flag could not express which tool is broken.
@@ -140,8 +140,8 @@ the web UI. The form's `support_supervision` answers are discarded on import.
 | `start`, `end`, `today`, `deviceid`, `phonenumber`, `username`, `audit` | provenance stripped by decision |
 | `data_collector` | provenance stripped by decision |
 | `chw_gps` (geopoint) | not captured by decision |
-| `chw_type_other` | cadre is a closed two-value list |
+| `chw_type_other` | cadres are a closed vocabulary of rows; "other" is not one |
 | `region`, `district`, `subcounty` | derived from `location_id` via `locations.path` |
 
-Dropping `today` means `chws.age_captured_on` falls back to the import date. Age is a
+Dropping `today` means `health_workers.age_captured_on` falls back to the import date. Age is a
 snapshot; without the collection date its staleness is only approximately known.

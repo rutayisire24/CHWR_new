@@ -1,4 +1,4 @@
-{{define "title"}}Dashboard · CHW Registry{{end}}
+{{define "title"}}Dashboard · Health Worker Registry{{end}}
 
 {{define "meter"}}
 <svg class="meter{{if .Dim}} dim{{end}}" viewBox="0 0 100 6" preserveAspectRatio="none" role="img"
@@ -19,32 +19,29 @@
 <!-- The lede: one hero figure and the numbers that qualify it. -->
 <section class="lede">
   <div class="hero">
-    <span class="caption">Community health workers</span>
+    <span class="caption">Health workers</span>
     <span class="figure">{{num $t.Total}}</span>
     {{template "meter" dict "N" $t.Active "Total" $t.Total}}
     <span class="split">
       <strong>{{num $t.Active}}</strong> active · <strong>{{num $t.Inactive}}</strong> inactive ·
       median age <strong>{{printf "%.0f" $t.MedianAge}}</strong>
     </span>
-    <span class="go"><a href="/chws">Open the register &rsaquo;</a></span>
+    <span class="go"><a href="/health-workers">Open the register &rsaquo;</a></span>
   </div>
 
   <div class="tiles">
+    {{range $p.Cadres}}
     <div class="tile">
-      <span class="caption">VHTs · village level</span>
-      <span class="figure"><a href="/chws?cadre=vht">{{num $t.VHT}}</a></span>
-      <span class="sub">{{share $t.VHT $t.Total}} of the register</span>
+      <span class="caption">{{.Label}}</span>
+      <span class="figure"><a href="/health-workers?cadre={{.Slug}}">{{num .Active}}</a></span>
+      <span class="sub">{{share .Active $t.Total}} of the register</span>
     </div>
-    <div class="tile">
-      <span class="caption">CHEWs · parish level</span>
-      <span class="figure"><a href="/chws?cadre=chew">{{num $t.CHEW}}</a></span>
-      <span class="sub">{{share $t.CHEW $t.Total}} of the register</span>
-    </div>
+    {{end}}
     <div class="tile">
       <span class="caption">{{plural $p.Reach.Level.Label}} reached</span>
       <span class="figure">{{num $p.Reach.Covered}}</span>
       {{template "meter" dict "N" $p.Reach.Covered "Total" $p.Reach.Total}}
-      <span class="sub">of {{num $p.Reach.Total}} with at least one CHW</span>
+      <span class="sub">of {{num $p.Reach.Total}} with at least one worker</span>
     </div>
   </div>
 </section>
@@ -52,7 +49,7 @@
 <div class="viz-grid">
   <!-- Where they are. Nominal areas ranked by size: one series, one colour. -->
   <section class="viz span-7">
-    <h2>Community health workers by {{lower $p.AreaLevel.Label}}</h2>
+    <h2>Health workers by {{lower $p.AreaLevel.Label}}</h2>
     <p class="note">
       {{if eq $p.AreaLevel.Label "Region"}}All 15 regions, densest first. A bar opens nothing — the district table below links through.
       {{else}}The {{len $p.Areas}} busiest subcounties in {{.User.DistrictName}}. Select a bar to open that subcounty in the register.{{end}}
@@ -61,11 +58,11 @@
     <details class="viz-table">
       <summary>Show the numbers</summary>
       <table class="grid">
-        <thead><tr><th>{{$p.AreaLevel.Label}}</th><th class="num">CHWs</th><th class="num">Active</th><th class="num">VHT</th><th class="num">CHEW</th></tr></thead>
+        <thead><tr><th>{{$p.AreaLevel.Label}}</th><th class="num">Workers</th><th class="num">Active</th>{{range $p.AreaCadres}}<th class="num">{{.Label}}</th>{{end}}</tr></thead>
         <tbody>
-        {{range $p.Areas}}
+        {{range $p.Areas}}{{$row := .}}
           <tr><td>{{if .Href}}<a href="{{.Href}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td class="num">{{num .Total}}</td><td class="num">{{num .Active}}</td>
-              <td class="num">{{num .VHT}}</td><td class="num">{{num .CHEW}}</td></tr>
+              {{range $i, $c := $p.AreaCadres}}<td class="num">{{num (index $row.Cadres $i)}}</td>{{end}}</tr>
         {{end}}
         </tbody>
       </table>
@@ -83,7 +80,7 @@
     <details class="viz-table">
       <summary>Show the numbers</summary>
       <table class="grid">
-        <thead><tr><th>Age band</th><th class="num">CHWs</th><th class="num">Share</th></tr></thead>
+        <thead><tr><th>Age band</th><th class="num">Workers</th><th class="num">Share</th></tr></thead>
         <tbody>
         {{range $p.Ages}}<tr><td>{{.Label}}</td><td class="num">{{num .Count}}</td><td class="num">{{share .Count $p.AgesKnown}}</td></tr>{{end}}
         </tbody>
@@ -91,12 +88,12 @@
     </details>
   </section>
 
-  <!-- The mix, not the size: a 347-strong cadre beside a 24,000-strong one has
-       no readable absolute scale. The counts stay in the table. -->
+  <!-- The mix, not the size: cadres can differ by orders of magnitude, and
+       there is no readable absolute scale for that. The counts stay in the table. -->
   <section class="viz span-5">
     <h2>Composition, by cadre</h2>
     <p class="note">
-      Share within each cadre. The two differ by more than an order of magnitude in
+      Share within each cadre. Cadres can differ by more than an order of magnitude in
       size, so this compares composition rather than headcount; the counts are in the table.
     </p>
 
@@ -120,7 +117,7 @@
         <thead><tr><th>Cadre</th><th class="num">Female</th><th class="num">Male</th><th class="num">Active</th><th class="num">Inactive</th></tr></thead>
         <tbody>
         {{range $p.Cadres}}
-          <tr><td>{{.Cadre.Label}}</td><td class="num">{{num .Female}}</td><td class="num">{{num .Male}}</td>
+          <tr><td>{{.Label}}</td><td class="num">{{num .Female}}</td><td class="num">{{num .Male}}</td>
               <td class="num">{{num .Active}}</td><td class="num">{{num .Inactive}}</td></tr>
         {{end}}
         </tbody>
@@ -152,7 +149,7 @@
   <section class="viz">
     <h2>Service domains offered</h2>
     <p class="note">
-      What the register says CHWs do, and where the training is recent. Being trained
+      What the register says these workers do, and where the training is recent. Being trained
       implies offering the service, so the darker segment is part of the bar, not beside it.
       {{if $p.AnyService}}Drawn from the records that answered the question at all:
       <strong>{{num $p.ServicesFrom}}</strong> of {{num $t.Total}} ({{share $p.ServicesFrom $t.Total}}),
@@ -191,15 +188,14 @@
     <tr>
       <th>{{$p.LeagueLevel.Label}}</th>
       <th>{{if eq $p.LeagueLevel.Label "District"}}Region{{else}}Subcounty{{end}}</th>
-      <th class="num">CHWs</th>
+      <th class="num">Workers</th>
       <th></th>
-      <th class="num">VHT</th>
-      <th class="num">CHEW</th>
+      {{range $p.AreaCadres}}<th class="num">{{.Label}}</th>{{end}}
       <th class="num">Active</th>
     </tr>
   </thead>
   <tbody>
-  {{range $p.League}}
+  {{range $p.League}}{{$row := .}}
     <tr>
       <td><a href="{{.Href}}">{{.Name}}</a></td>
       <td class="muted">{{.Parent}}</td>
@@ -209,8 +205,7 @@
           <rect x="0" y="0" width="{{pctwidth .Total $p.LeagueTop}}" height="8"></rect>
         </svg>
       </td>
-      <td class="num">{{num .VHT}}</td>
-      <td class="num">{{num .CHEW}}</td>
+      {{range $i, $c := $p.AreaCadres}}<td class="num">{{num (index $row.Cadres $i)}}</td>{{end}}
       <td class="num">{{share .Active .Total}}</td>
     </tr>
   {{end}}
@@ -228,7 +223,7 @@
       <td>{{datetime .CreatedAt}}</td>
       <td>{{if .ActorEmail}}{{.ActorEmail}}{{else}}—{{end}}</td>
       <td><code>{{.Action}}</code></td>
-      <td>{{if and (eq .Entity "chw") .EntityID}}<a href="/chws/{{.EntityID}}">CHW #{{.EntityID}}</a>{{else}}{{.Entity}}{{end}}</td>
+      <td>{{if and (eq .Entity "health_worker") .EntityID}}<a href="/health-workers/{{.EntityID}}">worker #{{.EntityID}}</a>{{else}}{{.Entity}}{{end}}</td>
     </tr>
   {{else}}
     <tr><td colspan="4" class="muted">Nothing recorded yet.</td></tr>

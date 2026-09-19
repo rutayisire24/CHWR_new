@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  // Any form that declares the cascade gets it: the CHW form, where the
+  // Any form that declares the cascade gets it: the worker form, where the
   // placement is being chosen, and the register's filter bar, where a subtree
   // is being narrowed to.
   Array.prototype.forEach.call(
@@ -96,14 +96,15 @@ function cascade(form) {
     });
   });
 
-  // Cadre decides how deep the placement goes: a CHEW is placed at parish
-  // level, a VHT at village level. Hiding the village select is not enough —
-  // its value would still post — so it is cleared and disabled with it.
+  // Cadre decides how deep the placement goes: the level the chosen cadre
+  // serves comes from its own row, rendered onto the radio as data-level.
+  // Hiding the village select is not enough — its value would still post —
+  // so it is cleared and disabled with it.
   var villageField = form.querySelector(".village-field");
   var village = document.getElementById("village_id");
 
   function applyCadre() {
-    var checked = form.querySelector("input[name=cadre]:checked");
+    var checked = form.querySelector("input[name=cadre_id]:checked");
     var wantsVillage = !checked || checked.dataset.level === "village";
     if (villageField) villageField.hidden = !wantsVillage;
     if (!village) return;
@@ -115,7 +116,7 @@ function cascade(form) {
     }
   }
 
-  Array.prototype.forEach.call(form.querySelectorAll("input[name=cadre]"), function (radio) {
+  Array.prototype.forEach.call(form.querySelectorAll("input[name=cadre_id]"), function (radio) {
     radio.addEventListener("change", applyCadre);
   });
 

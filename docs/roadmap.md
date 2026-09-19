@@ -16,23 +16,24 @@ out.
 
 | | State |
 |---|---|
-| `migrations/` 0001–0005 | applied and verified on PostgreSQL 18 |
+| `migrations/` 0001–0005 | locations, auth, health workers + cadres + deployments, the CHW profile, import staging — applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
-| `internal/domain` | `User`, `CHW`, `Profile`, the enums, `Level`, sentinel errors |
+| `internal/domain` | `User`, `HealthWorker`, `Deployment`, `Cadre`, `Profile`, the enums, `Level`, sentinel errors |
 | `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
-| `internal/store` | users, sessions, audit, locations, chws, profiles, stats — every method takes a `Scope` |
-| `internal/http` | auth, user admin, audit, dashboard (scoped stats + charts), CHW CRUD, profiles, search and paging |
-| `internal/web` | layout + eleven pages, one stylesheet, three scripts, Chart.js vendored |
-| `migrations/` 0006–0008 | import staging, the commit claim, the resolved record — applied and probed |
-| `internal/importer` | readers, resolver, row validation — 30 tests, none needing a database |
+| `internal/store` | users, sessions, audit, locations, workers, deployments, profiles, imports, export, stats — every method takes a `Scope` |
+| `internal/http` | auth, user admin, audit, dashboard (scoped stats + charts), health worker CRUD and postings, profiles, search and paging |
+| `internal/web` | layout + thirteen pages, one stylesheet, three scripts, Chart.js vendored |
+| `internal/importer` | readers, resolver, row validation — 45 tests, none needing a database |
 | Import UI | upload, report, commit, discard, template and `errors.csv` |
 | Profile columns on import | all seventeen, with every branch CHECK pre-checked |
-| CSV export | `GET /chws/export.csv`, streamed, sharing `store.Filter` and the `Scope` with the listing |
+| CSV export | `GET /health-workers/export.csv`, streamed, sharing `store.Filter` and the `Scope` with the listing |
 | `chw_languages` | **empty by design — `other_languages_raw` is kept verbatim; the parsed junction waits for an agreed vocabulary** |
 
-Phase 6 is complete. Next is whatever the register needs in use; the roadmap's own list
-is done.
+Phases 1–7 are complete, and phase 8 generalised the register from CHWs to health
+workers: the person, their cadre and their posting are separate tables, and cadres are data
+(see [decisions.md](decisions.md)). Next is whatever the register needs in use — the
+first candidate being a second cadre category with its own profile surface.
 
 ## Decisions locked
 
@@ -43,14 +44,14 @@ Full rationale, including rejected alternatives, is in [decisions.md](decisions.
 | Auth | Local email + argon2id password, Postgres-backed sessions, admin-created accounts, forced first-login reset |
 | Roles | `national_admin`, `national_viewer`, `district_manager`, `district_viewer` |
 | User admin | National admin only |
-| CHW seeding | Bulk CSV/ODK import, then day-to-day maintenance in the UI |
+| Register seeding | Bulk CSV/ODK import, then day-to-day maintenance in the UI |
 | NIN | Optional, unique where present, form regex enforced |
-| Cadre | Single-valued `vht` / `chew`; no "other" |
-| Placement | **CHEWs at parish level, VHTs at village level** — one `location_id`, level enforced by trigger |
+| Cadre | Rows in `cadres` under `cadre_categories`, not an enum; `vht` and `chew` today; one cadre per posting, no "other" |
+| Placement | On the **deployment**, at the level its cadre row declares — **CHEWs at parish, VHTs at village** — one `location_id`, enforced by trigger |
 | Facilities | Master Facility List, parented to **district**; subcounty label kept raw, never resolved |
-| CHW to facility | Optional attachment on `chw_profiles`, not a placement; must be in the CHW's own district |
+| Worker to facility | Optional attachment on the open deployment, not a placement; must be in the deployment's own district |
 | Hierarchy | region > district > county > subcounty > parish > village |
-| Supervision | Year + month on the CHW, not per service domain |
+| Supervision | Year + month on the CHW profile, not per service domain |
 | ODK provenance | Stripped |
 | GPS | Not captured |
 | Import formats | CSV and Excel, read by `excelize`; first worksheet only |
@@ -87,7 +88,7 @@ the session, CSRF and flash cookies. `TRUSTED_PROXY` names the addresses whose
 `X-Forwarded-For` may be believed — without it, a service behind a proxy records the
 proxy in every audit row. See [deploy.md](deploy.md).
 
-The CHW form's location selects cascade district > subcounty > parish > village against
+The worker form's location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is
 skipped in the UI and derived from the path — it is mandatory in the data, because
 subcounty codes are unique only within a county.
@@ -116,6 +117,8 @@ district user unrepresentable in the database.
    export *(done)*
 7. **Deploy** — a plain binary under systemd, a reverse proxy for TLS, nightly backups
    with a rehearsed restore *(done — [deploy.md](deploy.md); no container, by decision)*
+8. **Health workers** — the person, the cadre and the posting as separate tables, cadres
+   as data, a deployment history per worker *(done — re-verified end to end; see below)*
 
 Geography is phase 1 because nothing else is testable without it. Phases 1–5 are
 complete: hierarchy, facilities, constraint suite, the authentication and authorization
@@ -163,6 +166,9 @@ Since the Go skeleton landed, the schema is applied by the binary rather than by
 re-verified through it end to end from a dropped database: `goose` reaches version 4, a
 second run is a no-op, the hierarchy loads 84,635 rows in ~3s, facilities load 7,895 of
 7,907, and the constraint suite reports 39 blocked / 0 leaked.
+
+The phase 2–6 records below were verified before phase 8 and use the names of their time
+(`chws`, `/chws`, `chws_set_placement`); phase 8's re-verification follows them.
 
 Phase 2 was exercised against the running server, not just unit-tested. Confirmed by
 request:
@@ -268,6 +274,37 @@ Selenium grid for the pages. The full list is in [import.md](import.md); in brie
 - a row that lost a NIN race between the report and the commit is marked `failed` and
   quarantined while its neighbours import
 
+The person / cadre / posting rewrite (migrations 0003–0005 replacing the CHW-only
+0003–0008) was re-verified from a dropped database, through the running server, and in a
+browser, against a 20,004-worker synthetic register:
+
+- migrations reach version 5 and a second run is a no-op; the hierarchy and facilities
+  load unchanged; the constraint suite reports 45 blocked / 0 leaked
+- `district_id` is derived on both tables when a worker and their first deployment are
+  inserted by one CTE, and follows the latest posting on transfer; an ABIM worker moved
+  to GULU by a national admin is a 404 to the ABIM manager and visible to GULU's
+- a same-district transfer carries the facility, a cross-district one leaves it behind
+  with a flash, and each ends one deployment and opens another beside it
+- the four roles against every route match [rbac.md](rbac.md); GULU gets `[]` from the
+  location feed under ABIM and a 404 on ABIM's worker, profile and import batch
+- listing counts equal SQL for cadre, status, district, name and NIN-prefix filters;
+  paging 2,002 CHEWs forward returned SQL's order exactly, and walking back retraced it
+- an eleven-row import staged every refusal expected, committed six with their
+  deployment, audit and profile rows, and wrote no profile row for a blank one; an
+  exported record re-imported under a new name came back identical in every column
+- dashboard tiles equal the active postings per cadre in SQL at both tiers
+- in the browser: the cascade loads by `data-level`, CHEW hides and clears the village
+  select, the edit form rebuilds the chain, profile branches stay disabled until answered,
+  and no refactored page logs a console error
+
+Two defects were found and fixed. A worker reactivated and then saved on the prefilled
+edit form — their old placement, unchanged — opened no deployment, leaving them active and
+placed nowhere; `redeployment` in `store/workers.go` now treats an active worker without
+an open posting as unplaced. And changing an inactive worker's placement reached
+`deployments_set_placement` as a 500; the handler now answers with a field message. A
+promotion's ended posting also now reads `recadre`, which the old location-based test
+could never produce, since a change of cadre always changes the level.
+
 Reproduce from the repo root:
 
 ```bash
@@ -292,4 +329,4 @@ The ODK export cannot source these; they fill in only through the web UI:
 
 - `chw_profiles.last_supervised_on` / `received_supervision` — the form records supervision
   per service domain and carries no date
-- `chws.age_captured_on` — provenance stripped, so imports stamp the import date
+- `health_workers.age_captured_on` — provenance stripped, so imports stamp the import date

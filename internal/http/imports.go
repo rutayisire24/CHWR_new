@@ -46,22 +46,26 @@ func (l registerLookup) Ancestors(ctx context.Context, sc auth.Scope, id int64) 
 	return l.store.Locations.Ancestors(ctx, sc, id)
 }
 
-// CHWWithNIN asks nationally on purpose. chws_nin_uniq is a national index, so
-// a NIN held in another district is still a duplicate and the insert would
-// still fail; asking inside the scope would report it as available and then
-// lose the row at commit. The message the importer builds from this names the
-// record but not its district — see docs/import.md.
-func (l registerLookup) CHWWithNIN(ctx context.Context, nin string) (domain.CHW, error) {
-	return l.store.CHWs.ByNIN(ctx, auth.National(), nin)
+// WorkerWithNIN asks nationally on purpose. health_workers_nin_uniq is a
+// national index, so a NIN held in another district is still a duplicate and
+// the insert would still fail; asking inside the scope would report it as
+// available and then lose the row at commit. The message the importer builds
+// from this names the record but not its district — see docs/import.md.
+func (l registerLookup) WorkerWithNIN(ctx context.Context, nin string) (domain.HealthWorker, error) {
+	return l.store.Workers.ByNIN(ctx, auth.National(), nin)
 }
 
-func (l registerLookup) NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.CHW, error) {
-	return l.store.CHWs.PossibleDuplicates(ctx, sc, locationID, first, last, 0)
+func (l registerLookup) NamesAt(ctx context.Context, sc auth.Scope, locationID int64, first, last string) ([]domain.HealthWorker, error) {
+	return l.store.Workers.PossibleDuplicates(ctx, sc, locationID, first, last, 0)
+}
+
+func (l registerLookup) Cadres(ctx context.Context) ([]domain.Cadre, error) {
+	return l.store.Deployments.Cadres(ctx)
 }
 
 // Tools and ServiceDomains read the vocabularies through the same queries the
-// profile form uses, asked about nobody: CHW id 0 matches no junction row, so
-// what comes back is the plain list.
+// profile form uses, asked about nobody: worker id 0 matches no junction row,
+// so what comes back is the plain list.
 func (l registerLookup) Tools(ctx context.Context) ([]domain.Tool, error) {
 	held, err := l.store.Profiles.Tools(ctx, 0)
 	if err != nil {
@@ -87,7 +91,7 @@ func (l registerLookup) ServiceDomains(ctx context.Context) ([]domain.ServiceDom
 }
 
 func (l registerLookup) FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error) {
-	facilities, err := l.store.Profiles.FacilitiesIn(ctx, sc, districtID)
+	facilities, err := l.store.Deployments.FacilitiesIn(ctx, sc, districtID)
 	if err != nil {
 		return nil, err
 	}
@@ -191,8 +195,8 @@ func (s *Server) importTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 // importUpload reads the file, validates every row against the register, and
-// stages the result. It writes nothing to `chws`: a commit is a separate act by
-// a human, after they have read the report.
+// stages the result. It writes nothing to `health_workers`: a commit is a
+// separate act by a human, after they have read the report.
 func (s *Server) importUpload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sc := auth.ScopeFrom(ctx)
@@ -272,7 +276,7 @@ func fileProblems(err error) []string {
 		return []string{importer.ErrTooManyRows.Error() +
 			". A file larger than that belongs on the seeding path, where it can be checked against its source first."}
 	case errors.Is(err, importer.ErrNoRows):
-		return []string{"The file has a header but no CHWs under it."}
+		return []string{"The file has a header but no rows under it."}
 	case errors.Is(err, importer.ErrNoHeader):
 		return []string{"The file is empty."}
 	case errors.Is(err, importer.ErrNoSheet):
@@ -313,7 +317,7 @@ func (s *Server) importShow(w http.ResponseWriter, r *http.Request) {
 		Warned:   toReportRows(batch.Columns, warned),
 		Shown:    reportRows,
 		Unknown:  unknown,
-		CanWrite: auth.Can(auth.MustUser(ctx).Role, auth.CapCHWCreate),
+		CanWrite: auth.Can(auth.MustUser(ctx).Role, auth.CapWorkerCreate),
 	})
 }
 
@@ -458,7 +462,7 @@ func (c commitResult) kind() string {
 }
 
 func (c commitResult) message() string {
-	parts := []string{fmt.Sprintf("%d %s added to the register", c.imported, plural(c.imported, "CHW", "CHWs"))}
+	parts := []string{fmt.Sprintf("%d %s added to the register", c.imported, plural(c.imported, "worker", "workers"))}
 	if c.skipped > 0 {
 		parts = append(parts, fmt.Sprintf("%d skipped as possible duplicates", c.skipped))
 	}
@@ -473,12 +477,13 @@ func (c commitResult) message() string {
 
 // runCommit walks the staged rows and writes the ones that are still good.
 //
-// One transaction per row, carrying the CHW, its audit row and the staged row's
-// mark together — see store.CHWs.CreateTx. A row that fails here does not abort
-// the batch: it is marked, quarantined, and the rest continue. An
-// all-or-nothing transaction over ten thousand inserts was rejected, because
-// one lost race would discard a correct nine-thousand-row import and the
-// operator's next move would be to upload the identical file again.
+// One transaction per row, carrying the worker, their deployment, every audit
+// row and the staged row's mark together — see store.Workers.CreateTx. A row
+// that fails here does not abort the batch: it is marked, quarantined, and the
+// rest continue. An all-or-nothing transaction over ten thousand inserts was
+// rejected, because one lost race would discard a correct nine-thousand-row
+// import and the operator's next move would be to upload the identical file
+// again.
 func (s *Server) runCommit(ctx context.Context, sc auth.Scope, actor domain.User,
 	batch domain.Batch, skipDuplicates bool, ip netip.Addr) (commitResult, error) {
 
@@ -538,7 +543,7 @@ func (s *Server) runCommit(ctx context.Context, sc auth.Scope, actor domain.User
 
 // commitRow writes one row, and returns the problem that stopped it. An error
 // is returned only for a failure that is not the row's fault, which stops the
-// run rather than blaming the CHW for it.
+// run rather than blaming the worker for it.
 func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User,
 	batch domain.Batch, row domain.ImportRow, ip netip.Addr) (*domain.Problem, error) {
 
@@ -555,36 +560,54 @@ func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User
 			Message: "This row could not be read back the way it was reviewed."}, nil
 	}
 
+	// The staged cadre is a slug; the deployment wants its id. A cadre retired
+	// between the report and the commit is a lost race like any other.
+	cadres, err := s.store.Deployments.Cadres(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var cadreID int16
+	for _, c := range cadres {
+		if c.Slug == record.Deployment.Cadre {
+			cadreID = c.ID
+		}
+	}
+	if cadreID == 0 {
+		return &domain.Problem{Field: importer.ColCadre, Code: domain.ProblemLostRace,
+			Message: fmt.Sprintf("The cadre %q is no longer one the register offers.", record.Deployment.Cadre)}, nil
+	}
+
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
 
-	chw, err := s.store.CHWs.CreateTx(ctx, tx, sc, actor, store.CHWInput{
+	worker, err := s.store.Workers.CreateTx(ctx, tx, sc, actor, store.WorkerInput{
 		NIN:        record.NIN,
 		FirstName:  record.FirstName,
 		LastName:   record.LastName,
 		Sex:        record.Sex,
-		Cadre:      record.Cadre,
 		AgeYears:   record.AgeYears,
-		LocationID: record.LocationID,
+		CadreID:    cadreID,
+		LocationID: record.Deployment.LocationID,
+		FacilityID: record.Deployment.FacilityID,
 	}, ip)
 	if err != nil {
 		return lostRace(err), nil
 	}
-	// The optional attributes, in the same transaction as the CHW they hang
+	// The optional attributes, in the same transaction as the worker they hang
 	// off. A file carrying only the core columns writes no profile row at all,
 	// rather than a row of nulls: "nothing recorded" and "recorded as nothing"
 	// are different answers here too.
 	if record.Profile.Answered() {
-		if _, err := s.store.Profiles.SaveTx(ctx, tx, sc, actor, chw.ID,
+		if _, err := s.store.Profiles.SaveTx(ctx, tx, sc, actor, worker.ID,
 			profileInput(record.Profile), ip); err != nil {
 			return lostRace(err), nil
 		}
 	}
 
-	if err := s.store.Imports.MarkImportedTx(ctx, tx, batch.ID, row.Number, chw.ID); err != nil {
+	if err := s.store.Imports.MarkImportedTx(ctx, tx, batch.ID, row.Number, worker.ID); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -603,7 +626,6 @@ func profileInput(p importer.ProfileRecord) store.ProfileInput {
 		PhonePrimary:       p.PhonePrimary,
 		PhoneForReporting:  p.PhoneForReporting,
 		PhoneAlternate:     p.PhoneAlternate,
-		FacilityID:         p.FacilityID,
 		ServiceStartYear:   p.ServiceStartYear,
 		HouseholdsServed:   p.HouseholdsServed,
 		Education:          p.Education,

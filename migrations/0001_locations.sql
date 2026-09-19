@@ -86,19 +86,49 @@ END $$ LANGUAGE plpgsql;
 CREATE TRIGGER locations_before_insert_trg BEFORE INSERT ON locations
     FOR EACH ROW EXECUTE FUNCTION locations_before_insert();
 
--- Facilities come from the ODK workbook (7,896 rows). Their parent column is
--- named `subcountyfilter` but 7,846 of its values are district slugs; the 21
--- that look like subcounties are quarantined rather than guessed at.
+-- Facilities come from the Master Facility List:
+--
+--   data/MFL Updated - 21 feb.xlsx   7,907 rows, name/subcounty/district/region/
+--                                    hflevel/ownership/authority
+--
+-- Every one of the 7,907 rows resolves to a district, using only the two aliases
+-- the hierarchy already needs (Luwero > LUWEERO, Sembabule > SSEMBABULE).
+--
+-- DISTRICT IS THE PARENT, DELIBERATELY. Matching the workbook's `subcounty`
+-- column against the hierarchy resolves 3,696 rows, misses 4,201 and is
+-- ambiguous for 10: the column holds Town Councils, City Divisions and newer
+-- units the admin-units file does not carry under those names. Parenting to
+-- subcounty would quarantine over half the register to gain a tier nothing
+-- queries. The raw label is kept verbatim in `subcounty_label` so a later
+-- reconciliation has something to work from.
 CREATE TABLE facilities (
     id          bigserial PRIMARY KEY,
     district_id bigint NOT NULL REFERENCES locations(id),
     name        text NOT NULL,
     slug        text NOT NULL,
-    active      boolean NOT NULL DEFAULT true,
+    -- The MFL carries no facility code, so identity stays (district_id, name).
+    -- These are attributes, not identity.
+    level           text,   -- 'HC II' | 'HC III' | 'HC IV' | 'Hospital' | 'Clinic' | 'Drug Shop' | ...
+    ownership       text,   -- 'GOV' | 'PFP' | 'PNFP'
+    authority       text,   -- 'MOH' | 'Private' | 'UPDF' | ...
+    subcounty_label text,   -- raw, unresolved; see the note above
+    source          text NOT NULL DEFAULT 'mfl_2026_02_21',
+    active          boolean NOT NULL DEFAULT true,
     UNIQUE (district_id, name)
 );
 CREATE INDEX facilities_district_idx ON facilities (district_id);
 CREATE INDEX facilities_name_trgm    ON facilities USING gin (name gin_trgm_ops);
+
+-- `level` is left as free text on purpose. The workbook already carries 17
+-- distinct values including 'RRH', 'NBB' and one row labelled 'Bank of Uganda';
+-- an enum would mean a migration every time the MFL gains a category, for a
+-- column the register only ever filters on.
+
+-- 3,389 of 7,907 facilities are government-owned. Community health workers
+-- report to those; the private clinics and drug shops are loaded for
+-- completeness but the picker filters on this index rather than on a hardcoded
+-- list.
+CREATE INDEX facilities_district_ownership_idx ON facilities (district_id, ownership);
 
 -- +goose StatementBegin
 CREATE FUNCTION facilities_check_district_level() RETURNS trigger AS $$
@@ -112,21 +142,3 @@ END $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER facilities_district_level_trg BEFORE INSERT OR UPDATE ON facilities
     FOR EACH ROW EXECUTE FUNCTION facilities_check_district_level();
-
--- Rows the seeders could not resolve. Nothing is dropped silently.
--- The admin-units hierarchy loads clean; expected occupants are the ~21
--- facilities whose parent slug matches a subcounty rather than a district,
--- plus rejected rows from CHW imports.
-CREATE TABLE import_quarantine (
-    id          bigserial PRIMARY KEY,
-    source      text NOT NULL,          -- 'admin_units' | 'facilities' | 'chw_csv'
-    row_ref     text,                   -- source row number or natural key
-    payload     jsonb NOT NULL,
-    reason      text NOT NULL,          -- 'parent_missing' | 'parent_ambiguous' | 'parent_level_mismatch' | 'validation_failed'
-    detail      text,
-    candidates  jsonb,
-    resolved_at timestamptz,
-    resolved_by bigint,
-    imported_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX quarantine_unresolved_idx ON import_quarantine (source, reason) WHERE resolved_at IS NULL;

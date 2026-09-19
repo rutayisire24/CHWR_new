@@ -151,7 +151,7 @@
     return el ? el.getContext('2d') : null;
   }
 
-  // --- CHWs by area ------------------------------------------------------
+  // --- Workers by area ------------------------------------------------------
   // Nominal categories ranked by size: one series, one colour. A ramp here
   // would encode bar length twice and say nothing new.
   var areas = mount('chart-areas');
@@ -188,7 +188,7 @@
             callbacks: {
               label: function (c) {
                 var share = d.total ? ' · ' + (c.parsed.x / d.total * 100).toFixed(1) + '% of the register' : '';
-                return n(c.parsed.x) + ' CHWs' + share;
+                return n(c.parsed.x) + ' workers' + share;
               }
             }
           }
@@ -223,7 +223,7 @@
           tooltip: {
             callbacks: {
               title: function (c) { return c[0].label + ' years'; },
-              label: function (c) { return n(c.parsed.y) + ' CHWs'; }
+              label: function (c) { return n(c.parsed.y) + ' workers'; }
             }
           }
         }

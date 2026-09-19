@@ -1,15 +1,15 @@
-{{define "title"}}Profile · {{.Page.CHW.FullName}} · CHW Registry{{end}}
+{{define "title"}}Profile · {{.Page.Worker.FullName}} · Health Worker Registry{{end}}
 
 {{define "content"}}
-<h1>Profile — {{.Page.CHW.FullName}}</h1>
-<p class="muted">{{.Page.CHW.Cadre.Label}}, {{.Page.CHW.LocationName}}, {{.Page.CHW.DistrictName}} district.
+<h1>Profile — {{.Page.Worker.FullName}}</h1>
+<p class="muted">{{with .Page.Worker.Deployment}}{{.Cadre.Label}}, {{.LocationName}}, {{.DistrictName}} district.{{end}}
   Every answer here is optional: a record imported from the ODK export may answer none of them.</p>
 
-<form method="post" action="/chws/{{.Page.CHW.ID}}/profile" class="card" id="profile-form">
+<form method="post" action="/health-workers/{{.Page.Worker.ID}}/profile" class="card" id="profile-form">
   {{template "csrf" .}}
 
   <h2 class="section">Phone</h2>
-  <label>Does the CHW own a phone?</label>
+  <label>Does the worker own a phone?</label>
   <div class="radios" data-branch="owns_phone">
     <label class="radio"><input type="radio" name="owns_phone" value="yes"
       {{if and .Page.Profile.OwnsPhone (deref .Page.Profile.OwnsPhone)}}checked{{end}}> Yes</label>
@@ -51,25 +51,11 @@
   <h2 class="section">Service</h2>
   <div class="two-up">
     <div>
-      <label for="facility_id">Supervising facility</label>
-      <select id="facility_id" name="facility_id">
-        <option value="">— none recorded —</option>
-        {{range .Page.Facilities}}
-        <option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
-        {{end}}
-      </select>
-      <span class="hint">{{.Page.CHW.DistrictName}} district only — a CHW cannot report across districts.</span>
-      {{template "field-error" .Page.Errors.facility_id}}
-    </div>
-    <div>
       <label for="service_start_year">Year they started</label>
       <input id="service_start_year" name="service_start_year" inputmode="numeric"
              value="{{if .Page.Profile.ServiceStartYear}}{{.Page.Profile.ServiceStartYear}}{{end}}">
       {{template "field-error" .Page.Errors.service_start_year}}
     </div>
-  </div>
-
-  <div class="two-up">
     <div>
       <label for="households_served">Households served</label>
       <input id="households_served" name="households_served" inputmode="numeric"
@@ -77,6 +63,9 @@
       <span class="hint">Between 3 and 100,000.</span>
       {{template "field-error" .Page.Errors.households_served}}
     </div>
+  </div>
+
+  <div class="two-up">
     <div>
       <label for="education">Highest level of education</label>
       <select id="education" name="education">
@@ -197,7 +186,7 @@
   <span class="hint">No tools at all is simply nothing ticked.</span>
 
   <h2 class="section">Services and training</h2>
-  <p class="hint">Training is a subset of what they provide: a CHW cannot be trained on a
+  <p class="hint">Training is a subset of what they provide: a worker cannot be trained on a
     service they do not offer.</p>
   <table class="grid compact">
     <thead><tr><th>Service domain</th><th>Provides</th><th>Trained in the last 2 years</th></tr></thead>
@@ -215,7 +204,7 @@
   </table>
 
   <button type="submit">Save profile</button>
-  <a class="cancel" href="/chws/{{.Page.CHW.ID}}">Cancel</a>
+  <a class="cancel" href="/health-workers/{{.Page.Worker.ID}}">Cancel</a>
 </form>
 
 <script src="/static/profile.js" defer></script>

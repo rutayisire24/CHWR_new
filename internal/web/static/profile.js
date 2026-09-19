@@ -33,7 +33,7 @@
     radio.addEventListener("change", applyBranches);
   });
 
-  // A tool's condition is only asked about a tool the CHW holds — the source
+  // A tool's condition is only asked about a tool the worker holds — the source
   // form choice-filters `tool_functional` the same way.
   function applyTool(box) {
     Array.prototype.forEach.call(
