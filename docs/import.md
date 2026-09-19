@@ -331,7 +331,7 @@ would take four uploads to surface four errors in one row.
 | `location_code_mismatch` | the code and the name columns name different places |
 | `placement_level` | a CHEW given a village, or a VHT given only a parish |
 | `outside_scope` | the placement is not in the uploader's district |
-| `duplicate_nin` | that NIN is already on the register; the record is named |
+| `duplicate_nin` | that NIN is already on the register; the record is named only if the uploader's scope can see it |
 | `duplicate_nin_in_file` | two rows in this file carry the same NIN; both rejected |
 | `possible_duplicate` | **warning** — same name at the same location |
 | `lost_race` | raised at commit only: the row was acceptable when the report was produced, and the register moved underneath it |
@@ -487,6 +487,8 @@ Scope, from both sides:
 - an ABIM manager's file naming GULU imported the ABIM row and refused the other two — one
   by name, one by `location_code`. The rendered page contained none of `GULU`, `PAIBONA`,
   `ACUTOMER` or `ACUT OMER`: a district user must not map the country by probing names
+- a NIN held in GULU is still refused in that manager's file, since the index is national,
+  but the refusal does not name the holder; one held in ABIM names them
 - that manager gets a 404 on a national batch's report, its `errors.csv` and its commit
 - a `district_viewer` gets a 403 on all four routes, and no rail entry
 

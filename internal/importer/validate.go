@@ -205,8 +205,15 @@ func (im *Importer) row(ctx context.Context, r Row, resolver *Resolver) Staged {
 	// against, and no reason to spend the query.
 	if rec.NIN != "" {
 		if existing, err := im.lookup.WorkerWithNIN(ctx, rec.NIN); err == nil {
-			add(domain.Problem{Field: ColNIN, Code: domain.ProblemDuplicateNIN,
-				Message: fmt.Sprintf("%s is already on the register carrying that NIN.", existing.FullName())})
+			// The lookup is national, the uploader may not be. The holder is
+			// named only when the uploader could open their record anyway;
+			// otherwise a file of guessed NINs would read out names from every
+			// district.
+			message := "That NIN is already on another record."
+			if im.scope.IsNational() || existing.DistrictID != nil && im.scope.Allows(*existing.DistrictID) {
+				message = fmt.Sprintf("%s is already on the register carrying that NIN.", existing.FullName())
+			}
+			add(domain.Problem{Field: ColNIN, Code: domain.ProblemDuplicateNIN, Message: message})
 		} else if !errors.Is(err, domain.ErrNotFound) {
 			add(domain.Problem{Field: ColNIN, Code: domain.ProblemDuplicateNIN,
 				Message: "That NIN could not be checked. Try again."})

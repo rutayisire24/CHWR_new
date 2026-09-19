@@ -396,6 +396,32 @@ func TestDuplicateNINAgainstTheRegisterNamesTheRecord(t *testing.T) {
 	}
 }
 
+// The duplicate check is national, because the unique index is; naming the
+// holder is not. A district user learns that a NIN is taken, and the name only
+// of a record their own scope would show them.
+func TestADistrictUploadNamesOnlyItsOwnNINHolders(t *testing.T) {
+	inAbim, inGulu := int64(abim), int64(gulu)
+	lookup := &fakeLookup{nins: map[string]domain.HealthWorker{
+		"CM90210987654X": {ID: 7, FirstName: "Betty", LastName: "Aber", DistrictID: &inAbim},
+		"CF11122233344Y": {ID: 8, FirstName: "Joyce", LastName: "Lamunu", DistrictID: &inGulu},
+	}}
+	staged := validate(t, auth.District(abim),
+		"Grace,Okello,f,vht,,CM90210987654X,ABIM,MORULEM,ALEREK,KANU-EAST,\n"+
+			"Sarah,Akello,f,vht,,CF11122233344Y,ABIM,MORULEM,ALEREK,KANU-EAST,\n", lookup)
+
+	for _, s := range staged {
+		if !hasCode(s, domain.ProblemDuplicateNIN) {
+			t.Fatalf("row %d codes = %v, want duplicate_nin", s.Row.Number, codes(s))
+		}
+	}
+	if !strings.Contains(staged[0].Row.Summary(), "Betty Aber") {
+		t.Errorf("an ABIM holder was not named to an ABIM user: %q", staged[0].Row.Summary())
+	}
+	if message := staged[1].Row.Summary(); strings.Contains(message, "Joyce") || strings.Contains(message, "Lamunu") {
+		t.Errorf("the refusal names a GULU worker to an ABIM user: %q", message)
+	}
+}
+
 // Both rows go. The first is not more correct than the second, and importing it
 // would be picking a winner quietly.
 func TestTwoRowsSharingANINRejectEachOther(t *testing.T) {

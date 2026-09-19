@@ -50,7 +50,8 @@ func (l registerLookup) Ancestors(ctx context.Context, sc auth.Scope, id int64) 
 // national index, so a NIN held in another district is still a duplicate and
 // the insert would still fail; asking inside the scope would report it as
 // available and then lose the row at commit. The message the importer builds
-// from this names the record but not its district — see docs/import.md.
+// from this names the record only when the uploader's scope could see it —
+// see docs/import.md.
 func (l registerLookup) WorkerWithNIN(ctx context.Context, nin string) (domain.HealthWorker, error) {
 	return l.store.Workers.ByNIN(ctx, auth.National(), nin)
 }
