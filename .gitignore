@@ -1,6 +1,6 @@
 seed/out/
 *.db
 .env
-/chwr-server
-/chwr-server-linux-amd64
+/hwr-server
+/hwr-server-linux-amd64
 .run/

@@ -3,7 +3,7 @@ package auth
 import (
 	"testing"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 func TestScopeForRole(t *testing.T) {

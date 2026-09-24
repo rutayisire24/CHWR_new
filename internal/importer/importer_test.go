@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 const header = "first_name,last_name,sex,cadre,age_years,nin,district,subcounty,parish,village,location_code\n"

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // profileHeader is the core columns plus every profile column, which is what

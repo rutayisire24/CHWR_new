@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // A small hierarchy, enough to exercise every resolution path:

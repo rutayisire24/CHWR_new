@@ -10,11 +10,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"chwr/internal/auth"
-	"chwr/internal/config"
-	"chwr/internal/domain"
-	"chwr/internal/store"
-	"chwr/internal/web"
+	"hwr/internal/auth"
+	"hwr/internal/config"
+	"hwr/internal/domain"
+	"hwr/internal/store"
+	"hwr/internal/web"
 )
 
 // Server holds the dependencies every handler needs. Handlers decode,

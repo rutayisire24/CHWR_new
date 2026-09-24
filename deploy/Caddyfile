@@ -1,13 +1,13 @@
-# Reverse proxy for the National CHW Registry — the Caddy alternative to
+# Reverse proxy for the National Health Workers Registry — the Caddy alternative to
 # deploy/nginx.conf. Caddy obtains and renews the certificate itself.
 #
 #   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
 #   sudo systemctl reload caddy
 #
-# Replace chwr.example.org.
+# Replace hwr.example.org.
 
-chwr.example.org {
-	# A CHW import may be several megabytes. The application caps the body at
+hwr.example.org {
+	# An import may be several megabytes. The application caps the body at
 	# 12 MB and names a file over 10 MB as too large; this must not refuse first.
 	request_body {
 		max_size 16MB

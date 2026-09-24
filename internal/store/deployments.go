@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // Deployments is the postings register: where each health worker serves, in

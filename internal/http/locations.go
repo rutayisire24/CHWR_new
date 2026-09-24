@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // locationsJSON feeds the cascading selects on the CHW form: given an ancestor

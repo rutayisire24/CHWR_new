@@ -1,7 +1,7 @@
 -- Loads the Master Facility List into `facilities`, parented to district.
 --
 --     python3 seed/extract_facilities.py            # writes seed/out/facilities.tsv
---     psql -d chwr -f seed/load_facilities.sql      # from the repo root
+--     psql -d hwr -f seed/load_facilities.sql       # from the repo root
 --
 -- Requires the hierarchy to be loaded first: every facility hangs off a district.
 --

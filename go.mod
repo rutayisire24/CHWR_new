@@ -1,4 +1,4 @@
-module chwr
+module hwr
 
 go 1.24.3
 

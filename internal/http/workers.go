@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
-	"chwr/internal/store"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
+	"hwr/internal/store"
 )
 
 type workersPage struct {

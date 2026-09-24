@@ -15,7 +15,7 @@ import (
 // field. A cross-site form post can reach the endpoint but cannot read the
 // cookie to populate the field, so the two never match.
 const (
-	CSRFCookie = "chwr_csrf"
+	CSRFCookie = "hwr_csrf"
 	CSRFField  = "csrf_token"
 )
 

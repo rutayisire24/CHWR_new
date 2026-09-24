@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 // Authenticator resolves a session cookie to its user and refreshes the

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // Lookup is the slice of the register the importer reads. internal/store

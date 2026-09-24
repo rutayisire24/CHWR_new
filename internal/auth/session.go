@@ -12,7 +12,7 @@ import (
 // staff departures require instant revocation, which a JWT cannot give without
 // reintroducing the state it was meant to avoid.
 const (
-	SessionCookie   = "chwr_session"
+	SessionCookie   = "hwr_session"
 	SessionLifetime = 12 * time.Hour // one working day; re-login next morning
 	SessionIdle     = 2 * time.Hour  // no activity for this long ends it early
 )

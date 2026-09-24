@@ -9,8 +9,8 @@ import (
 
 	"github.com/xuri/excelize/v2"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // workbook writes rows to a real .xlsx in memory, so the reader is exercised

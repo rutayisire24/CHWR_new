@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"chwr/internal/domain"
-	"chwr/internal/store"
+	"hwr/internal/domain"
+	"hwr/internal/store"
 )
 
 func ptr[T any](v T) *T { return &v }

@@ -1,5 +1,5 @@
 -- Constraint verification suite. Run against a freshly migrated + seeded database:
---     psql -d chwr -f seed/verify_constraints.sql
+--     psql -d hwr -f seed/verify_constraints.sql
 -- Every case must report "blocked". Any "LEAKED" is a schema regression.
 -- Runs inside a transaction and rolls back, leaving no trace.
 \set QUIET on

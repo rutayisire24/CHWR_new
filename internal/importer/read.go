@@ -9,7 +9,7 @@ import (
 
 	"github.com/xuri/excelize/v2"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 // Limits on one upload. A file past these is a migration rather than an

@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
 )
 
 // Record is the register record a row parses to — the importer's own shape, so

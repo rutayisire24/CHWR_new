@@ -11,47 +11,47 @@ Files referenced here live in [`deploy/`](../deploy).
 
 | Piece | Where |
 |---|---|
-| `chwr-server` | `/opt/chwr/chwr-server`, owned by `chwr` |
-| Configuration | `/etc/chwr/chwr.env`, mode `0640`, `root:chwr` — it carries the database password |
-| Service | `chwr.service`, `Type=exec`, restarts on failure |
-| Backups | `chwr-backup.timer` nightly at 01:30, into `/var/backups/chwr` |
+| `hwr-server` | `/opt/hwr/hwr-server`, owned by `hwr` |
+| Configuration | `/etc/hwr/hwr.env`, mode `0640`, `root:hwr` — it carries the database password |
+| Service | `hwr.service`, `Type=exec`, restarts on failure |
+| Backups | `hwr-backup.timer` nightly at 01:30, into `/var/backups/hwr` |
 | TLS | nginx or Caddy on the same host |
 
 The service holds no state of its own. Everything is in Postgres, which is why
-`ProtectSystem=strict` and `ReadOnlyPaths=/opt/chwr` cost nothing.
+`ProtectSystem=strict` and `ReadOnlyPaths=/opt/hwr` cost nothing.
 
 ## First install
 
 ```bash
 # The account the service runs as. No login shell, no home directory to protect.
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin chwr
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin hwr
 
-sudo install -d -o chwr -g chwr /opt/chwr
-sudo install -d -m 0750 -o root -g chwr /etc/chwr
-sudo install -d -o chwr -g chwr /var/backups/chwr
+sudo install -d -o hwr -g hwr /opt/hwr
+sudo install -d -m 0750 -o root -g hwr /etc/hwr
+sudo install -d -o hwr -g hwr /var/backups/hwr
 
-make dist                                        # chwr-server-linux-amd64
-sudo install -o chwr -g chwr -m 0755 chwr-server-linux-amd64 /opt/chwr/chwr-server
-sudo install -o chwr -g chwr -m 0755 deploy/backup.sh /opt/chwr/backup.sh
+make dist                                        # hwr-server-linux-amd64
+sudo install -o hwr -g hwr -m 0755 hwr-server-linux-amd64 /opt/hwr/hwr-server
+sudo install -o hwr -g hwr -m 0755 deploy/backup.sh /opt/hwr/backup.sh
 
-sudo install -m 0640 -o root -g chwr deploy/chwr.env.example /etc/chwr/chwr.env
-sudo editor /etc/chwr/chwr.env                   # see the next section
+sudo install -m 0640 -o root -g hwr deploy/hwr.env.example /etc/hwr/hwr.env
+sudo editor /etc/hwr/hwr.env                   # see the next section
 
-sudo cp deploy/chwr.service deploy/chwr-backup.service deploy/chwr-backup.timer \
+sudo cp deploy/hwr.service deploy/hwr-backup.service deploy/hwr-backup.timer \
         /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now chwr chwr-backup.timer
+sudo systemctl enable --now hwr hwr-backup.timer
 ```
 
 Then the database, once:
 
 ```bash
-sudo -u postgres createuser chwr --pwprompt
-sudo -u postgres createdb chwr --owner chwr
+sudo -u postgres createuser hwr --pwprompt
+sudo -u postgres createdb hwr --owner hwr
 
 # Migrations run at every start, but running them first turns a schema problem
 # into a failed command rather than a service that will not come up.
-sudo -u chwr DATABASE_URL='...' /opt/chwr/chwr-server -migrate
+sudo -u hwr DATABASE_URL='...' /opt/hwr/hwr-server -migrate
 
 # The hierarchy and the facilities. From a checkout, on any machine that can
 # reach the database — the workbooks are checked in and the loaders are idempotent
@@ -59,7 +59,7 @@ sudo -u chwr DATABASE_URL='...' /opt/chwr/chwr-server -migrate
 make seed DATABASE_URL='...'
 
 # The first administrator. Every account after this one is created in the UI.
-sudo -u chwr DATABASE_URL='...' /opt/chwr/chwr-server \
+sudo -u hwr DATABASE_URL='...' /opt/hwr/hwr-server \
     -create-admin you@ministry.go.ug -name "Your Name"
 ```
 
@@ -68,7 +68,7 @@ held on `/account/password` until it chooses its own.
 
 ## Configuration
 
-`/etc/chwr/chwr.env`, read by systemd's `EnvironmentFile`. The server reads plain
+`/etc/hwr/hwr.env`, read by systemd's `EnvironmentFile`. The server reads plain
 environment variables and loads no `.env` itself.
 
 | Variable | Notes |
@@ -113,23 +113,49 @@ Migrations are append-only and run at startup, so an upgrade is a file swap:
 
 ```bash
 make check && make dist
-sudo systemctl stop chwr
-sudo install -o chwr -g chwr -m 0755 chwr-server-linux-amd64 /opt/chwr/chwr-server
-sudo systemctl start chwr
-sudo systemctl status chwr
-curl -sf https://chwr.example.org/healthz && echo ok
+sudo systemctl stop hwr
+sudo install -o hwr -g hwr -m 0755 hwr-server-linux-amd64 /opt/hwr/hwr-server
+sudo systemctl start hwr
+sudo systemctl status hwr
+curl -sf https://hwr.example.org/healthz && echo ok
 ```
 
-Take a backup first if the release carries a migration — `/opt/chwr/backup.sh` is the
+Take a backup first if the release carries a migration — `/opt/hwr/backup.sh` is the
 same script the timer runs.
 
 There is no zero-downtime story here and none is needed: the register is a working-hours
 service, restarts take under a second, and `Type=exec` with `Restart=on-failure` means a
 binary that will not start leaves the old one stopped rather than flapping.
 
+### From a `chwr` install
+
+The service was called the CHW Registry, and a server installed before the rename runs
+as `chwr` with its files under `/opt/chwr`, `/etc/chwr` and `/var/backups/chwr`. Move it
+over once, with a backup taken first:
+
+```bash
+sudo /opt/chwr/backup.sh
+sudo systemctl disable --now chwr chwr-backup.timer
+sudo rm /etc/systemd/system/chwr.service /etc/systemd/system/chwr-backup.{service,timer}
+
+sudo usermod -l hwr chwr && sudo groupmod -n hwr chwr
+sudo mv /opt/chwr /opt/hwr && sudo mv /etc/chwr /etc/hwr && sudo mv /var/backups/chwr /var/backups/hwr
+sudo mv /etc/hwr/chwr.env /etc/hwr/hwr.env
+
+sudo -u postgres psql -c 'ALTER DATABASE chwr RENAME TO hwr'
+sudo -u postgres psql -c 'ALTER ROLE chwr RENAME TO hwr'
+sudo -u postgres psql -c '\password hwr'       # the rename clears an MD5 password
+sudo editor /etc/hwr/hwr.env                     # DATABASE_URL: new role, password, database
+```
+
+Then install the binary as `/opt/hwr/hwr-server`, `deploy/backup.sh` as
+`/opt/hwr/backup.sh`, and the `hwr*` units as under *First install*. Old dumps keep
+their `chwr-*.dump` names and are not pruned by the new timer; delete them by hand once
+a `hwr-*.dump` exists. The cookies were renamed too, so every user signs in again.
+
 ## Backups
 
-`chwr-backup.timer` runs `backup.sh` nightly at 01:30 with a persistent catch-up, so a
+`hwr-backup.timer` runs `backup.sh` nightly at 01:30 with a persistent catch-up, so a
 machine that was off still gets its backup. Custom-format `pg_dump`, thirty days kept.
 
 Two details are deliberate:
@@ -149,11 +175,11 @@ Into a scratch database first, always — a restore straight over the live one t
 suspected problem into a certain outage:
 
 ```bash
-createdb chwr_restore
-pg_restore --dbname=chwr_restore --no-owner --no-privileges /var/backups/chwr/chwr-*.dump
+createdb hwr_restore
+pg_restore --dbname=hwr_restore --no-owner --no-privileges /var/backups/hwr/hwr-*.dump
 
 # Does it hold what it should?
-psql -d chwr_restore -c "SELECT
+psql -d hwr_restore -c "SELECT
     (SELECT count(*) FROM locations)      AS locations,
     (SELECT count(*) FROM health_workers) AS health_workers,
     (SELECT count(*) FROM deployments)    AS deployments,
@@ -161,7 +187,7 @@ psql -d chwr_restore -c "SELECT
 
 # And is it still a register, rather than a table of rows? A restored schema
 # that lost its triggers would accept anything.
-psql -d chwr_restore -c "INSERT INTO deployments (health_worker_id,cadre_id,location_id,district_id)
+psql -d hwr_restore -c "INSERT INTO deployments (health_worker_id,cadre_id,location_id,district_id)
     VALUES ((SELECT health_worker_id FROM deployments WHERE ended_on IS NULL LIMIT 1),
             (SELECT id FROM cadres WHERE slug='chew'),
             (SELECT id FROM locations WHERE level='village' LIMIT 1),0)"
@@ -177,12 +203,12 @@ refusing a CHEW at village level.
 `GET /healthz` pings the pool, so a 200 means the database is reachable too — it is what
 a monitor should watch, not the TCP port.
 
-The binary logs to stdout as structured `slog`, so `journalctl -u chwr` is the log.
+The binary logs to stdout as structured `slog`, so `journalctl -u hwr` is the log.
 Nothing writes a file that could fill a disk unattended.
 
 ```bash
-systemctl status chwr
-journalctl -u chwr -f
-journalctl -u chwr -p err --since today
-systemctl list-timers chwr-backup.timer
+systemctl status hwr
+journalctl -u hwr -f
+journalctl -u hwr -p err --since today
+systemctl list-timers hwr-backup.timer
 ```

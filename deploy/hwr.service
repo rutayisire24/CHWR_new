@@ -1,14 +1,14 @@
-# systemd unit for the National CHW Registry.
+# systemd unit for the National Health Workers Registry.
 #
-#   sudo cp deploy/chwr.service /etc/systemd/system/
-#   sudo systemctl daemon-reload && sudo systemctl enable --now chwr
+#   sudo cp deploy/hwr.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now hwr
 #
-# See docs/deploy.md. The binary logs to stdout, so `journalctl -u chwr` is the
+# See docs/deploy.md. The binary logs to stdout, so `journalctl -u hwr` is the
 # log; nothing writes a file that could fill a disk unattended.
 
 [Unit]
-Description=National Community Health Worker Registry
-Documentation=file:/opt/chwr/docs/deploy.md
+Description=National Health Workers Registry
+Documentation=file:/opt/hwr/docs/deploy.md
 # The register is unusable without its database, and the migrations run at
 # startup, so wait for postgres when it is on this host.
 After=network-online.target postgresql.service
@@ -16,14 +16,14 @@ Wants=network-online.target
 
 [Service]
 Type=exec
-User=chwr
-Group=chwr
-WorkingDirectory=/opt/chwr
+User=hwr
+Group=hwr
+WorkingDirectory=/opt/hwr
 
 # DATABASE_URL carries the password, so the environment lives in a file only
-# root and chwr can read rather than in this unit, which is world-readable.
-EnvironmentFile=/etc/chwr/chwr.env
-ExecStart=/opt/chwr/chwr-server
+# root and hwr can read rather than in this unit, which is world-readable.
+EnvironmentFile=/etc/hwr/hwr.env
+ExecStart=/opt/hwr/hwr-server
 
 # The service holds no state of its own: everything is in Postgres, and the
 # templates, static assets and migrations are embedded in the binary.
@@ -52,7 +52,7 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 # Nothing on disk is written by the service. If backups are written by the
 # timer below, that is a different unit with its own directory.
-ReadOnlyPaths=/opt/chwr
+ReadOnlyPaths=/opt/hwr
 
 [Install]
 WantedBy=multi-user.target

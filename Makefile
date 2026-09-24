@@ -1,11 +1,11 @@
-# National Community Health Worker Registry.
+# National Health Workers Registry.
 #
 # `make` on its own prints the targets. Every variable below can be overridden
 # on the command line: `make run ADDR=:8099 DATABASE_URL=postgres:///other`.
 
 # The server reads plain environment variables; these are the development
 # defaults, matching .env.example and internal/config.
-DATABASE_URL ?= postgres:///chwr
+DATABASE_URL ?= postgres:///hwr
 ADDR         ?= :8080
 ENV          ?= dev
 
@@ -13,7 +13,7 @@ ENV          ?= dev
 # "0.0.0.0:8080".
 PORT := $(lastword $(subst :, ,$(ADDR)))
 
-BINARY  := chwr-server
+BINARY  := hwr-server
 RUN_DIR := .run
 PID     := $(RUN_DIR)/server.pid
 LOG     := $(RUN_DIR)/server.log
@@ -30,7 +30,7 @@ ENVIRONMENT := DATABASE_URL="$(DATABASE_URL)" ADDR="$(ADDR)" ENV="$(ENV)"
         seed seed-hierarchy seed-facilities verify admin dist clean
 
 help: ## Print this list
-	@echo "National Community Health Worker Registry"
+	@echo "National Health Workers Registry"
 	@echo
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[1m%-16s\033[0m %s\n", $$1, $$2}'
@@ -42,7 +42,7 @@ help: ## Print this list
 
 ## ---------------------------------------------------------------- building
 
-build: ## Compile the server to ./chwr-server
+build: ## Compile the server to ./hwr-server
 	go build -o $(BINARY) ./cmd/server
 
 dist: ## Build a static linux/amd64 binary for deployment

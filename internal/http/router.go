@@ -7,10 +7,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"chwr/internal/auth"
-	"chwr/internal/config"
-	"chwr/internal/store"
-	"chwr/internal/web"
+	"hwr/internal/auth"
+	"hwr/internal/config"
+	"hwr/internal/store"
+	"hwr/internal/web"
 )
 
 // New returns the application's root handler. Templates are parsed here, once,

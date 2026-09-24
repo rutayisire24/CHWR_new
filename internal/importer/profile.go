@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 // The optional survey attributes, as one row supplies them. Every field is a

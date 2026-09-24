@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 // Store bundles the per-aggregate stores over one pool.

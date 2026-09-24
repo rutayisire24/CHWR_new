@@ -308,13 +308,13 @@ could never produce, since a change of cadre always changes the level.
 Reproduce from the repo root:
 
 ```bash
-createdb chwr && export DATABASE_URL=postgres:///chwr
+createdb hwr && export DATABASE_URL=postgres:///hwr
 go run ./cmd/server -migrate
 python3 seed/extract_units.py
-psql -d chwr -f seed/load_hierarchy.sql
+psql -d hwr -f seed/load_hierarchy.sql
 python3 seed/extract_facilities.py
-psql -d chwr -f seed/load_facilities.sql
-psql -d chwr -f seed/verify_constraints.sql
+psql -d hwr -f seed/load_facilities.sql
+psql -d hwr -f seed/verify_constraints.sql
 go test ./...
 go run ./cmd/server -create-admin you@example.org -name "Your Name"
 go run ./cmd/server                              # sign in at http://localhost:8080/login

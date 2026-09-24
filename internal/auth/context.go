@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 type ctxKey int

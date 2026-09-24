@@ -1,0 +1,16 @@
+[Unit]
+Description=Back up the HWR database
+Documentation=file:/opt/hwr/docs/deploy.md
+
+[Service]
+Type=oneshot
+User=hwr
+Group=hwr
+EnvironmentFile=/etc/hwr/hwr.env
+ExecStart=/opt/hwr/backup.sh
+# The backup directory is the one path this service may write.
+ReadWritePaths=/var/backups/hwr
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes

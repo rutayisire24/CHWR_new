@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"chwr/migrations"
+	"hwr/migrations"
 )
 
 // Open dials the database and proves the pool can serve a connection before

@@ -2,7 +2,7 @@
 --
 -- Run seed/extract_units.py first, then:
 --     python3 seed/extract_units.py                  # writes seed/out/*.tsv
---     psql -d chwr -f seed/load_hierarchy.sql        # from the repo root
+--     psql -d hwr -f seed/load_hierarchy.sql         # from the repo root
 --
 -- \copy performs no variable interpolation of any kind, so the paths below are
 -- literal and relative to psql's working directory. Run from the repo root.

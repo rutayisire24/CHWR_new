@@ -8,7 +8,7 @@ package auth
 import (
 	"strconv"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 // Scope is the data boundary a request may touch. It is a required argument to

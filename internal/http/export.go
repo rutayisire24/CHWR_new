@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
-	"chwr/internal/importer"
-	"chwr/internal/store"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
+	"hwr/internal/importer"
+	"hwr/internal/store"
 )
 
 // exportColumns is the header, and the order every row follows.

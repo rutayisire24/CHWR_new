@@ -5,7 +5,7 @@
 ```bash
 go run ./cmd/server -migrate                           # schema first, to version 4
 python3 seed/extract_units.py                          # writes seed/out/*.tsv
-psql -d chwr -f seed/load_hierarchy.sql                # from the repo root
+psql -d hwr -f seed/load_hierarchy.sql                 # from the repo root
 ```
 
 The schema comes from the binary, not from psql: `migrations/*.sql` are embedded and
@@ -43,7 +43,7 @@ Re-running requires a truncate first; the loader is not idempotent.
 ## Verifying
 
 ```bash
-psql -d chwr -f seed/verify_constraints.sql
+psql -d hwr -f seed/verify_constraints.sql
 ```
 
 36 constraint cases, all of which must report `blocked`. The script runs in a transaction,
@@ -53,7 +53,7 @@ rolls back, and raises on any leak. Run it after every schema change.
 
 ```bash
 python3 seed/extract_facilities.py           # writes seed/out/facilities.tsv
-psql -d chwr -f seed/load_facilities.sql     # from the repo root
+psql -d hwr -f seed/load_facilities.sql      # from the repo root
 ```
 
 Source is `data/MFL Updated - 21 feb.xlsx`, not the ODK workbook. Requires the

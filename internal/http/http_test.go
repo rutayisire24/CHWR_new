@@ -1,7 +1,7 @@
 package http
 
 import (
-	"chwr/internal/config"
+	"hwr/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"chwr/internal/domain"
-	"chwr/internal/store"
+	"hwr/internal/domain"
+	"hwr/internal/store"
 )
 
 // safeNext guards the login form's ?next= against being used as an open

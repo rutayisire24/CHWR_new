@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"chwr/internal/auth"
-	"chwr/internal/domain"
-	"chwr/internal/importer"
-	"chwr/internal/store"
+	"hwr/internal/auth"
+	"hwr/internal/domain"
+	"hwr/internal/importer"
+	"hwr/internal/store"
 )
 
 // registerLookup is the adapter between the importer and the store. It exists

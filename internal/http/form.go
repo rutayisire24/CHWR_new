@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"chwr/internal/store"
+	"hwr/internal/store"
 )
 
 // trimmed reads a posted field with surrounding whitespace removed. The CSRF

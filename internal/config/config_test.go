@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadDefaults(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres:///chwr")
+	t.Setenv("DATABASE_URL", "postgres:///hwr")
 
 	c, err := Load()
 	if err != nil {

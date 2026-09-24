@@ -1,4 +1,4 @@
-# National Health Worker Registry
+# National Health Workers Registry
 
 A Go service that maintains Uganda's national register of health workers, beginning with
 Community Health Workers. Three jobs: **manage health workers** (create, update, deploy,
@@ -112,14 +112,14 @@ manages users.
 ## Working here
 
 ```bash
-createdb chwr
-export DATABASE_URL=postgres:///chwr
+createdb hwr
+export DATABASE_URL=postgres:///hwr
 go run ./cmd/server -migrate                     # goose, embedded; idempotent
 python3 seed/extract_units.py                   # writes seed/out/
-psql -d chwr -f seed/load_hierarchy.sql          # run from repo root; ~3s
+psql -d hwr -f seed/load_hierarchy.sql           # run from repo root; ~3s
 python3 seed/extract_facilities.py               # MFL -> seed/out/facilities.tsv
-psql -d chwr -f seed/load_facilities.sql         # 7,895 loaded, 12 quarantined
-psql -d chwr -f seed/verify_constraints.sql      # 45 cases, all must say blocked
+psql -d hwr -f seed/load_facilities.sql          # 7,895 loaded, 12 quarantined
+psql -d hwr -f seed/verify_constraints.sql       # 45 cases, all must say blocked
 go run ./cmd/server                              # serves on ADDR, default :8080
 ```
 
@@ -279,8 +279,9 @@ the same for every caller.)
 - Verify schema changes against a real database before claiming they work. The
   cascading selects need a browser, not curl: Selenium is on `:4444`, and the app is
   reachable from it on the docker gateway rather than `127.0.0.1`.
-- Product naming: the module, binary and cookies keep the `chwr` name; the concept in
-  the schema, the Go types and the UI is the health worker.
+- Product naming: the product is the National Health Workers Registry (HWR). The
+  module, binary, cookies, database and deploy units are `hwr`; the concept in the
+  schema, the Go types and the UI is the health worker.
 
 ## Documentation
 

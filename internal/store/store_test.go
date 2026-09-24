@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"chwr/internal/domain"
+	"hwr/internal/domain"
 )
 
 // A search box that made the user say whether they were typing a name or a NIN

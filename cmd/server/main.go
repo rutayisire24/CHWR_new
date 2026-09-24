@@ -1,4 +1,4 @@
-// Command server runs the National Community Health Worker Registry.
+// Command server runs the National Health Workers Registry.
 package main
 
 import (
@@ -15,12 +15,12 @@ import (
 	"syscall"
 	"time"
 
-	"chwr/internal/auth"
-	"chwr/internal/config"
-	"chwr/internal/db"
-	"chwr/internal/domain"
-	apphttp "chwr/internal/http"
-	"chwr/internal/store"
+	"hwr/internal/auth"
+	"hwr/internal/config"
+	"hwr/internal/db"
+	"hwr/internal/domain"
+	apphttp "hwr/internal/http"
+	"hwr/internal/store"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{block "title" .}}Health Worker Registry{{end}}</title>
+  <title>{{block "title" .}}Health Workers Registry{{end}}</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body class="{{if .User}}has-nav{{else}}no-nav{{end}}">
 {{if .User}}
 <aside class="sidenav">
-  <a class="brand" href="/">HW Registry</a>
+  <a class="brand" href="/">HWR</a>
   <nav>
     <a href="/" class="{{if eq .Nav.Section "/"}}on{{end}}">Dashboard</a>
     {{if .Nav.Workers}}<a href="/health-workers" class="{{if eq .Nav.Section "/health-workers"}}on{{end}}">Register</a>{{end}}
@@ -34,7 +34,7 @@
     {{block "content" .}}{{end}}
   </main>
 
-  <footer class="foot">Ministry of Health · National Health Worker Registry</footer>
+  <footer class="foot">Ministry of Health · National Health Workers Registry</footer>
 </div>
 </body>
 </html>

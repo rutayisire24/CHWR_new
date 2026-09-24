@@ -1,6 +1,6 @@
 package auth
 
-import "chwr/internal/domain"
+import "hwr/internal/domain"
 
 // Capability is a single permission checked by middleware before a handler
 // runs. The set is closed and small; see docs/rbac.md for the matrix.

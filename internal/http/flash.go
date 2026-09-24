@@ -14,7 +14,7 @@ type flash struct {
 	Message string
 }
 
-const flashCookie = "chwr_flash"
+const flashCookie = "hwr_flash"
 
 func setFlash(w http.ResponseWriter, secure bool, kind, message string) {
 	http.SetCookie(w, &http.Cookie{
