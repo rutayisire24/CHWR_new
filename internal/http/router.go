@@ -113,13 +113,23 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	// Anything the patterns above did not claim.
 	mux.HandleFunc("GET /", s.notFound)
 
-	// Outermost first: security headers, then CSRF (which parses the form and
-	// issues the token), then the session lookup every handler reads from.
-	return securityHeaders(
+	// The browser application: security headers, then CSRF (which parses the
+	// form and issues the token), then the session lookup every handler reads.
+	web := securityHeaders(
 		auth.CSRF(s.secure(), pages)(
 			auth.LoadUser(s.store.Sessions)(mux),
 		),
-	), nil
+	)
+
+	// The read-only interoperability API is mounted alongside, on its own
+	// prefix and outside the cookie/CSRF chain: machine consumers authenticate
+	// with a bearer token, not a session, so CSRF — which guards browser forms —
+	// does not apply. A longest-prefix match sends /api/v1/... to the API and
+	// everything else, including the web app's own /api/locations, to the app.
+	root := http.NewServeMux()
+	root.Handle("/api/v1/", securityHeaders(s.apiHandler()))
+	root.Handle("/", web)
+	return root, nil
 }
 
 // securityHeaders sets the defaults every response carries. The CSP is strict

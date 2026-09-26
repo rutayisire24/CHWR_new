@@ -28,20 +28,25 @@ type Store struct {
 	Stats     *Stats
 	Imports   *Imports
 	Export    *Export
+	// Interoperability: the read-only projection and the machine-client auth.
+	API        *API
+	APIClients *APIClients
 }
 
 // New builds every store over the shared pool.
 func New(pool *pgxpool.Pool) *Store {
 	return &Store{
-		Users:     &Users{pool: pool},
-		Sessions:  &Sessions{pool: pool},
-		Audit:     &Audit{pool: pool},
-		Locations: &Locations{pool: pool},
-		CHWs:      &CHWs{pool: pool},
-		Profiles:  &Profiles{pool: pool},
-		Stats:     &Stats{pool: pool},
-		Imports:   &Imports{pool: pool},
-		Export:    &Export{pool: pool},
+		Users:      &Users{pool: pool},
+		Sessions:   &Sessions{pool: pool},
+		Audit:      &Audit{pool: pool},
+		Locations:  &Locations{pool: pool},
+		CHWs:       &CHWs{pool: pool},
+		Profiles:   &Profiles{pool: pool},
+		Stats:      &Stats{pool: pool},
+		Imports:    &Imports{pool: pool},
+		Export:     &Export{pool: pool},
+		API:        &API{pool: pool},
+		APIClients: &APIClients{pool: pool},
 	}
 }
 

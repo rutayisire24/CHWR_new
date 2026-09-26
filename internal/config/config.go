@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,6 +33,16 @@ type Config struct {
 	// header" is trusting the client: anyone can set X-Forwarded-For, and the
 	// audit trail is what would carry the lie.
 	TrustedProxies []netip.Prefix
+
+	// APITokenTTL is how long a bearer token minted by the interoperability API
+	// stays valid. Default 90 minutes, matching the consumer's cache window.
+	APITokenTTL time.Duration
+
+	// SupervisionIntervalDays is the expected number of days between supervision
+	// visits, used by the API to flag a CHW as overdue for supervision. Zero —
+	// the default — disables the "overdue" reading until the Ministry confirms
+	// the interval (decision D13); lastSupervisedOn is still exposed.
+	SupervisionIntervalDays int
 }
 
 // Prod reports whether the process is running in production configuration.
@@ -67,6 +78,20 @@ func Load() (Config, error) {
 		problems = append(problems, err.Error())
 	}
 	c.ShutdownTimeout = d
+
+	ttl, terr := durationOr("API_TOKEN_TTL", 90*time.Minute)
+	if terr != nil {
+		problems = append(problems, terr.Error())
+	}
+	c.APITokenTTL = ttl
+
+	days, ierr := intOr("SUPERVISION_INTERVAL_DAYS", 0)
+	if ierr != nil {
+		problems = append(problems, ierr.Error())
+	} else if days < 0 {
+		problems = append(problems, "SUPERVISION_INTERVAL_DAYS must not be negative")
+	}
+	c.SupervisionIntervalDays = days
 
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf("config: %s", strings.Join(problems, "; "))
@@ -112,6 +137,18 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func intOr(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback, fmt.Errorf("%s: %q is not an integer", key, v)
+	}
+	return n, nil
 }
 
 func durationOr(key string, fallback time.Duration) (time.Duration, error) {

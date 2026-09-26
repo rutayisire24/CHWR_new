@@ -36,6 +36,9 @@ func run() error {
 	migrateOnly := flag.Bool("migrate", false, "apply migrations and exit")
 	adminEmail := flag.String("create-admin", "", "provision a national admin with this email, print a temporary password, and exit")
 	adminName := flag.String("name", "", "full name for -create-admin")
+	apiClientID := flag.String("create-api-client", "", "provision a read-only interoperability API client with this client_id, print a secret, and exit")
+	apiClientName := flag.String("api-name", "", "human label for -create-api-client (e.g. \"eCHIS UMT\")")
+	apiDistrict := flag.Int64("api-district", 0, "restrict the -create-api-client client to this district id; 0 (default) is national")
 	flag.Parse()
 
 	cfg, err := config.Load()
@@ -73,6 +76,9 @@ func run() error {
 	}
 	if *adminEmail != "" {
 		return bootstrapAdmin(ctx, pool, *adminEmail, *adminName)
+	}
+	if *apiClientID != "" {
+		return bootstrapAPIClient(ctx, pool, *apiClientID, *apiClientName, *apiDistrict)
 	}
 
 	handler, err := apphttp.New(pool, cfg)
@@ -154,6 +160,45 @@ func bootstrapAdmin(ctx context.Context, pool *pgxpool.Pool, email, fullName str
 	return nil
 }
 
+// bootstrapAPIClient provisions a read-only interoperability API client and
+// prints its secret once, the same handover shape as -create-admin. The secret
+// is stored only as an argon2id hash; this printed value is the only copy.
+func bootstrapAPIClient(ctx context.Context, pool *pgxpool.Pool, clientID, name string, districtID int64) error {
+	if name == "" {
+		return fmt.Errorf("-create-api-client also needs -api-name")
+	}
+
+	secret, err := generatePassword()
+	if err != nil {
+		return err
+	}
+
+	in := store.NewAPIClient{
+		Name:     name,
+		ClientID: clientID,
+		Secret:   secret,
+		Scope:    domain.APIScopeNational,
+	}
+	if districtID != 0 {
+		in.Scope = domain.APIScopeDistrict
+		in.DistrictID = &districtID
+	}
+
+	st := store.New(pool)
+	client, err := st.APIClients.Create(ctx, in)
+	if err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			return fmt.Errorf("an API client already exists with client_id %q", clientID)
+		}
+		return err
+	}
+
+	fmt.Printf("\nCreated read-only API client %q (id %d, scope %s)\n", client.ClientID, client.ID, client.Scope)
+	fmt.Printf("Client secret: %s\n", secret)
+	fmt.Printf("Store it now: only its hash is kept, and it cannot be shown again.\n\n")
+	return nil
+}
+
 // generatePassword draws until the result satisfies the same policy the web
 // form enforces.
 func generatePassword() (string, error) {
@@ -183,10 +228,13 @@ func purgeSessions(ctx context.Context, st *store.Store) {
 			n, err := st.Sessions.DeleteExpired(ctx)
 			if err != nil {
 				slog.Error("session purge failed", "err", err)
-				continue
-			}
-			if n > 0 {
+			} else if n > 0 {
 				slog.Info("purged expired sessions", "count", n)
+			}
+			if m, err := st.APIClients.DeleteExpiredTokens(ctx); err != nil {
+				slog.Error("api token purge failed", "err", err)
+			} else if m > 0 {
+				slog.Info("purged expired api tokens", "count", m)
 			}
 		}
 	}

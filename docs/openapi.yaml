@@ -1,0 +1,217 @@
+openapi: 3.0.3
+info:
+  title: CHWR Interoperability API
+  version: "1.0"
+  description: >
+    Read-only HTTP/JSON API over Uganda's Community Health Worker Registry
+    (CHWR). CHWR remains the authoritative source; consumers (the eCHIS
+    user-management tool and the National Data Warehouse) read through this
+    surface. Machine consumers authenticate with client credentials to obtain a
+    short-lived bearer token. All data endpoints require the token.
+servers:
+  - url: /api/v1
+    description: Version 1, relative to the CHWR deployment base URL.
+tags:
+  - name: auth
+  - name: chws
+  - name: meta
+paths:
+  /auth/token:
+    post:
+      tags: [auth]
+      summary: Exchange client credentials for a bearer token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_id: { type: string, description: "API client id (alias: email)." }
+                client_secret: { type: string, description: "API client secret (alias: password)." }
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: A bearer token.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  access_token: { type: string, description: "Same value as token." }
+                  token_type: { type: string, example: Bearer }
+                  expires_in: { type: integer, description: "Seconds until expiry." }
+                  expires_at: { type: string, format: date-time }
+                  scope: { type: string, enum: [national, district] }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /chws:
+    get:
+      tags: [chws]
+      summary: Query CHWs.
+      parameters:
+        - { name: active, in: query, schema: { type: boolean }, description: "Filter by active status; omit for both." }
+        - { name: district, in: query, schema: { type: string }, description: "District name (case-insensitive)." }
+        - { name: district_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: facility, in: query, schema: { type: string }, description: "Supervising facility name." }
+        - { name: village, in: query, schema: { type: string }, description: "Village name (a VHT's own village)." }
+        - { name: cadre, in: query, schema: { type: string, enum: [vht, chew] } }
+        - { name: supervision, in: query, schema: { type: string, enum: [overdue, never] }, description: "Targeted supervision (D13)." }
+        - { name: updated_since, in: query, schema: { type: string, format: date-time }, description: "RFC3339; record or profile changed since." }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 50 } }
+        - { name: cursor, in: query, schema: { type: integer, format: int64 }, description: "Keyset cursor: the previous page's nextCursor." }
+      responses:
+        "200":
+          description: A page of CHWs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chws:
+                    type: array
+                    items: { $ref: "#/components/schemas/CHW" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /chws/{hwid}:
+    get:
+      tags: [chws]
+      summary: One CHW by HW-ID.
+      parameters:
+        - { name: hwid, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: The CHW.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CHW" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chws/{hwid}/supervisees:
+    get:
+      tags: [chws]
+      summary: The VHTs a CHEW oversees (the VHTs in the CHEW's parish, D5/D13).
+      parameters:
+        - { name: hwid, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: The supervisees (empty for a non-CHEW).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chws: { type: array, items: { $ref: "#/components/schemas/CHW" } }
+                  supervisorHwId: { type: integer, format: int64 }
+                  count: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /chws/{hwid}/supervisor:
+    get:
+      tags: [chws]
+      summary: The CHEW who supervises a VHT (the CHEW at the VHT's parish, D5/D13).
+      parameters:
+        - { name: hwid, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: The supervising CHEW.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CHW" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound", description: "No such VHT, or no supervisor recorded." }
+  /health:
+    get:
+      tags: [meta]
+      summary: Liveness. Returns no register data.
+      security: []
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  api: { type: string, example: chwr-interop }
+                  version: { type: string, example: v1 }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: Malformed request.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: Missing, invalid or expired credentials.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: No such resource in scope.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        status: { type: integer }
+    Pagination:
+      type: object
+      properties:
+        limit: { type: integer }
+        count: { type: integer }
+        hasMore: { type: boolean }
+        nextCursor: { type: integer, format: int64, description: "Present when hasMore is true." }
+    NamedPlace:
+      type: object
+      properties:
+        name: { type: string }
+    CHW:
+      type: object
+      properties:
+        id: { type: integer, format: int64, description: "The HW-ID (D2)." }
+        hwId: { type: integer, format: int64 }
+        fullName: { type: string }
+        firstName: { type: string }
+        lastName: { type: string }
+        nationalId: { type: string, description: "NIN; empty when not recorded." }
+        phone: { type: string }
+        birthDate: { type: string, format: date, description: "Real or approximated (D4); absent if age unknown." }
+        birthDateApproximate: { type: boolean }
+        gender: { type: string, enum: [male, female] }
+        cadre: { type: string, enum: [vht, chew] }
+        status: { type: string, enum: [active, inactive] }
+        active: { type: boolean }
+        parish: { type: string }
+        district: { $ref: "#/components/schemas/NamedPlace" }
+        subcounty: { $ref: "#/components/schemas/NamedPlace" }
+        village: { type: string, description: "The CHW's own village; empty for a CHEW." }
+        villages:
+          type: array
+          items: { type: string }
+          description: "A VHT's village, or every village under a CHEW's parish (D5)."
+        position:
+          type: object
+          properties:
+            facility: { $ref: "#/components/schemas/NamedPlace" }
+        supervisor:
+          nullable: true
+          type: object
+          properties:
+            hwId: { type: integer, format: int64 }
+            name: { type: string }
+        supervision:
+          type: object
+          properties:
+            received: { type: boolean, nullable: true }
+            lastSupervisedOn: { type: string, format: date, nullable: true }
+            overdue: { type: boolean, nullable: true, description: "Null until the interval is configured (D13)." }
+            intervalDays: { type: integer, description: "Present when configured." }
+        updatedAt: { type: string, format: date-time }
+security:
+  - bearerAuth: []
