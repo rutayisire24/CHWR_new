@@ -1,0 +1,102 @@
+### CHWR Interoperability API - runnable request collection
+#
+# Works with the VS Code "REST Client" extension and JetBrains HTTP client.
+# Pick ONE of the two variable blocks below (national or district), fill in the
+# secret, then run "Get token" first and the rest will reuse @token.
+#
+# Provision a client and get its secret with:
+#   go run ./cmd/server -create-api-client echis_umt -api-name "eCHIS UMT"                 # national
+#   go run ./cmd/server -create-api-client wh_hoima  -api-name "NDW HOIMA" -api-district 58 # district-scoped
+
+# ---- Variables: NATIONAL client (eCHIS UMT, National Data Warehouse) --------
+@baseUrl = http://127.0.0.1:8080
+@clientId = echis_umt
+@clientSecret = REPLACE_WITH_SECRET
+@district = HOIMA
+@hwid = 1
+
+# ---- Variables: DISTRICT client (single district) --------------------------
+# Comment out the national block above and use this instead to see one district.
+# @baseUrl = http://127.0.0.1:8080
+# @clientId = wh_hoima
+# @clientSecret = REPLACE_WITH_DISTRICT_SECRET
+# @district = HOIMA
+# @hwid = 1
+
+############################################################################
+# 1. Authenticate. The REST Client captures the token from the response so
+#    the following requests can send `Authorization: Bearer {{token}}`.
+############################################################################
+
+# @name token
+POST {{baseUrl}}/api/v1/auth/token
+Content-Type: application/json
+
+{
+  "client_id": "{{clientId}}",
+  "client_secret": "{{clientSecret}}"
+}
+
+###
+@token = {{token.response.body.token}}
+
+############################################################################
+# 2. eCHIS user provisioning: query CHWs (active, by district).
+#    A national client returns every district; a district client returns
+#    only its own.
+############################################################################
+
+GET {{baseUrl}}/api/v1/chws?active=true&district={{district}}&limit=20
+Authorization: Bearer {{token}}
+
+###
+# Narrow to a single village (as the UMT does when creating a VHT area):
+GET {{baseUrl}}/api/v1/chws?active=true&district={{district}}&village=KIFURANSA
+Authorization: Bearer {{token}}
+
+###
+# One CHW by HW-ID:
+GET {{baseUrl}}/api/v1/chws/{{hwid}}
+Authorization: Bearer {{token}}
+
+############################################################################
+# 3. National Data Warehouse: full and incremental extraction.
+############################################################################
+
+# Full extract, page 1. Use pagination.nextCursor for the next page.
+GET {{baseUrl}}/api/v1/chws?limit=500
+Authorization: Bearer {{token}}
+
+###
+# Next page: set cursor to the previous page's nextCursor.
+GET {{baseUrl}}/api/v1/chws?limit=500&cursor=500
+Authorization: Bearer {{token}}
+
+###
+# Incremental refresh since a timestamp:
+GET {{baseUrl}}/api/v1/chws?updated_since=2026-09-01T00:00:00Z&limit=500
+Authorization: Bearer {{token}}
+
+###
+# Targeted supervision (needs SUPERVISION_INTERVAL_DAYS set on the server):
+GET {{baseUrl}}/api/v1/chws?supervision=overdue&limit=500
+Authorization: Bearer {{token}}
+
+############################################################################
+# 4. Supervisory assignment.
+############################################################################
+
+# VHTs a CHEW oversees:
+GET {{baseUrl}}/api/v1/chws/{{hwid}}/supervisees
+Authorization: Bearer {{token}}
+
+###
+# The CHEW who supervises a VHT:
+GET {{baseUrl}}/api/v1/chws/{{hwid}}/supervisor
+Authorization: Bearer {{token}}
+
+############################################################################
+# 5. Liveness (no auth, no data).
+############################################################################
+
+GET {{baseUrl}}/api/v1/health

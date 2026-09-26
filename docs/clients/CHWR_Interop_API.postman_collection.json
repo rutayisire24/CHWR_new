@@ -1,0 +1,180 @@
+{
+  "info": {
+    "name": "CHWR Interoperability API",
+    "_postman_id": "chwr-interop-api-v1",
+    "description": "Read-only API over Uganda's Community Health Worker Registry (CHWR) for the eCHIS user-management tool and the National Data Warehouse.\n\nQuick start:\n1. Import this collection and one of the two environments (National or District).\n2. Set clientId, clientSecret and baseUrl in the environment (get the secret from `-create-api-client`).\n3. Run 'Auth > Get token' first: it stores the bearer token for every other request.\n\nScope is decided by the client you authenticate as: a national client reads the whole register; a district client reads only its district.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8080", "description": "CHWR deployment base URL (no trailing slash)." },
+    { "key": "clientId", "value": "echis_umt", "description": "API client id (set per environment)." },
+    { "key": "clientSecret", "value": "", "description": "API client secret from -create-api-client (set per environment; keep secret)." },
+    { "key": "token", "value": "", "description": "Filled automatically by 'Get token'." },
+    { "key": "hwid", "value": "1", "description": "A CHW HW-ID for the single-record and supervision requests." },
+    { "key": "district", "value": "HOIMA", "description": "A district name, for the eCHIS filter example." }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Get token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var d = pm.response.json();",
+                  "var t = d.token || d.access_token;",
+                  "pm.collectionVariables.set('token', t);",
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('received a bearer token', function () { pm.expect(t).to.be.a('string').and.not.empty; });",
+                  "console.log('token stored; scope =', d.scope, 'expires_in =', d.expires_in);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"{{clientId}}\",\n  \"client_secret\": \"{{clientSecret}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/token", "host": ["{{baseUrl}}"], "path": ["api", "v1", "auth", "token"] },
+            "description": "Exchange client credentials for a bearer token (valid ~90 minutes). email/password are accepted as aliases for client_id/client_secret. The token is stored to the 'token' variable by the test script."
+          }
+        }
+      ]
+    },
+    {
+      "name": "eCHIS (user provisioning)",
+      "description": "How the cht-user-management tool queries CHWR when creating a VHT user.",
+      "item": [
+        {
+          "name": "List CHWs (active, by district + village)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chws?active=true&district={{district}}&limit=20",
+              "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws"],
+              "query": [
+                { "key": "active", "value": "true" },
+                { "key": "district", "value": "{{district}}" },
+                { "key": "village", "value": "", "disabled": true },
+                { "key": "facility", "value": "", "disabled": true },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Returns { chws: [...], pagination: {...} }. Each record carries id (the HW-ID, stored on the eCHIS contact as chwr_id), fullName, nationalId, phone, birthDate, gender, parish, district.name, subcounty.name, position.facility.name and villages[]."
+          }
+        },
+        {
+          "name": "Get one CHW by HW-ID",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/chws/{{hwid}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws", "{{hwid}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "National Data Warehouse",
+      "description": "Full and incremental extraction for analytics.",
+      "item": [
+        {
+          "name": "Full extract - first page",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chws?limit=500",
+              "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws"],
+              "query": [ { "key": "limit", "value": "500" } ]
+            },
+            "description": "Page 1 of a full walk. When pagination.hasMore is true, take pagination.nextCursor and pass it as 'cursor' for the next page (see the next request)."
+          }
+        },
+        {
+          "name": "Full extract - next page (cursor)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chws?limit=500&cursor=500",
+              "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws"],
+              "query": [ { "key": "limit", "value": "500" }, { "key": "cursor", "value": "500" } ]
+            },
+            "description": "Set 'cursor' to the previous page's pagination.nextCursor. Ordering is by HW-ID, so the walk is stable while records are added."
+          }
+        },
+        {
+          "name": "Incremental refresh (updated_since)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chws?updated_since=2026-09-01T00:00:00Z&limit=500",
+              "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws"],
+              "query": [ { "key": "updated_since", "value": "2026-09-01T00:00:00Z" }, { "key": "limit", "value": "500" } ]
+            },
+            "description": "Returns records whose CHW or profile changed since the timestamp. Poll with the previous run's start time; updatedAt reflects both record and profile changes."
+          }
+        },
+        {
+          "name": "Targeted supervision (overdue)",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chws?supervision=overdue&limit=500",
+              "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws"],
+              "query": [ { "key": "supervision", "value": "overdue" }, { "key": "limit", "value": "500" } ]
+            },
+            "description": "CHWs overdue for supervision. Requires SUPERVISION_INTERVAL_DAYS to be set on the server (decision D13); otherwise overdue is null and this returns nothing."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Supervision",
+      "item": [
+        {
+          "name": "Supervisees of a CHEW",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/chws/{{hwid}}/supervisees", "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws", "{{hwid}}", "supervisees"] },
+            "description": "The VHTs a CHEW oversees (the VHTs in the CHEW's parish). Empty for a VHT."
+          }
+        },
+        {
+          "name": "Supervisor of a VHT",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "Authorization", "value": "Bearer {{token}}" } ],
+            "url": { "raw": "{{baseUrl}}/api/v1/chws/{{hwid}}/supervisor", "host": ["{{baseUrl}}"], "path": ["api", "v1", "chws", "{{hwid}}", "supervisor"] },
+            "description": "The CHEW placed at the VHT's parish. 404 if the CHW has no supervisor."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Meta",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/health", "host": ["{{baseUrl}}"], "path": ["api", "v1", "health"] },
+            "description": "Unauthenticated liveness. Returns no register data."
+          }
+        }
+      ]
+    }
+  ]
+}
