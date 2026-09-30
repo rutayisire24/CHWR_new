@@ -348,8 +348,9 @@ func (r *Resolver) byNames(ctx context.Context, row Row) (*Placement, []domain.P
 		Chain:      []domain.Place{matches[0]},
 	}
 
-	// The cascade below the district: as deep as the cells are filled, which
-	// for today's cadres means parish for a CHEW and village for a VHT.
+	// The cascade below the district: as deep as the cells are filled. Where
+	// it should stop is the cadre's row — district, subcounty, parish or
+	// village — and checkPlacementLevel compares the two afterwards.
 	steps := []struct {
 		column string
 		level  domain.Level
@@ -359,14 +360,19 @@ func (r *Resolver) byNames(ctx context.Context, row Row) (*Placement, []domain.P
 		{ColVillage, domain.LevelVillage},
 	}
 
-	for _, step := range steps {
+	for i, step := range steps {
 		name := row.Value(step.column)
 		if name == "" {
-			if step.level == domain.LevelVillage {
-				break // whether that is allowed is the cadre's business
+			// A blank with a filled cell beneath it is a gap in the chain, not
+			// a shallower placement: the village cannot be found without its
+			// parish.
+			for _, deeper := range steps[i+1:] {
+				if row.Value(deeper.column) != "" {
+					return nil, []domain.Problem{{Field: step.column, Code: domain.ProblemRequired,
+						Message: "Name the " + step.column + ": the " + deeper.column + " beneath it is given."}}
+				}
 			}
-			return nil, []domain.Problem{{Field: step.column, Code: domain.ProblemRequired,
-				Message: "Name the " + step.column + "."}}
+			return place, nil
 		}
 
 		siblings, err := r.childrenAt(ctx, place.LocationID, step.level)

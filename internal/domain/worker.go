@@ -96,6 +96,27 @@ const (
 	LevelVillage   Level = "village"
 )
 
+// Depth is the level's rung in the hierarchy, region 0 to village 5, so two
+// levels can be compared: "placed too shallow" and "too deep" are different
+// instructions to whoever is fixing the row.
+func (l Level) Depth() int {
+	switch l {
+	case LevelRegion:
+		return 0
+	case LevelDistrict:
+		return 1
+	case LevelCounty:
+		return 2
+	case LevelSubcounty:
+		return 3
+	case LevelParish:
+		return 4
+	case LevelVillage:
+		return 5
+	}
+	return -1
+}
+
 // Label is the human-readable level name.
 func (l Level) Label() string {
 	switch l {

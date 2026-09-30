@@ -62,6 +62,17 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("POST /users/{id}/status", manageUsers(s.userStatus))
 	mux.Handle("POST /users/{id}/reset", manageUsers(s.userResetPassword))
 
+	// The cadre taxonomy: national vocabulary, national admin only.
+	manageCadres := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(auth.CapCadreManage, pages)(h))
+	}
+	mux.Handle("GET /cadres", manageCadres(s.cadresList))
+	mux.Handle("GET /cadres/new", manageCadres(s.cadreNew))
+	mux.Handle("POST /cadres/new", manageCadres(s.cadreCreate))
+	mux.Handle("GET /cadres/{id}", manageCadres(s.cadreEdit))
+	mux.Handle("POST /cadres/{id}", manageCadres(s.cadreUpdate))
+	mux.Handle("POST /cadres/categories", manageCadres(s.categoryCreate))
+
 	// The register. Viewing is every role; writing needs the manage capability,
 	// and the Scope inside each store call is what keeps a district manager to
 	// their own district.

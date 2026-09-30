@@ -1,0 +1,70 @@
+{{define "title"}}Cadres · Health Workers Registry{{end}}
+
+{{define "content"}}
+<div class="row-between">
+  <h1>Cadres</h1>
+  <a class="button" href="/cadres/new">Add cadre</a>
+</div>
+<p class="muted">The kinds of health worker the register holds. A cadre added here is at once a
+  choice on the worker form, a filter on the register, a tile on the dashboard and a value an
+  import's <code>cadre</code> column accepts. Its placement level decides how far down the
+  hierarchy a worker in it is placed.</p>
+
+<table class="grid grouped">
+  <thead>
+    <tr><th>Cadre</th><th>Slug</th><th>Placed at</th><th>Import spellings</th><th>Serving</th><th>Status</th><th></th></tr>
+  </thead>
+  {{range .Page.Groups}}
+  <tbody>
+    <tr class="group{{if not .Category.Active}} dim{{end}}">
+      <th colspan="6" scope="rowgroup">
+        {{.Category.Label}} <code>{{.Category.Slug}}</code>
+        {{if not .Category.Active}}<span class="pill disabled">retired</span>{{end}}
+        <span class="group-note">{{if .HasProfile}}CHW profile: phone, incentive, tools and services{{else}}Identity and posting only, no profile yet{{end}}</span>
+      </th>
+      <td class="actions"><a href="/cadres/new?category={{.Category.ID}}">Add cadre</a></td>
+    </tr>
+    {{range .Cadres}}
+    <tr class="{{if not .Active}}dim{{end}}">
+      <td>{{.Label}}</td>
+      <td><code>{{.Slug}}</code></td>
+      <td>{{.PlacementLevel.Label}}</td>
+      <td>{{range $i, $a := .ImportAliases}}{{if $i}}, {{end}}{{$a}}{{else}}<span class="muted">slug only</span>{{end}}</td>
+      <td>{{.Serving}}</td>
+      <td>{{if .Active}}<span class="pill active">offered</span>{{else}}<span class="pill disabled">retired</span>{{end}}</td>
+      <td class="actions"><a href="/cadres/{{.ID}}">Edit</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7" class="muted">No cadres in this category yet.</td></tr>
+    {{end}}
+  </tbody>
+  {{end}}
+</table>
+
+<form method="post" action="/cadres/categories" class="card">
+  {{template "csrf" .}}
+  <h2>Add a category</h2>
+  <p class="hint">A category groups cadres — Community Health Workers holds VHT and CHEW. A new
+    category starts without a profile of its own; its workers get the core record and a posting.</p>
+  <div class="two-up">
+    <div>
+      <label for="category_label">Name</label>
+      <input id="category_label" name="category_label" required maxlength="80"
+             value="{{.Page.Category.Label}}" placeholder="Nursing and Midwifery">
+      {{template "field-error" .Page.CategoryErrors.category_label}}
+    </div>
+    <div>
+      <label for="category_slug">Slug</label>
+      <input id="category_slug" name="category_slug" required maxlength="32"
+             pattern="[a-z][a-z0-9_]{1,31}" value="{{.Page.Category.Slug}}" placeholder="nursing">
+      {{template "field-error" .Page.CategoryErrors.category_slug}}
+    </div>
+  </div>
+  <label for="category_sort_order">Sort order</label>
+  <input id="category_sort_order" name="category_sort_order" inputmode="numeric"
+         value="{{with .Page.Category.SortOrder}}{{.}}{{end}}">
+  <span class="hint">Lower comes first on the worker form. Blank puts it last.</span>
+  {{template "field-error" .Page.CategoryErrors.category_sort_order}}
+  <button type="submit">Add category</button>
+</form>
+{{end}}

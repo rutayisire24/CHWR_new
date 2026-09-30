@@ -9,11 +9,23 @@ import (
 // entered through. Community Health Workers is the first; each category owns
 // its profile surface (chw_profiles for this one).
 type CadreCategory struct {
-	ID     int16
-	Slug   string
-	Label  string
-	Active bool
+	ID        int16
+	Slug      string
+	Label     string
+	SortOrder int16
+	Active    bool
 }
+
+// CategoryCHW is the slug of the Community Health Workers category — the one
+// whose profile surface is chw_profiles and its two junctions. A category's
+// profile is code, not data: a second category gets its own tables and its own
+// form, so this is the one place the CHW category is named in Go.
+const CategoryCHW = "chw"
+
+// PlacementLevels are the levels a cadre may be placed at: the ones the
+// cascade selects. Region has no district ancestor and county is derived,
+// never chosen; cadres_placement_selectable says the same in the schema.
+var PlacementLevels = []Level{LevelDistrict, LevelSubcounty, LevelParish, LevelVillage}
 
 // Cadre is a row of `cadres`: a type of health worker within a category —
 // VHT and CHEW within Community Health Workers.
@@ -23,8 +35,12 @@ type CadreCategory struct {
 // form that asks for a placement, so adding a cadre is an INSERT, not a
 // migration.
 type Cadre struct {
-	ID             int16
-	CategoryID     int16
+	ID         int16
+	CategoryID int16
+	// CategorySlug and CategoryLabel are the joined cadre_categories row: the
+	// label groups the form's choices, the slug decides the profile surface.
+	CategorySlug   string
+	CategoryLabel  string
 	Slug           string
 	Label          string
 	PlacementLevel Level
@@ -32,8 +48,27 @@ type Cadre struct {
 	// the slug itself, matched case-folded with separators stripped — the ODK
 	// export alone carries "VHT", "vht", "CHEW" and "CHW" (docs/odk-mapping.md).
 	ImportAliases []string
+	SortOrder     int16
 	Active        bool
 }
+
+// CarriesCHWProfile reports whether a worker in this cadre answers the CHW
+// profile — the phone, incentive, tool and service-domain survey. Only the
+// Community Health Workers category does; offering it to a nurse would record
+// answers to questions nobody asked them.
+func (c Cadre) CarriesCHWProfile() bool { return c.CategorySlug == CategoryCHW }
+
+// ImportSpellings is every string an import cell can name this cadre by: the
+// slug and the aliases, exactly what MatchesImport compares against. The admin form checks a new cadre's against
+// every other's, because two cadres answering to one spelling would make the
+// importer's cadre column ambiguous.
+func (c Cadre) ImportSpellings() []string {
+	return append([]string{c.Slug}, c.ImportAliases...)
+}
+
+// FoldImport is the comparison MatchesImport uses, exported for the admin
+// form's collision check.
+func FoldImport(s string) string { return foldSeparators(s) }
 
 // MatchesImport reports whether a cell value names this cadre: its slug or one
 // of its aliases, compared with case and separators folded away. "V.H.T" and

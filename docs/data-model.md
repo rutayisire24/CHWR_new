@@ -128,8 +128,28 @@ it, each carrying the level it is placed at and the spellings an import may use:
 | `vht` | Village Health Team member | village | `village health team` |
 | `chew` | Community Health Extension Worker | parish | `chw`, `community health extension worker` |
 
-A new cadre is an `INSERT`, not a migration. Each category owns its own profile surface —
-`chw_profiles` and its junctions belong to the CHW category; a future one gets its own.
+A new cadre is an `INSERT`, not a migration — made by a national admin at `/cadres`, which
+writes it and its `audit_log` row in one transaction. Since people now write the table,
+0007 puts the rules a migration author kept in their head into the schema:
+
+| Constraint | Refuses |
+|---|---|
+| `cadres_placement_selectable` | a cadre at region or county: region has no district ancestor and county is never selected, so nobody could be deployed in it |
+| `cadres_slug_shape`, `cadre_categories_slug_shape` | a slug that would not survive a URL, a staged import record or the export unescaped |
+| `cadres_slug_uniq` | one slug in two categories: the filter, export and importer name a cadre by slug alone |
+| `cadres_freeze_trg` | a change of slug, category or placement level once any deployment names the cadre |
+
+The freeze exists because `deployments_set_placement` checks a posting when the posting
+changes, not when its cadre does: moving VHTs to parish level after they are deployed
+would leave every one of those rows violating invariant 1 with nothing to notice. Label,
+aliases, sort order and `active` stay editable. A retired cadre is no longer offered or
+imported; the workers serving in it keep it until they are re-cadred.
+
+Each category owns its own profile surface — `chw_profiles` and its junctions belong to
+the CHW category (`domain.CategoryCHW`); a future one gets its own. Nothing in the schema
+ties a `chw_profiles` row to the category, because a worker re-cadred out of it keeps the
+answers they gave; the application offers the form, and the importer accepts the profile
+columns, only for a worker whose posting is in the CHW category.
 
 ### The worker code
 

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -382,5 +383,68 @@ func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
 				t.Errorf("clientIP = %s, want %s", got, c.want)
 			}
 		})
+	}
+}
+
+// The admin form's aliases are one per line, commas allowed, and anything that
+// folds to the slug or to an earlier alias is dropped rather than stored twice
+// — the importer compares folded, so a repeat would add nothing.
+func TestDecodeCadre(t *testing.T) {
+	form := url.Values{
+		"category_id":     {"2"},
+		"slug":            {"Health_Assistant"},
+		"label":           {"Health Assistant"},
+		"placement_level": {"subcounty"},
+		"import_aliases":  {"HA\n health asst ,H.A.\nhealth-assistant\n\n"},
+		"sort_order":      {""},
+		"active":          {"1"},
+	}
+	r := httptest.NewRequest(http.MethodPost, "/cadres/new", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ParseForm() // the CSRF middleware's job in the running server
+
+	in, _, v := decodeCadre(r)
+	if v.Any() {
+		t.Fatalf("refused: %v", v.Fields)
+	}
+	if in.Slug != "health_assistant" {
+		t.Errorf("slug = %q, want it lower-cased", in.Slug)
+	}
+	if want := []string{"HA", "health asst"}; !reflect.DeepEqual(in.ImportAliases, want) {
+		t.Errorf("aliases = %q, want %q (H.A. folds to HA, health-assistant to the slug)", in.ImportAliases, want)
+	}
+	if in.SortOrder != nil || !in.Active || in.CategoryID != 2 {
+		t.Errorf("sort=%v active=%v category=%d", in.SortOrder, in.Active, in.CategoryID)
+	}
+
+	// Region and county are not placements the cascade can reach.
+	form.Set("placement_level", "county")
+	form.Set("slug", "1bad")
+	r = httptest.NewRequest(http.MethodPost, "/cadres/new", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.ParseForm()
+	_, _, v = decodeCadre(r)
+	if v.Fields["placement_level"] == "" || v.Fields["slug"] == "" {
+		t.Errorf("county placement and a digit-led slug should both be refused: %v", v.Fields)
+	}
+}
+
+// The form's <optgroup>s follow the vocabulary's category order, one group per
+// run of a category.
+func TestCadreOptionsGroupByCategory(t *testing.T) {
+	groups := cadreOptions([]domain.Cadre{
+		{ID: 1, Slug: "vht", Label: "VHT", CategoryLabel: "Community Health Workers", PlacementLevel: domain.LevelVillage},
+		{ID: 2, Slug: "chew", Label: "CHEW", CategoryLabel: "Community Health Workers", PlacementLevel: domain.LevelParish},
+		{ID: 3, Slug: "ha", Label: "Health Assistant", CategoryLabel: "Environmental Health", PlacementLevel: domain.LevelSubcounty},
+	}, "chew")
+
+	if len(groups) != 2 || len(groups[0].Cadres) != 2 || len(groups[1].Cadres) != 1 {
+		t.Fatalf("groups = %+v", groups)
+	}
+	if !groups[0].Cadres[1].Selected || groups[0].Cadres[0].Selected {
+		t.Error("the selected slug was not marked")
+	}
+	if groups[1].Cadres[0].Level != "subcounty" {
+		t.Errorf("level = %q, want subcounty: the cascade reads it", groups[1].Cadres[0].Level)
 	}
 }

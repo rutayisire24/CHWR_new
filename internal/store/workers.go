@@ -33,7 +33,7 @@ const workerColumns = `
     w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
     w.created_by, w.updated_by, w.created_at, w.updated_at,
     dep.id, dep.cadre_id, coalesce(cd.slug,''), coalesce(cd.label,''),
-        coalesce(cd.placement_level::text,''),
+        coalesce(cd.placement_level::text,''), coalesce(cat.slug,''), coalesce(cat.label,''),
     dep.location_id, dep.district_id, coalesce(l.name,''), coalesce(dl.name,''),
     dep.facility_id, coalesce(f.name,''),
     dep.started_on, dep.ended_on, coalesce(dep.end_reason,'')`
@@ -51,6 +51,7 @@ const workerFrom = `
          LIMIT 1
     ) dep ON true
     LEFT JOIN cadres cd    ON cd.id = dep.cadre_id
+    LEFT JOIN cadre_categories cat ON cat.id = cd.category_id
     LEFT JOIN locations l  ON l.id  = dep.location_id
     LEFT JOIN locations dl ON dl.id = dep.district_id
     LEFT JOIN facilities f ON f.id  = dep.facility_id`
@@ -60,14 +61,14 @@ func scanWorker(row pgx.Row) (domain.HealthWorker, error) {
 	var sex, status string
 	var depID, depLocationID, depDistrictID, facilityID *int64
 	var cadreID *int16
-	var cadreSlug, cadreLabel, cadreLevel, locName, distName, facName, endReason string
+	var cadreSlug, cadreLabel, cadreLevel, catSlug, catLabel, locName, distName, facName, endReason string
 	var startedOn, endedOn *time.Time
 
 	err := row.Scan(&w.ID, &w.Code, &w.NIN, &w.FirstName, &w.LastName, &sex,
 		&w.AgeYears, &w.AgeCapturedOn, &w.DistrictID,
 		&status, &w.DeactivatedAt, &w.DeactivationReason,
 		&w.CreatedBy, &w.UpdatedBy, &w.CreatedAt, &w.UpdatedAt,
-		&depID, &cadreID, &cadreSlug, &cadreLabel, &cadreLevel,
+		&depID, &cadreID, &cadreSlug, &cadreLabel, &cadreLevel, &catSlug, &catLabel,
 		&depLocationID, &depDistrictID, &locName, &distName,
 		&facilityID, &facName, &startedOn, &endedOn, &endReason)
 	if err != nil {
@@ -84,6 +85,8 @@ func scanWorker(row pgx.Row) (domain.HealthWorker, error) {
 				Slug:           cadreSlug,
 				Label:          cadreLabel,
 				PlacementLevel: domain.Level(cadreLevel),
+				CategorySlug:   catSlug,
+				CategoryLabel:  catLabel,
 			},
 			LocationID:   *depLocationID,
 			DistrictID:   *depDistrictID,
@@ -420,12 +423,13 @@ func (s *Workers) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor 
 	        w.age_years, w.age_captured_on, dep.district_id,
 	        w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
 	        w.created_by, w.updated_by, w.created_at, w.updated_at,
-	        dep.id, dep.cadre_id, cd.slug, cd.label, cd.placement_level::text,
+	        dep.id, dep.cadre_id, cd.slug, cd.label, cd.placement_level::text, cat.slug, cat.label,
 	        dep.location_id, dep.district_id, l.name, dl.name,
 	        dep.facility_id, coalesce(f.name,''),
 	        dep.started_on, dep.ended_on, coalesce(dep.end_reason,'')
 	    FROM w, dep
 	    JOIN cadres cd    ON cd.id = dep.cadre_id
+	    JOIN cadre_categories cat ON cat.id = cd.category_id
 	    JOIN locations l  ON l.id  = dep.location_id
 	    JOIN locations dl ON dl.id = dep.district_id
 	    LEFT JOIN facilities f ON f.id = dep.facility_id`

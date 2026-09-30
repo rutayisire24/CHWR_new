@@ -35,16 +35,18 @@
     </div>
   </div>
 
-  <label>Cadre</label>
-  <div class="radios">
+  <label for="cadre_id">Cadre</label>
+  <select id="cadre_id" name="cadre_id" required>
+    <option value="">— choose —</option>
     {{range .Page.Cadres}}
-    <label class="radio">
-      <input type="radio" name="cadre_id" value="{{.ID}}" data-level="{{.Level}}"
-             {{if .Selected}}checked{{end}} required>
-      {{.Label}} <span class="muted">— placed at {{.Level}} level</span>
-    </label>
+    <optgroup label="{{.Label}}">
+      {{range .Cadres}}
+      <option value="{{.ID}}" data-level="{{.Level}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </optgroup>
     {{end}}
-  </div>
+  </select>
+  <span class="hint" id="cadre-level">The cadre decides how far down the hierarchy the placement goes.</span>
   {{template "field-error" .Page.Errors.cadre}}
 
   <label>Sex</label>
@@ -88,7 +90,7 @@
         {{end}}
       </select>
     </div>
-    <div>
+    <div class="level-field" data-level="subcounty">
       <label for="subcounty_id">Subcounty</label>
       <select id="subcounty_id" name="subcounty_id" data-under="district_id"
               data-level="subcounty" data-selected="{{index .Page.Prefill "subcounty"}}">
@@ -98,14 +100,14 @@
   </div>
 
   <div class="two-up">
-    <div>
+    <div class="level-field" data-level="parish">
       <label for="parish_id">Parish</label>
       <select id="parish_id" name="parish_id" data-under="subcounty_id"
               data-level="parish" data-selected="{{index .Page.Prefill "parish"}}">
         <option value="">— choose a subcounty first —</option>
       </select>
     </div>
-    <div class="village-field">
+    <div class="level-field" data-level="village">
       <label for="village_id">Village</label>
       <select id="village_id" name="village_id" data-under="parish_id"
               data-level="village" data-selected="{{index .Page.Prefill "village"}}">

@@ -69,6 +69,9 @@ const (
 	ProblemBadValue   ProblemCode = "bad_value"
 	ProblemBadNIN     ProblemCode = "bad_nin"
 	ProblemCadreMulti ProblemCode = "cadre_multi"
+	// Profile answers on a row whose cadre's category has no such profile:
+	// the CHW survey columns filled in for, say, a nurse.
+	ProblemProfileCategory ProblemCode = "profile_category"
 
 	// Placement.
 	ProblemLocationMissing ProblemCode = "location_missing"

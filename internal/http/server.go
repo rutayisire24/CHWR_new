@@ -42,6 +42,7 @@ type nav struct {
 	Workers bool
 	Imports bool
 	Users   bool
+	Cadres  bool
 	Audit   bool
 	Section string // first path segment, so /health-workers/42 still marks Register
 }
@@ -69,6 +70,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 			Workers: auth.Can(u.Role, auth.CapWorkerView),
 			Imports: auth.Can(u.Role, auth.CapImport),
 			Users:   auth.Can(u.Role, auth.CapUserManage),
+			Cadres:  auth.Can(u.Role, auth.CapCadreManage),
 			Audit:   auth.Can(u.Role, auth.CapAuditView),
 			Section: section(r.URL.Path),
 		}

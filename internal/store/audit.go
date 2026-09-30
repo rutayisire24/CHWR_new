@@ -43,6 +43,10 @@ const (
 	ActionDeploymentEnd    = "deployment.end"
 	ActionDeploymentUpdate = "deployment.update"
 	ActionProfileUpdate    = "chw.profile_update"
+	// The cadre taxonomy. National vocabulary, so these rows carry no district.
+	ActionCadreCreate    = "cadre.create"
+	ActionCadreUpdate    = "cadre.update"
+	ActionCategoryCreate = "cadre_category.create"
 	// Bulk import. The batch's own decisions; the workers it creates each write
 	// their own health_worker.create row, because that is the register's
 	// change history.

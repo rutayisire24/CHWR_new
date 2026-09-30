@@ -97,28 +97,51 @@ function cascade(form) {
   });
 
   // Cadre decides how deep the placement goes: the level the chosen cadre
-  // serves comes from its own row, rendered onto the radio as data-level.
-  // Hiding the village select is not enough — its value would still post —
-  // so it is cleared and disabled with it.
-  var villageField = form.querySelector(".village-field");
-  var village = document.getElementById("village_id");
+  // serves comes from its own row, rendered onto its <option> as data-level,
+  // so a cadre placed at subcounty stops the cascade there and one placed at
+  // village runs it to the end. Hiding a deeper select is not enough — its
+  // value would still post, and the server takes the deepest one filled — so
+  // it is cleared and disabled with it.
+  //
+  // The register's filter bar has no cadre select: every level stays, since
+  // narrowing to a subtree can stop anywhere.
+  var cadre = form.querySelector("select[name=cadre_id]");
+  var levelHint = document.getElementById("cadre-level");
+  var hintDefault = levelHint ? levelHint.textContent : "";
 
   function applyCadre() {
-    var checked = form.querySelector("input[name=cadre_id]:checked");
-    var wantsVillage = !checked || checked.dataset.level === "village";
-    if (villageField) villageField.hidden = !wantsVillage;
-    if (!village) return;
-    if (wantsVillage) {
-      village.disabled = village.options.length <= 1;
-    } else {
-      village.value = "";
-      village.disabled = true;
+    if (!cadre) return;
+    var option = cadre.options[cadre.selectedIndex];
+    var level = option ? option.dataset.level || "" : "";
+    var stop = steps.length - 1;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].dataset.level === level) stop = i;
+    }
+
+    steps.forEach(function (select, i) {
+      var field = select.closest(".level-field");
+      var reached = i <= stop;
+      if (field) field.hidden = !reached;
+      // Every level down to the cadre's is part of the placement; with no
+      // cadre chosen yet only the district is asked for.
+      select.required = level ? reached : i === 0;
+      if (i === 0) return;
+      if (reached) {
+        select.disabled = select.options.length <= 1;
+      } else {
+        select.value = "";
+        select.disabled = true;
+      }
+    });
+
+    if (levelHint) {
+      levelHint.textContent = level
+        ? option.textContent.trim() + ": placed at " + level + " level."
+        : hintDefault;
     }
   }
 
-  Array.prototype.forEach.call(form.querySelectorAll("input[name=cadre_id]"), function (radio) {
-    radio.addEventListener("change", applyCadre);
-  });
+  if (cadre) cadre.addEventListener("change", applyCadre);
 
   // Disable the dependent selects without calling reset(): reset forgets the
   // pending placement, which is exactly what the edit form needs kept.

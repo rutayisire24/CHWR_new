@@ -21,7 +21,11 @@
     <select id="cadre" name="cadre">
       <option value="">Any</option>
       {{range .Page.Cadres}}
-      <option value="{{.Slug}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+      <optgroup label="{{.Label}}">
+        {{range .Cadres}}
+        <option value="{{.Slug}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </optgroup>
       {{end}}
     </select>
   </div>
@@ -61,7 +65,7 @@
     </select>
   </div>
 
-  <div class="village-field">
+  <div>
     <label for="village_id">Village</label>
     <select id="village_id" name="village_id" data-under="parish_id"
             data-level="village" data-selected="{{index .Page.Prefill "village"}}">

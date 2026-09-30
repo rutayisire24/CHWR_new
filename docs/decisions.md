@@ -439,6 +439,29 @@ transaction. So `health_workers_assign_code` issues the code the first time `dis
 goes from NULL to a value, refuses a supplied or changed one, and the CHECK
 `health_workers_code_assigned` makes "has a district, has no code" unrepresentable.
 
+**Cadres are administered in the UI, and frozen once used.** Making cadres data (0003)
+only helps if someone other than a migration author can add one, so `national_admin` holds
+`cadre.manage` and `/cadres` adds and edits them. Rejected: letting district managers add
+cadres, since the taxonomy is one national vocabulary and a district's addition would
+appear in every other district's form. The price of people writing the table is that the
+schema has to hold what a migration author knew — hence `cadres_freeze_trg`, which fixes a
+cadre's slug, category and level from its first deployment. Rejected: re-validating every
+posting when a cadre's level changes, which would turn one admin click into a
+tens-of-thousands-row transaction that either fails or re-places people nobody reviewed.
+Retire-and-replace moves workers one reviewed re-cadring at a time.
+
+**The CHW profile is gated by category in the application, not the schema.** A
+`chw_profiles` row for a nurse is wrong, but a worker re-cadred out of the CHW category
+has answers that are still true of the time they served, and a constraint would force
+deleting them. So the show page keeps existing answers read-only, the profile routes 404,
+and the importer refuses (`profile_category`) rather than drops profile columns on a row in
+another category.
+
+**Placement depth is the cadre's, all the way down.** The form's cascade and the importer's
+name walk both used to know two depths, village and parish. Both now stop at whatever level
+the cadre row declares, the importer refusing a blank cell with a filled one beneath it as a
+gap rather than reading it as a shallower placement.
+
 ## Known costs
 
 **A database migrated under the old sequence does not upgrade.** Its `goose_db_version`

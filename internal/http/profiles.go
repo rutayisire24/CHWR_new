@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -85,6 +86,10 @@ func (s *Server) workerProfileSave(w http.ResponseWriter, r *http.Request) {
 		s.notFoundOrFail(w, r, err)
 		return
 	}
+	if !carriesCHWProfile(worker) {
+		s.notFound(w, r)
+		return
+	}
 
 	in, draft, v := decodeProfile(r, worker)
 
@@ -107,6 +112,13 @@ func (s *Server) workerProfileSave(w http.ResponseWriter, r *http.Request) {
 
 	setFlash(w, s.secure(), "ok", "Saved the profile for "+worker.FullName()+".")
 	http.Redirect(w, r, workerPath(id), http.StatusSeeOther)
+}
+
+// carriesCHWProfile reports whether the worker's posting is in the CHW
+// category. The profile is that category's survey; for anyone else the route
+// does not exist, the same answer the show page gives by not linking to it.
+func carriesCHWProfile(w domain.HealthWorker) bool {
+	return w.Deployment != nil && w.Deployment.Cadre.CarriesCHWProfile()
 }
 
 // decodeProfile reads the profile form. Every CHECK in chw_profiles is
@@ -282,6 +294,9 @@ func (s *Server) profileForm(r *http.Request, workerID int64, draft domain.Profi
 	worker, err := s.store.Workers.Get(r.Context(), sc, workerID)
 	if err != nil {
 		return profileFormPage{}, err
+	}
+	if !carriesCHWProfile(worker) {
+		return profileFormPage{}, fmt.Errorf("profile for worker %d: %w", workerID, domain.ErrNotFound)
 	}
 
 	profile := draft

@@ -13,8 +13,12 @@ const (
 	CapWorkerDeactivate Capability = "health_worker.deactivate"
 	CapImport           Capability = "health_worker.import"
 	CapUserManage       Capability = "user.manage"
-	CapAuditView        Capability = "audit.view"
-	CapExport           Capability = "export"
+	// CapCadreManage adds and edits cadres and categories. The taxonomy is
+	// national — a cadre added by one district would appear in every other —
+	// so only the national admin holds it.
+	CapCadreManage Capability = "cadre.manage"
+	CapAuditView   Capability = "audit.view"
+	CapExport      Capability = "export"
 )
 
 // matrix mirrors docs/rbac.md exactly. Presence means the role holds the
@@ -25,7 +29,7 @@ var matrix = map[domain.Role]map[Capability]bool{
 	domain.RoleNationalAdmin: {
 		CapWorkerView: true, CapWorkerCreate: true, CapWorkerUpdate: true,
 		CapWorkerDeactivate: true, CapUserManage: true, CapAuditView: true,
-		CapExport: true, CapImport: true,
+		CapExport: true, CapImport: true, CapCadreManage: true,
 	},
 	domain.RoleNationalViewer: {
 		CapWorkerView: true, CapExport: true,

@@ -81,11 +81,16 @@
 {{end}}
 {{end}}
 
+{{if or .Page.ProfileApplies .Page.Profile.Answered}}
 <div class="card">
   <div class="row-between">
-    <h2>Profile</h2>
-    {{if .Page.CanEdit}}<a href="/health-workers/{{.Page.Worker.ID}}/profile">{{if .Page.Profile.Answered}}Edit{{else}}Add{{end}} profile</a>{{end}}
+    <h2>CHW profile</h2>
+    {{if and .Page.CanEdit .Page.ProfileApplies}}<a href="/health-workers/{{.Page.Worker.ID}}/profile">{{if .Page.Profile.Answered}}Edit{{else}}Add{{end}} profile</a>{{end}}
   </div>
+  {{if not .Page.ProfileApplies}}
+  <p class="hint">Recorded while this worker served as a community health worker. Their current
+    cadre carries no CHW profile, so it is kept as it was and no longer edited.</p>
+  {{end}}
 
   {{if .Page.Profile.Answered}}
   <dl class="detail">
@@ -146,6 +151,7 @@
     fill in through this form.</p>
   {{end}}
 </div>
+{{end}}
 
 {{if not .Page.Worker.Active}}
 <div class="card">

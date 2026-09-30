@@ -59,17 +59,32 @@ func scanDeployment(row pgx.Row) (domain.Deployment, error) {
 	return d, nil
 }
 
-// Cadres lists the active cadre types, for the form's radio group and for
-// matching an import's cadre column. It is a vocabulary read, like Tools and
-// ServiceDomains: the same for every caller, so it takes no Scope.
+// Cadres lists the cadres a worker can be given today — active, in an active
+// category — for the form's select and for matching an import's cadre column.
+// It is a vocabulary read, like Tools and ServiceDomains: the same for every
+// caller, so it takes no Scope. Ordered by category, then within it, which is
+// how the form groups them.
 func (s *Deployments) Cadres(ctx context.Context) ([]domain.Cadre, error) {
-	const q = `
-	    SELECT id, category_id, slug, label, placement_level::text, import_aliases, active
-	      FROM cadres
-	     WHERE active
-	     ORDER BY sort_order`
+	return queryCadres(ctx, s.pool, ` WHERE c.active AND cat.active`)
+}
 
-	rows, err := s.pool.Query(ctx, q)
+// cadreColumns and cadreFrom are the projection every cadre read shares, so the
+// form, the importer and the admin screen cannot disagree about a cadre.
+const cadreColumns = `
+    c.id, c.category_id, cat.slug, cat.label, c.slug, c.label,
+    c.placement_level::text, c.import_aliases, c.sort_order, c.active`
+
+const cadreFrom = `
+    FROM cadres c JOIN cadre_categories cat ON cat.id = c.category_id`
+
+const cadreOrder = ` ORDER BY cat.sort_order, cat.id, c.sort_order, c.id`
+
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func queryCadres(ctx context.Context, q querier, where string, args ...any) ([]domain.Cadre, error) {
+	rows, err := q.Query(ctx, `SELECT `+cadreColumns+cadreFrom+where+cadreOrder, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list cadres: %w", translate(err))
 	}
@@ -77,16 +92,24 @@ func (s *Deployments) Cadres(ctx context.Context) ([]domain.Cadre, error) {
 
 	var out []domain.Cadre
 	for rows.Next() {
-		var c domain.Cadre
-		var level string
-		if err := rows.Scan(&c.ID, &c.CategoryID, &c.Slug, &c.Label, &level,
-			&c.ImportAliases, &c.Active); err != nil {
-			return nil, fmt.Errorf("scan cadre: %w", err)
+		c, err := scanCadre(rows)
+		if err != nil {
+			return nil, err
 		}
-		c.PlacementLevel = domain.Level(level)
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func scanCadre(row pgx.Row) (domain.Cadre, error) {
+	var c domain.Cadre
+	var level string
+	if err := row.Scan(&c.ID, &c.CategoryID, &c.CategorySlug, &c.CategoryLabel,
+		&c.Slug, &c.Label, &level, &c.ImportAliases, &c.SortOrder, &c.Active); err != nil {
+		return domain.Cadre{}, fmt.Errorf("scan cadre: %w", err)
+	}
+	c.PlacementLevel = domain.Level(level)
+	return c, nil
 }
 
 // Facility is one row of the supervising-facility picker.

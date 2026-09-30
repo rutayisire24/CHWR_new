@@ -101,12 +101,16 @@ var fakeDomains = []domain.ServiceDomain{
 	{ID: 7, Slug: "nutrition", Label: "Nutrition Services"},
 }
 
-// The cadre vocabulary, as 0003 seeds it: VHTs at village, CHEWs at parish.
+// The cadre vocabulary, as 0003 seeds it — VHTs at village, CHEWs at parish —
+// plus a cadre outside the CHW category placed at subcounty, the shape an
+// administrator adds through /cadres.
 var fakeCadres = []domain.Cadre{
-	{ID: 1, CategoryID: 1, Slug: "vht", Label: "Village Health Team member",
+	{ID: 1, CategoryID: 1, CategorySlug: domain.CategoryCHW, Slug: "vht", Label: "Village Health Team member",
 		PlacementLevel: domain.LevelVillage, ImportAliases: []string{"village health team"}, Active: true},
-	{ID: 2, CategoryID: 1, Slug: "chew", Label: "Community Health Extension Worker",
+	{ID: 2, CategoryID: 1, CategorySlug: domain.CategoryCHW, Slug: "chew", Label: "Community Health Extension Worker",
 		PlacementLevel: domain.LevelParish, ImportAliases: []string{"chw", "community health extension worker"}, Active: true},
+	{ID: 3, CategoryID: 2, CategorySlug: "ehs", Slug: "health_assistant", Label: "Health Assistant",
+		PlacementLevel: domain.LevelSubcounty, ImportAliases: []string{"ha"}, Active: true},
 }
 
 // Facilities, keyed by district. ABIM holds two of the same name, which is not

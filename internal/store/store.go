@@ -25,6 +25,7 @@ type Store struct {
 	Locations   *Locations
 	Workers     *Workers
 	Deployments *Deployments
+	Cadres      *Cadres
 	Profiles    *Profiles
 	Stats       *Stats
 	Imports     *Imports
@@ -41,6 +42,7 @@ func New(pool *pgxpool.Pool) *Store {
 		Locations:   &Locations{pool: pool},
 		Workers:     &Workers{pool: pool, deployments: deployments},
 		Deployments: deployments,
+		Cadres:      &Cadres{pool: pool},
 		Profiles:    &Profiles{pool: pool},
 		Stats:       &Stats{pool: pool},
 		Imports:     &Imports{pool: pool},

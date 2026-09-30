@@ -75,6 +75,11 @@ func TestCapabilityMatrix(t *testing.T) {
 		{domain.RoleNationalViewer, CapUserManage, false},
 		{domain.RoleDistrictManager, CapUserManage, false},
 		{domain.RoleDistrictViewer, CapUserManage, false},
+		// The cadre taxonomy is national: a district cannot add to it.
+		{domain.RoleNationalAdmin, CapCadreManage, true},
+		{domain.RoleNationalViewer, CapCadreManage, false},
+		{domain.RoleDistrictManager, CapCadreManage, false},
+		{domain.RoleDistrictViewer, CapCadreManage, false},
 
 		{domain.RoleNationalAdmin, CapWorkerCreate, true},
 		{domain.RoleNationalViewer, CapWorkerCreate, false},

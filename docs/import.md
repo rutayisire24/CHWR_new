@@ -325,11 +325,12 @@ would take four uploads to surface four errors in one row.
 | `bad_value` | not in the vocabulary, or outside the range |
 | `bad_nin` | fails the 14-character pattern |
 | `cadre_multi` | more than one cadre, or free text in the cadre column |
+| `profile_category` | CHW profile columns filled on a row whose cadre is not in the Community Health Workers category |
 | `location_missing` | no sibling of that name under the resolved parent |
 | `location_ambiguous` | two siblings share the name; both offered as candidates |
 | `location_code_unknown` | `location_code` matches no `code_path` |
 | `location_code_mismatch` | the code and the name columns name different places |
-| `placement_level` | a CHEW given a village, or a VHT given only a parish |
+| `placement_level` | the location stops above or below the level the cadre's row declares — a CHEW given a village, a VHT given only a parish |
 | `outside_scope` | the placement is not in the uploader's district |
 | `duplicate_nin` | that NIN is already on the register; the record is named only if the uploader's scope can see it |
 | `duplicate_nin_in_file` | two rows in this file carry the same NIN; both rejected |

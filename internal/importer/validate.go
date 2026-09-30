@@ -198,6 +198,15 @@ func (im *Importer) row(ctx context.Context, r Row, resolver *Resolver) Staged {
 	for _, p := range profileProblems {
 		add(p)
 	}
+	// The profile columns are the CHW category's survey. On a row in another
+	// category they answer questions nobody asked that worker, and storing them
+	// would give a nurse a CHW profile. Refused, not dropped: dropping is
+	// silent, and invariant 7 says nothing is.
+	if cadre != nil && !cadre.CarriesCHWProfile() && profile.Answered() {
+		add(domain.Problem{Field: ColCadre, Code: domain.ProblemProfileCategory,
+			Message: fmt.Sprintf("A %s is not in the Community Health Workers category, so the CHW profile columns must be blank.", cadre.Label)})
+		profile = ProfileRecord{}
+	}
 	rec.Profile = profile
 
 	// Against the register. Both of these read it, so they are asked only once
@@ -318,17 +327,37 @@ func checkPlacementLevel(r Row, cadre *domain.Cadre, placement *Placement) *doma
 		return nil
 	}
 
-	switch {
-	case want == domain.LevelParish && r.Value(ColVillage) != "":
-		return &domain.Problem{Field: ColVillage, Code: domain.ProblemPlacementLevel,
-			Message: fmt.Sprintf("A %s is placed at parish level. Leave the village column blank.", cadre.Label)}
-	case want == domain.LevelVillage && placement.Level == domain.LevelParish:
-		return &domain.Problem{Field: ColVillage, Code: domain.ProblemPlacementLevel,
-			Message: fmt.Sprintf("A %s is placed at village level. Name the village.", cadre.Label)}
+	// The name columns below the district, by level, so a message can point at
+	// the cell to fill or to empty.
+	columns := map[domain.Level]string{
+		domain.LevelSubcounty: ColSubcounty,
+		domain.LevelParish:    ColParish,
+		domain.LevelVillage:   ColVillage,
 	}
-	return &domain.Problem{Field: ColVillage, Code: domain.ProblemPlacementLevel,
-		Message: fmt.Sprintf("A %s is placed at %s level, and that location is a %s.",
-			cadre.Label, want, placement.Level)}
+	next := func(l domain.Level) domain.Level {
+		for _, candidate := range domain.PlacementLevels {
+			if candidate.Depth() > l.Depth() {
+				return candidate
+			}
+		}
+		return ""
+	}
+
+	// A location_code decided the placement, so the code is what to change.
+	if r.Value(ColCode) != "" {
+		return &domain.Problem{Field: ColCode, Code: domain.ProblemPlacementLevel,
+			Message: fmt.Sprintf("A %s is placed at %s level, and that code is a %s.",
+				cadre.Label, want, placement.Level)}
+	}
+
+	if placement.Level.Depth() < want.Depth() {
+		missing := next(placement.Level)
+		return &domain.Problem{Field: columns[missing], Code: domain.ProblemPlacementLevel,
+			Message: fmt.Sprintf("A %s is placed at %s level. Name the %s.", cadre.Label, want, missing)}
+	}
+	extra := next(want)
+	return &domain.Problem{Field: columns[extra], Code: domain.ProblemPlacementLevel,
+		Message: fmt.Sprintf("A %s is placed at %s level. Leave the %s column blank.", cadre.Label, want, extra)}
 }
 
 // markDuplicateNINs refuses every row of a NIN that appears more than once in

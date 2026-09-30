@@ -376,3 +376,32 @@ func TestARefusedRowCarriesNoRecord(t *testing.T) {
 		t.Errorf("a refused row carries a record: %s", s.Row.Record)
 	}
 }
+
+// The profile columns are the CHW category's survey. A worker in another
+// category answering them is refused, not stored and not silently dropped.
+func TestProfileColumnsOnANonCHWCadreAreRefused(t *testing.T) {
+	f, err := ReadCSV("p.csv", strings.NewReader(profileHeader+
+		"Ruth,Akello,f,ha,,,ABIM,MORULEM,,,,no,,,,,,,,,,,,,,,,\n"))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	staged, err := New(&fakeLookup{}, auth.National()).Validate(t.Context(), f)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	s := only(t, staged)
+	if !hasCode(s, domain.ProblemProfileCategory) {
+		t.Errorf("profile on a Health Assistant gave %v", codes(s))
+	}
+	if s.Record.Profile.Answered() {
+		t.Error("a refused row still carries a profile")
+	}
+
+	// The same row with the profile left blank is fine.
+	f, _ = ReadCSV("p.csv", strings.NewReader(profileHeader+
+		"Ruth,Akello,f,ha,,,ABIM,MORULEM,,,,,,,,,,,,,,,,,,,,\n"))
+	staged, _ = New(&fakeLookup{}, auth.National()).Validate(t.Context(), f)
+	if s := only(t, staged); s.Row.Status != domain.RowReady {
+		t.Errorf("blank profile on a Health Assistant: %s (%v)", s.Row.Status, s.Row.Problems)
+	}
+}

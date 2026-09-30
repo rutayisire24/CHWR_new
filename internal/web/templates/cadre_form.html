@@ -1,0 +1,85 @@
+{{define "title"}}{{if .Page.Cadre.ID}}Edit cadre{{else}}Add cadre{{end}} · Health Workers Registry{{end}}
+
+{{define "content"}}
+<h1>{{if .Page.Cadre.ID}}Edit {{.Page.Cadre.Label}}{{else}}Add a cadre{{end}}</h1>
+
+<form method="post" action="{{.Page.Action}}" class="card">
+  {{template "csrf" .}}
+  {{$locked := .Page.Cadre.InUse}}
+
+  {{if $locked}}
+  <p class="hint">{{.Page.Cadre.Deployments}} posting{{if ne .Page.Cadre.Deployments 1}}s{{end}} name this cadre
+    ({{.Page.Cadre.Serving}} serving now), so its category, slug and placement level are fixed.
+    To change them, retire this cadre and add a new one; workers move across by an ordinary change of cadre.</p>
+  {{end}}
+
+  <label for="label">Name</label>
+  <input id="label" name="label" required maxlength="80" value="{{.Page.Cadre.Label}}"
+         placeholder="Health Assistant">
+  <span class="hint">As it appears on the form, the register and the dashboard.</span>
+  {{template "field-error" .Page.Errors.label}}
+
+  <label for="category_id">Category</label>
+  {{if $locked}}
+  <input type="hidden" name="category_id" value="{{.Page.Cadre.CategoryID}}">
+  <select id="category_id" disabled>
+  {{else}}
+  <select id="category_id" name="category_id" required>
+    <option value="">— choose —</option>
+  {{end}}
+    {{range .Page.Categories}}
+    <option value="{{.ID}}" {{if eq .ID $.Page.Cadre.CategoryID}}selected{{end}}>{{.Label}}{{if not .Active}} (retired){{end}}</option>
+    {{end}}
+  </select>
+  {{template "field-error" .Page.Errors.category_id}}
+
+  <div class="two-up">
+    <div>
+      <label for="slug">Slug</label>
+      <input id="slug" name="slug" required maxlength="32" pattern="[a-z][a-z0-9_]{1,31}"
+             value="{{.Page.Cadre.Slug}}" placeholder="health_assistant" {{if $locked}}readonly{{end}}>
+      <span class="hint">The short name in links, the export's <code>cadre</code> column and staged imports.</span>
+      {{template "field-error" .Page.Errors.slug}}
+    </div>
+    <div>
+      <label for="placement_level">Placed at</label>
+      {{if $locked}}
+      <input type="hidden" name="placement_level" value="{{.Page.Cadre.PlacementLevel}}">
+      <select id="placement_level" disabled>
+      {{else}}
+      <select id="placement_level" name="placement_level" required>
+      {{end}}
+        {{range .Page.Levels}}
+        <option value="{{.}}" {{if eq . $.Page.Cadre.PlacementLevel}}selected{{end}}>{{.Label}}</option>
+        {{end}}
+      </select>
+      <span class="hint">How far down the hierarchy a worker in this cadre is placed.</span>
+      {{template "field-error" .Page.Errors.placement_level}}
+    </div>
+  </div>
+
+  <label for="import_aliases">Other spellings accepted on import</label>
+  <textarea id="import_aliases" name="import_aliases" rows="3"
+            placeholder="HA&#10;health asst">{{.Page.Aliases}}</textarea>
+  <span class="hint">One per line. The slug is always accepted. Case, spaces, dots and dashes are ignored,
+    and a spelling can name only one cadre.</span>
+  {{template "field-error" .Page.Errors.import_aliases}}
+
+  <label for="sort_order">Sort order</label>
+  <input id="sort_order" name="sort_order" inputmode="numeric"
+         value="{{if .Page.Cadre.ID}}{{.Page.Cadre.SortOrder}}{{end}}">
+  <span class="hint">Position within its category, lowest first.{{if not .Page.Cadre.ID}} Blank puts it last.{{end}}</span>
+  {{template "field-error" .Page.Errors.sort_order}}
+
+  <label class="radio">
+    <input type="checkbox" name="active" value="1" {{if .Page.Cadre.Active}}checked{{end}}>
+    Offered on the worker form and accepted on import
+  </label>
+  {{if and .Page.Cadre.ID .Page.Cadre.Serving}}
+  <span class="hint">Retiring it leaves the {{.Page.Cadre.Serving}} serving in it where they are, until each is re-cadred.</span>
+  {{end}}
+
+  <button type="submit">{{if .Page.Cadre.ID}}Save changes{{else}}Add cadre{{end}}</button>
+  <a class="cancel" href="/cadres">Cancel</a>
+</form>
+{{end}}

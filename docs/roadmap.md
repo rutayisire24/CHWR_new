@@ -17,14 +17,14 @@ is done. What is left is a second source, not a second feature: see
 
 | | State |
 |---|---|
-| `migrations/` 0001–0006 | locations, auth, health workers + cadres + deployments, the CHW profile, import staging, worker codes — applied and verified on PostgreSQL 18 |
+| `migrations/` 0001–0007 | locations, auth, health workers + cadres + deployments, the CHW profile, import staging, worker codes, cadre administration — applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
 | `internal/domain` | `User`, `HealthWorker`, `Deployment`, `Cadre`, `Profile`, the enums, `Level`, sentinel errors |
 | `internal/auth` | `Scope`, capability matrix, argon2id, session tokens, CSRF, middleware |
 | `internal/store` | users, sessions, audit, locations, workers, deployments, profiles, imports, export, stats — every method takes a `Scope` |
 | `internal/http` | auth, user admin, audit, dashboard (scoped stats + charts), health worker CRUD and postings, profiles, search and paging |
-| `internal/web` | layout + thirteen pages, one stylesheet, three scripts, Chart.js vendored |
+| `internal/web` | layout + fifteen pages, one stylesheet, three scripts, Chart.js vendored |
 | `internal/importer` | readers, resolver, row validation — 45 tests, none needing a database |
 | Import UI | upload, report, commit, discard, template and `errors.csv` |
 | Profile columns on import | all seventeen, with every branch CHECK pre-checked |
@@ -39,8 +39,11 @@ is done. What is left is a second source, not a second feature: see
 
 Phases 1–7 are complete, and phase 8 generalised the register from CHWs to health
 workers: the person, their cadre and their posting are separate tables, and cadres are data
-(see [decisions.md](decisions.md)). Next is whatever the register needs in use — the
-first candidate being a second cadre category with its own profile surface.
+(see [decisions.md](decisions.md)). A national admin now adds cadres and categories at
+`/cadres` (0007); the form's cascade and the importer place at whatever level a cadre's row
+declares. Next is whatever the register needs in use — the first candidate being a second
+category's own profile surface, and a placement model for facility-based cadres, whose
+posting is a facility rather than a level of the hierarchy.
 
 ## Decisions locked
 

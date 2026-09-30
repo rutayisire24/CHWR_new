@@ -261,6 +261,45 @@ func TestCadreDecidesPlacementLevel(t *testing.T) {
 	}
 }
 
+// The cadre's row decides the depth, whatever it is: a cadre placed at
+// subcounty stops there, and the parish and village columns are not required
+// merely because today's CHW cadres need them.
+func TestASubcountyCadreStopsAtTheSubcounty(t *testing.T) {
+	s := only(t, validate(t, auth.National(),
+		"Ruth,Akello,f,Health Assistant,,,ABIM,MORULEM,,,\n", nil))
+	if s.Row.Status != domain.RowReady {
+		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
+	}
+	if s.Record.Deployment.LocationID != morulem || s.Record.Deployment.Cadre != "health_assistant" {
+		t.Errorf("placed %s at %d, want health_assistant at MORULEM %d",
+			s.Record.Deployment.Cadre, s.Record.Deployment.LocationID, morulem)
+	}
+
+	// Given a parish too, the parish is the cell to empty.
+	s = only(t, validate(t, auth.National(),
+		"Ruth,Akello,f,ha,,,ABIM,MORULEM,ALEREK,,\n", nil))
+	if !hasCode(s, domain.ProblemPlacementLevel) || !strings.Contains(s.Row.Summary(), "Leave the parish column blank") {
+		t.Errorf("subcounty cadre given a parish: %v %q", codes(s), s.Row.Summary())
+	}
+
+	// And a VHT given only a subcounty is told the next cell to fill.
+	s = only(t, validate(t, auth.National(),
+		"Grace,Okello,f,vht,,,ABIM,MORULEM,,,\n", nil))
+	if !hasCode(s, domain.ProblemPlacementLevel) || !strings.Contains(s.Row.Summary(), "Name the parish") {
+		t.Errorf("VHT given a subcounty: %v %q", codes(s), s.Row.Summary())
+	}
+}
+
+// A blank cell with a filled one beneath it is a gap in the chain, not a
+// shallower placement: a village cannot be found without its parish.
+func TestAGapInTheChainIsRefused(t *testing.T) {
+	s := only(t, validate(t, auth.National(),
+		"Grace,Okello,f,vht,,,ABIM,MORULEM,,KANU-EAST,\n", nil))
+	if !hasCode(s, domain.ProblemRequired) || s.Row.Problems[0].Field != ColParish {
+		t.Errorf("gap gave %v", s.Row.Problems)
+	}
+}
+
 // -------------------------------------------------------------- the location
 
 func TestNamesMatchThroughPunctuationAndCase(t *testing.T) {

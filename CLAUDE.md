@@ -31,7 +31,8 @@ internal/http/       handlers, routing, form decoding
 internal/importer/   CSV/Excel ingest: readers, name resolution, row validation
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_health_workers,
-                     0004_chw_profile, 0005_imports, 0006_worker_codes
+                     0004_chw_profile, 0005_imports, 0006_worker_codes,
+                     0007_cadre_admin
 seed/                hierarchy extraction + load
 data/                source workbooks, the district-to-region map and the
                      curated three-letter district codes (all checked in)
@@ -48,9 +49,15 @@ another, so the register itself answers "who was deployed at X on date D".
 Cadres are **data, not an enum**, in a two-level taxonomy: `cadre_categories`
 (Community Health Workers) containing `cadres` (VHT, CHEW). Each cadre row carries
 its own `placement_level` — VHT→village, CHEW→parish — so a new cadre is an INSERT,
-not a migration. Each category owns its profile surface: `chw_profiles` and the
-`chw_tools` / `chw_service_domains` junctions belong to the CHW category; a future
-category gets its own tables. A worker holds **at most one active deployment**
+not a migration, and a `national_admin` makes that INSERT at **`/cadres`**. Placement is
+limited to the four levels the cascade reaches (district, subcounty, parish, village),
+and once any deployment names a cadre its slug, category and level are **frozen**
+(`cadres_freeze_trg`): the placement trigger checks a posting when the posting changes,
+not when its cadre does. A cadre that must change shape is retired and replaced. Each
+category owns its profile surface: `chw_profiles` and the `chw_tools` /
+`chw_service_domains` junctions belong to the CHW category (`domain.CategoryCHW`), and
+the profile card, its routes and the importer's profile columns are refused for any
+other; a future category gets its own tables. A worker holds **at most one active deployment**
 (`ended_on IS NULL`, enforced by a partial unique index).
 
 Reads see a worker through one posting — the active one, else the most recent — via a
@@ -108,7 +115,8 @@ two villages sharing a name.
 `national_admin` · `national_viewer` · `district_manager` · `district_viewer`
 
 Read the matrix in `docs/rbac.md` before touching authorization. Only `national_admin`
-manages users.
+manages users, and only `national_admin` manages cadres (`cadre.manage`): the taxonomy is
+one national vocabulary.
 
 ## Working here
 
@@ -120,7 +128,7 @@ python3 seed/extract_units.py                   # writes seed/out/
 psql -d hwr -f seed/load_hierarchy.sql           # run from repo root; ~3s
 python3 seed/extract_facilities.py               # MFL -> seed/out/facilities.tsv
 psql -d hwr -f seed/load_facilities.sql          # 7,895 loaded, 12 quarantined
-psql -d hwr -f seed/verify_constraints.sql       # 52 cases, all must say blocked
+psql -d hwr -f seed/verify_constraints.sql       # 62 cases, all must say blocked
 go run ./cmd/server                              # serves on ADDR, default :8080
 ```
 
@@ -150,8 +158,11 @@ save, not diffed — they are the answer to a multi-select.
 
 The location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is
-skipped in the UI and derived from the path. The cadre radios carry the cadre row's
-`placement_level` as `data-level`, so the cascade's depth is data-driven too.
+skipped in the UI and derived from the path. The cadre `<select>` groups cadres by
+category, and each option carries its row's `placement_level` as `data-level`: the
+cascade stops at that level, clearing and disabling every deeper select, so its depth is
+data-driven too. A worker serving in a retired cadre keeps it as a choice on their own
+edit form.
 
 Every health worker carries a **`worker_code`** — `KYE00042`, three letters of district
 and a five-digit serial — issued by trigger when the first deployment derives the worker's

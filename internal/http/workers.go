@@ -20,7 +20,7 @@ type workersPage struct {
 	// template asks a string rather than reassembling the query itself.
 	PrevURL   string
 	NextURL   string
-	Cadres    []cadreOption
+	Cadres    []cadreGroup
 	Places    []domain.Place // the chosen location's chain, for the "filtered to" line
 	Districts []districtOption
 	Prefill   map[string]int64
@@ -40,7 +40,7 @@ type filterView struct {
 	Active     bool // any filter set at all
 }
 
-// cadreOption is one cadre as a filter choice (by slug) or a form radio (by
+// cadreOption is one cadre as a filter choice (by slug) or a form choice (by
 // id). Level drives the placement cascade: it is how deep the selects go.
 type cadreOption struct {
 	ID       int16
@@ -48,6 +48,13 @@ type cadreOption struct {
 	Label    string
 	Level    string // the placement level this cadre requires
 	Selected bool
+}
+
+// cadreGroup is one category's cadres, rendered as an <optgroup>. The
+// vocabulary arrives ordered by category, so grouping is a single pass.
+type cadreGroup struct {
+	Label  string
+	Cadres []cadreOption
 }
 
 type sexOption struct {
@@ -60,7 +67,7 @@ type workerFormPage struct {
 	Action    string
 	Worker    domain.HealthWorker
 	Age       string // kept as typed, so a rejected form redisplays it
-	Cadres    []cadreOption
+	Cadres    []cadreGroup
 	Sexes     []sexOption
 	Districts []districtOption
 	// Prefill is the location chain of an existing placement, so the cascade
@@ -82,6 +89,11 @@ type workerShowPage struct {
 	// assembled only when there is one and the reader may change it.
 	Facilities []facilityOption
 	CanEdit    bool
+	// ProfileApplies says the worker's cadre is in the CHW category, the one
+	// whose profile surface chw_profiles is. A worker in another category is
+	// shown no CHW survey to fill — only any answers already recorded, from a
+	// time they served as a CHW.
+	ProfileApplies bool
 }
 
 func (s *Server) workersList(w http.ResponseWriter, r *http.Request) {
@@ -149,12 +161,16 @@ func (s *Server) workersList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// cadreOptions lays the cadre vocabulary out for a filter or a form, marking
-// the slug that is selected, if any.
-func cadreOptions(cadres []domain.Cadre, selectedSlug string) []cadreOption {
-	out := make([]cadreOption, 0, len(cadres))
+// cadreOptions lays the cadre vocabulary out for a filter or a form, grouped
+// by category and marking the slug that is selected, if any.
+func cadreOptions(cadres []domain.Cadre, selectedSlug string) []cadreGroup {
+	var out []cadreGroup
 	for _, c := range cadres {
-		out = append(out, cadreOption{
+		if len(out) == 0 || out[len(out)-1].Label != c.CategoryLabel {
+			out = append(out, cadreGroup{Label: c.CategoryLabel})
+		}
+		g := &out[len(out)-1]
+		g.Cadres = append(g.Cadres, cadreOption{
 			ID: c.ID, Slug: c.Slug, Label: c.Label,
 			Level:    string(c.PlacementLevel),
 			Selected: c.Slug == selectedSlug,
@@ -322,6 +338,8 @@ func (s *Server) workerShow(w http.ResponseWriter, r *http.Request) {
 		Domains:   domains,
 		History:   history,
 		CanEdit:   auth.Can(auth.MustUser(r.Context()).Role, auth.CapWorkerUpdate),
+
+		ProfileApplies: worker.Deployment != nil && worker.Deployment.Cadre.CarriesCHWProfile(),
 	}
 
 	// The supervising facility is an attachment on the open posting. The
@@ -371,7 +389,7 @@ func (s *Server) workerCreate(w http.ResponseWriter, r *http.Request) {
 	actor := auth.MustUser(r.Context())
 	sc := auth.ScopeFrom(r.Context())
 
-	in, age, v := s.decodeWorker(r, sc)
+	in, age, v := s.decodeWorker(r, sc, nil)
 	if v.Any() {
 		s.rerenderWorkerForm(w, r, draftWorker(in), "/health-workers/new", v.Fields, age)
 		return
@@ -447,7 +465,7 @@ func (s *Server) workerUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	in, age, v := s.decodeWorker(r, sc)
+	in, age, v := s.decodeWorker(r, sc, before.Deployment)
 	// An inactive worker's details can still be corrected, but they take no new
 	// posting until reactivated. deployments_set_placement refuses it either
 	// way — as a 500 rather than a message.
@@ -456,16 +474,13 @@ func (s *Server) workerUpdate(w http.ResponseWriter, r *http.Request) {
 		v.Add("location", "This worker is inactive. Reactivate them before changing where or as what they serve.")
 	}
 	if v.Any() {
-		draft := draftWorker(in)
-		draft.ID = id
-		s.rerenderWorkerForm(w, r, draft, workerPath(id), v.Fields, age)
+		s.rerenderWorkerForm(w, r, editDraft(before, in), workerPath(id), v.Fields, age)
 		return
 	}
 
 	worker, err := s.store.Workers.Update(r.Context(), sc, actor, id, in, s.clientIP(r))
 	if err != nil {
-		draft := draftWorker(in)
-		draft.ID = id
+		draft := editDraft(before, in)
 		s.workerWriteFailed(w, r, err, draft, workerPath(id), age)
 		return
 	}
@@ -591,7 +606,7 @@ func (s *Server) workerReactivate(w http.ResponseWriter, r *http.Request) {
 // posting. The placement rule is checked here against the location's real
 // level and the cadre's own placement_level, so a mismatch comes back as a
 // field message; deployments_set_placement is still what guarantees it.
-func (s *Server) decodeWorker(r *http.Request, sc auth.Scope) (store.WorkerInput, string, *domain.ValidationError) {
+func (s *Server) decodeWorker(r *http.Request, sc auth.Scope, current *domain.Deployment) (store.WorkerInput, string, *domain.ValidationError) {
 	v := domain.NewValidationError()
 
 	in := store.WorkerInput{
@@ -632,6 +647,12 @@ func (s *Server) decodeWorker(r *http.Request, sc auth.Scope) (store.WorkerInput
 					found := c
 					cadre = &found
 				}
+			}
+			// A retired cadre is not offered, but a worker already serving in
+			// it keeps it: correcting their name must not force a re-cadring.
+			if cadre == nil && current != nil && current.CadreID == in.CadreID {
+				kept := current.Cadre
+				cadre = &kept
 			}
 			if cadre == nil {
 				v.Add("cadre", "Choose a cadre from the list.")
@@ -717,12 +738,28 @@ func (s *Server) workerForm(r *http.Request, worker domain.HealthWorker, action 
 	if err != nil {
 		return workerFormPage{}, err
 	}
+	// A worker serving in a retired cadre keeps it as a choice, labelled as
+	// retired, so their record can still be saved without re-cadring them.
+	if dep := worker.Deployment; dep != nil && dep.CadreID != 0 {
+		offered := false
+		for _, c := range vocab {
+			offered = offered || c.ID == dep.CadreID
+		}
+		if !offered && dep.Cadre.Label != "" {
+			kept := dep.Cadre
+			kept.ID = dep.CadreID
+			kept.Label += " (retired)"
+			vocab = append(vocab, kept)
+		}
+	}
 	cadres := cadreOptions(vocab, selectedSlug)
 	// A rejected form re-renders from the input, which carries the id rather
 	// than the slug — mark by id when there is one.
 	if worker.Deployment != nil && worker.Deployment.CadreID != 0 {
-		for i := range cadres {
-			cadres[i].Selected = cadres[i].ID == worker.Deployment.CadreID
+		for g := range cadres {
+			for i := range cadres[g].Cadres {
+				cadres[g].Cadres[i].Selected = cadres[g].Cadres[i].ID == worker.Deployment.CadreID
+			}
 		}
 	}
 	sexes := make([]sexOption, 0, len(domain.Sexes))
@@ -798,6 +835,20 @@ func draftWorker(in store.WorkerInput) domain.HealthWorker {
 		},
 		Status: domain.WorkerActive,
 	}
+}
+
+// editDraft is the rejected edit form's record: the input, on top of what the
+// record already is and the form cannot change — its id, its code, and the
+// cadre row it is serving in, which may since have been retired and so be
+// missing from the vocabulary the form is rebuilt from.
+func editDraft(before domain.HealthWorker, in store.WorkerInput) domain.HealthWorker {
+	draft := draftWorker(in)
+	draft.ID = before.ID
+	draft.Code = before.Code
+	if before.Deployment != nil && before.Deployment.CadreID == in.CadreID {
+		draft.Deployment.Cadre = before.Deployment.Cadre
+	}
+	return draft
 }
 
 func workerPath(id int64) string { return "/health-workers/" + strconv.FormatInt(id, 10) }

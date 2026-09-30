@@ -12,6 +12,7 @@ DECLARE
     vht smallint; chew smallint;
     d1 bigint; d2 bigint; par_other bigint;
     fac_same bigint; fac_other bigint;
+    cat2 smallint; unused smallint;
     cases text[][]; i int; leaked int := 0; blocked int := 0;
 BEGIN
     SELECT id INTO reg FROM locations WHERE level='region'    ORDER BY id LIMIT 1;
@@ -71,6 +72,19 @@ BEGIN
         RAISE EXCEPTION 'the first deployment did not issue a worker code';
     END IF;
     RAISE NOTICE 'allowed   worker code issued with the first deployment';
+
+    -- The cadre taxonomy as an administrator edits it (0007). A cadre in use
+    -- may still be renamed, re-aliased, re-sorted and retired; an unused one
+    -- may change shape entirely.
+    INSERT INTO cadre_categories(slug,label) VALUES('verify_cat','Verify Category')
+        RETURNING id INTO cat2;
+    UPDATE cadres SET label = label || ' ', import_aliases = import_aliases || '{verify}',
+                      sort_order = 9, active = false WHERE id = vht;
+    UPDATE cadres SET label = btrim(label), active = true WHERE id = vht;
+    INSERT INTO cadres(category_id,slug,label,placement_level)
+        VALUES(cat2,'verify_unused','Verify Unused','subcounty') RETURNING id INTO unused;
+    UPDATE cadres SET placement_level='district', slug='verify_moved', category_id=1 WHERE id = unused;
+    RAISE NOTICE 'allowed   in-use cadre relabelled and retired; unused cadre reshaped';
 
     -- A worker who left: their posting ended before the deactivation, which is
     -- the only order the schema allows.
@@ -156,7 +170,21 @@ BEGIN
       ['worker_code cleared',              format('UPDATE health_workers SET worker_code=NULL WHERE id=%s',w1)],
       ['district code of the wrong shape', 'INSERT INTO district_codes VALUES(''999'',''ZZZZ'',''Verify'')'],
       ['district code that is not numeric','INSERT INTO district_codes VALUES(''99A'',''ZZZ'',''Verify'')'],
-      ['three-letter code claimed twice',  'INSERT INTO district_codes VALUES(''999'',''KYE'',''Verify'')']
+      ['three-letter code claimed twice',  'INSERT INTO district_codes VALUES(''999'',''KYE'',''Verify'')'],
+      -- The cadre taxonomy takes writes from people now (0007)
+      ['cadre placed at region',           format('INSERT INTO cadres(category_id,slug,label,placement_level) VALUES(%s,''verify_r'',''Verify'',''region'')',cat2)],
+      ['cadre placed at county',           format('INSERT INTO cadres(category_id,slug,label,placement_level) VALUES(%s,''verify_c'',''Verify'',''county'')',cat2)],
+      ['cadre slug with a space',          format('INSERT INTO cadres(category_id,slug,label,placement_level) VALUES(%s,''bad slug'',''Verify'',''village'')',cat2)],
+      ['cadre slug in capitals',           format('INSERT INTO cadres(category_id,slug,label,placement_level) VALUES(%s,''Nurse'',''Verify'',''village'')',cat2)],
+      ['cadre with a blank label',         format('INSERT INTO cadres(category_id,slug,label,placement_level) VALUES(%s,''verify_b'','' '',''village'')',cat2)],
+      ['cadre slug shared across categories',
+                                           format('INSERT INTO cadres(category_id,slug,label,placement_level) VALUES(%s,''vht'',''Verify'',''village'')',cat2)],
+      ['category slug with a space',       'INSERT INTO cadre_categories(slug,label) VALUES(''bad slug'',''Verify'')'],
+      ['in-use cadre moved to another level',
+                                           format('UPDATE cadres SET placement_level=''parish'' WHERE id=%s',vht)],
+      ['in-use cadre given a new slug',    format('UPDATE cadres SET slug=''vht2'' WHERE id=%s',vht)],
+      ['in-use cadre moved to another category',
+                                           format('UPDATE cadres SET category_id=%s WHERE id=%s',cat2,vht)]
     ];
 
     FOR i IN 1..array_length(cases,1) LOOP

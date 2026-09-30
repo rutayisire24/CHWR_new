@@ -23,8 +23,15 @@ lookup plus a scope predicate.
 | `health_worker.deactivate` | yes | — | own district | — |
 | `health_worker.import` | all | — | own district | — |
 | `user.manage` | yes | — | — | — |
+| `cadre.manage` | yes | — | — | — |
 | `audit.view` | all | — | own district | — |
 | `export` | all | all | own district | own district |
+
+`cadre.manage` is national for the same reason `user.manage` is: the cadre taxonomy is
+one vocabulary for the whole country, so a cadre a district added would appear in every
+other district's form, filter and import. `store.Cadres` refuses a write under a district
+`Scope` even if a route were mis-wired, and its reads — like every vocabulary read — take
+no `Scope`.
 
 District managers cannot provision users. All account creation is centralised with
 `national_admin`, which keeps the privilege-escalation surface at zero — a district role

@@ -59,7 +59,7 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `GET POST /health-workers/new` | `health_worker.create` | the person and their first deployment |
 | `GET /health-workers/{id}/edit`, `POST /health-workers/{id}` | `health_worker.update` | a changed cadre or location ends the posting and opens another |
 | `POST /health-workers/{id}/facility` | `health_worker.update` | attach, change or clear the supervising facility on the open posting |
-| `GET POST /health-workers/{id}/profile` | `health_worker.update` | the CHW category's optional attributes, tools and service domains |
+| `GET POST /health-workers/{id}/profile` | `health_worker.update` | the CHW category's optional attributes, tools and service domains; 404 for a worker in any other category |
 | `POST /health-workers/{id}/deactivate` | `health_worker.deactivate` | reason required; ends the open posting in the same transaction |
 | `POST /health-workers/{id}/reactivate` | `health_worker.deactivate` | opens no posting; the edit form places them |
 | `GET /api/locations` | `health_worker.view` | `?level=&under=`, JSON, feeds the cascade |
@@ -72,6 +72,8 @@ questions), delegates to a store method with a `Scope`, and renders.
 | `POST /imports/{id}/commit` | `health_worker.import` | `?skip_duplicates` — writes the ready rows |
 | `POST /imports/{id}/discard` | `health_worker.import` | marks the batch; the staged rows stay |
 | `GET /users`, `/users/new`, `/users/{id}` and their posts | `user.manage` | national admin only |
+| `GET /cadres`, `/cadres/new`, `/cadres/{id}` and their posts | `cadre.manage` | national admin only; add and edit cadres, retire by unticking "offered" |
+| `POST /cadres/categories` | `cadre.manage` | a new category, which starts without a profile surface |
 | `POST /users/{id}/status`, `/users/{id}/reset` | `user.manage` | |
 | `GET /audit` | `audit.view` | scoped: a district manager reads their district's slice |
 | `GET /` | — | catch-all 404 |
@@ -292,9 +294,13 @@ from the path server-side.
 
 Two details that are easy to get wrong:
 
-- Cadre decides the depth, and the depth is data: each cadre radio carries its row's
-  `placement_level` as `data-level`. A CHEW is placed at parish level, so the village
-  select is hidden **and cleared and disabled** — hiding alone would still post its value.
+- Cadre decides the depth, and the depth is data: each cadre `<option>` carries its row's
+  `placement_level` as `data-level`, and each level's select sits in a
+  `.level-field[data-level]` wrapper. A CHEW is placed at parish level, a subcounty cadre
+  at subcounty, so every select deeper than the cadre's level is hidden **and cleared and
+  disabled** — hiding alone would still post its value, and the server takes the deepest
+  one posted. Every level down to the cadre's is `required`. The register's filter bar has
+  no cadre select, so there every level stays.
 - On edit, the server sends the existing placement down as `data-selected` and the script
   rebuilds the chain one level at a time. Those pending values are copied into a JS array
   at startup, because resetting a select has to forget its pending selection, and reading
