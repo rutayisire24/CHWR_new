@@ -236,11 +236,7 @@ CREATE TABLE worker_code_counters (
 );
 
 ALTER TABLE health_workers
-    ADD COLUMN worker_code text CHECK (worker_code ~ '^[A-Z]{3}[0-9]{5}$'),
-    -- NULL only in the creating transaction, before the first deployment
-    -- derives a district: the same window district_id itself is NULL in.
-    ADD CONSTRAINT health_workers_code_assigned
-        CHECK (worker_code IS NOT NULL OR district_id IS NULL);
+    ADD COLUMN worker_code text CHECK (worker_code ~ '^[A-Z]{3}[0-9]{5}$');
 
 -- Backfill, ordered so the assignment is deterministic and reproducible: the
 -- register's own arrival order within each district. On a fresh database this
@@ -260,6 +256,13 @@ UPDATE health_workers SET worker_code = numbered.abbr || lpad(numbered.serial::t
 
 INSERT INTO worker_code_counters (district_id, last_serial)
 SELECT district_id, count(*) FROM health_workers WHERE worker_code IS NOT NULL GROUP BY district_id;
+
+-- After the backfill, not before: on a register that already holds workers
+-- the constraint would otherwise refuse every one of them.
+-- NULL only in the creating transaction, before the first deployment derives a
+-- district: the same window district_id itself is NULL in.
+ALTER TABLE health_workers ADD CONSTRAINT health_workers_code_assigned
+    CHECK (worker_code IS NOT NULL OR district_id IS NULL);
 
 CREATE UNIQUE INDEX health_workers_code_uniq ON health_workers (worker_code);
 
