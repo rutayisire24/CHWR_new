@@ -332,7 +332,14 @@ fragment, argon2id round-trips and malformed-hash rejection, the password policy
 open-redirect guard, the NIN pattern, which posted field is the placement, and whether
 saving the register form must open a new posting (`redeployment`).
 
-Anything touching SQL, triggers or scope is verified against a live database instead —
-see the verification list in [roadmap.md](roadmap.md). The cascading selects need a real
+Anything touching SQL, triggers or scope runs against a live database. The schema's
+refusals are `seed/verify_constraints.sql`; the store's behaviour is
+`internal/store/integration_test.go`, which skips unless `HWR_TEST_DATABASE_URL` is set:
+`make test-db` clones the seeded `hwr` into a disposable `hwr_test`, and
+`make test-integration` runs it. It covers a district scope by every read and write
+path (fetch, listing, code search, cursor, count, export, postings, audit, cascade,
+facilities), the audit trail of a whole worker lifecycle, a cross-district transfer,
+duplicate NIN and duplicate name, keyset paging, the dashboard agreeing with the
+listing, the session lifecycle, and the import commit claim. The cascading selects need a real
 browser: Selenium is on `:4444`, and reaches the app on the docker gateway address rather
 than `127.0.0.1`.

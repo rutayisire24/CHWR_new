@@ -17,7 +17,7 @@ is done. What is left is a second source, not a second feature: see
 
 | | State |
 |---|---|
-| `migrations/` 0001–0007 | locations, auth, health workers + cadres + deployments, the CHW profile, import staging, worker codes, cadre administration — applied and verified on PostgreSQL 18 |
+| `migrations/` 0001–0008 | locations, auth, health workers + cadres + deployments, the CHW profile, import staging, worker codes, cadre administration, district_id locked to its derivation — applied and verified on PostgreSQL 18 |
 | `seed/` hierarchy + facilities + constraint suite | complete, reproducible from the repo root |
 | `cmd/server`, `internal/{config,db}` | migrate, serve, health, graceful shutdown, admin bootstrap, hourly session purge |
 | `internal/domain` | `User`, `HealthWorker`, `Deployment`, `Cadre`, `Profile`, the enums, `Level`, sentinel errors |

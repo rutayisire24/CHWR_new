@@ -443,6 +443,11 @@ func (s *Workers) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor 
 	if !sc.Allows(w.Deployment.DistrictID) {
 		return domain.HealthWorker{}, fmt.Errorf("create worker in district %d: %w", w.Deployment.DistrictID, domain.ErrForbidden)
 	}
+	// The worker code is issued by the same sync that sets district_id, so the
+	// CTE's snapshot of the worker predates it too.
+	if err := tx.QueryRow(ctx, `SELECT worker_code FROM health_workers WHERE id = $1`, w.ID).Scan(&w.Code); err != nil {
+		return domain.HealthWorker{}, fmt.Errorf("read worker code %d: %w", w.ID, translate(err))
+	}
 
 	if err := s.auditTx(ctx, tx, actor, ActionWorkerCreate, w, nil, auditWorker(w), ip); err != nil {
 		return domain.HealthWorker{}, err

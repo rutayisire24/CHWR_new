@@ -13,6 +13,7 @@ DECLARE
     d1 bigint; d2 bigint; par_other bigint;
     fac_same bigint; fac_other bigint;
     cat2 smallint; unused smallint;
+    batch bigint;
     cases text[][]; i int; leaked int := 0; blocked int := 0;
 BEGIN
     SELECT id INTO reg FROM locations WHERE level='region'    ORDER BY id LIMIT 1;
@@ -101,6 +102,10 @@ BEGIN
     INSERT INTO health_workers(first_name,last_name,sex)
         VALUES('Fresh','Worker','female') RETURNING id INTO w4;
 
+    -- A pending import batch, for the refusal-explained cases (0005).
+    INSERT INTO import_batches(filename,format,uploaded_by)
+        VALUES('verify.csv','csv',u) RETURNING id INTO batch;
+
     cases := ARRAY[
       -- hierarchy ladder
       ['region given a parent',            format('INSERT INTO locations(parent_id,level,name,code) VALUES(%s,''region'',''B'',''99'')',dis)],
@@ -184,7 +189,23 @@ BEGIN
                                            format('UPDATE cadres SET placement_level=''parish'' WHERE id=%s',vht)],
       ['in-use cadre given a new slug',    format('UPDATE cadres SET slug=''vht2'' WHERE id=%s',vht)],
       ['in-use cadre moved to another category',
-                                           format('UPDATE cadres SET category_id=%s WHERE id=%s',cat2,vht)]
+                                           format('UPDATE cadres SET category_id=%s WHERE id=%s',cat2,vht)],
+      -- district_id is derived, never supplied (invariant 2) — not on insert,
+      -- and not by an UPDATE that leaves the placement alone either
+      ['deployment district rewritten in place',
+                                           format('UPDATE deployments SET district_id=%s WHERE id=%s',d2,dep1)],
+      ['worker district rewritten in place',
+                                           format('UPDATE health_workers SET district_id=%s WHERE id=%s',d2,w1)],
+      ['worker district supplied on insert',
+                                           format('INSERT INTO health_workers(first_name,last_name,sex,district_id) VALUES(''Self'',''Placed'',''male'',%s)',d2)],
+      -- nothing is dropped silently on import (invariant 7)
+      ['import row rejected without a reason',
+                                           format('INSERT INTO import_rows(batch_id,row_number,raw,status) VALUES(%s,2,''{}'',''rejected'')',batch)],
+      ['import row failed without a reason',
+                                           format('INSERT INTO import_rows(batch_id,row_number,raw,status) VALUES(%s,3,''{}'',''failed'')',batch)],
+      ['import batch committed without a time',
+                                           format('UPDATE import_batches SET status=''committed'' WHERE id=%s',batch)],
+      ['import batch in an unknown format', format('INSERT INTO import_batches(filename,format,uploaded_by) VALUES(''x.ods'',''ods'',%s)',u)]
     ];
 
     FOR i IN 1..array_length(cases,1) LOOP

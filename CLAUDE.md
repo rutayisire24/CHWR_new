@@ -32,7 +32,7 @@ internal/importer/   CSV/Excel ingest: readers, name resolution, row validation
 internal/web/        templates/ and static/
 migrations/          0001_locations, 0002_users_auth, 0003_health_workers,
                      0004_chw_profile, 0005_imports, 0006_worker_codes,
-                     0007_cadre_admin
+                     0007_cadre_admin, 0008_district_derived
 seed/                hierarchy extraction + load
 data/                source workbooks, the district-to-region map and the
                      curated three-letter district codes (all checked in)
@@ -75,7 +75,8 @@ These are enforced in the schema, not just in application code. Do not work arou
    the level is read from `cadres.placement_level`, never from a CASE.
 2. **`district_id` is derived, never supplied.** A trigger walks `locations.path` to
    the district ancestor — on `deployments`, and from there onto `health_workers` as
-   the RBAC anchor. Both are denormalized purely so scope filters stay indexed.
+   the RBAC anchor. Both are denormalized purely so scope filters stay indexed, and
+   a statement writing either column directly is refused (0008).
 3. **Scope is a required argument.** Every `store` method takes a `Scope`; a handler
    cannot forget to apply it, because the call will not compile without it.
 4. **Role and scope must agree.** `users_scope_matches_role` makes a district user without
@@ -128,13 +129,19 @@ python3 seed/extract_units.py                   # writes seed/out/
 psql -d hwr -f seed/load_hierarchy.sql           # run from repo root; ~3s
 python3 seed/extract_facilities.py               # MFL -> seed/out/facilities.tsv
 psql -d hwr -f seed/load_facilities.sql          # 7,895 loaded, 12 quarantined
-psql -d hwr -f seed/verify_constraints.sql       # 62 cases, all must say blocked
+psql -d hwr -f seed/verify_constraints.sql       # 69 cases, all must say blocked
 go run ./cmd/server                              # serves on ADDR, default :8080
 ```
 
 `make` prints the shorthand for all of the above — `make seed` runs the four database
 steps in order, `make restart` rebuilds and restarts a background server, `make check`
 formats, vets and tests. Every variable is overridable: `make restart ADDR=:8099`.
+
+`go test ./...` is hermetic. The store's integration tests — scope, audit trail,
+transfers, paging, sessions, import claims — run only against a disposable copy of
+the seeded database, because workers are never deleted and nothing a test writes can
+be cleaned up: `make test-db` clones `hwr` into `hwr_test`, `make test-integration`
+runs them there (`HWR_TEST_DATABASE_URL`). Run both after touching SQL.
 
 The server migrates on every start; `-migrate` stops after that. Migration files carry
 goose annotations (`-- +goose Up`, and `StatementBegin/End` around plpgsql bodies, whose

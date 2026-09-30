@@ -209,6 +209,13 @@ workforce, which a join against the active deployment could not express. It foll
 latest *written* posting, so a transfer must end the old row before opening the new one —
 the order `Deployments.changeTx` uses.
 
+Nothing else writes either district column (0008). On `deployments`, an AFTER trigger on
+`UPDATE OF district_id` refuses any value the location's path does not give — 0003's
+placement trigger re-derives only when the placement changes, so a statement naming
+`district_id` alone used to pass, and the sync then carried it onto the worker. On
+`health_workers`, a write to `district_id` made at trigger depth 1 — a statement issued
+directly rather than by the sync trigger — is refused on insert and on update.
+
 `health_workers_check_deactivation` refuses to mark a worker inactive while a posting is
 open; deactivation ends the posting first, in the same transaction.
 
@@ -328,8 +335,8 @@ second direction.
 
 ## Verified rejections
 
-`seed/verify_constraints.sql` probes the schema with 45 bad-data cases against a live
-database carrying the full national hierarchy. **45 blocked, 0 leaked.** It also asserts
+`seed/verify_constraints.sql` probes the schema with 69 bad-data cases against a live
+database carrying the full national hierarchy. **69 blocked, 0 leaked.** It also asserts
 positive cases by construction: creating a worker with their first deployment, attaching a
 posting to a facility in its own district, and ending a posting before deactivating must
 all succeed, or the whole block aborts. It runs in a

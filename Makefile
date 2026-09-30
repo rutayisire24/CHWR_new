@@ -8,6 +8,9 @@
 DATABASE_URL ?= postgres:///hwr
 ADDR         ?= :8080
 ENV          ?= dev
+# A disposable copy of the seeded database for the store's integration tests.
+# The tests write workers they never clean up, so it must not be the real one.
+TEST_DATABASE_URL ?= postgres:///hwr_test
 
 # The port on its own, so a health check works whether ADDR is ":8080" or
 # "0.0.0.0:8080".
@@ -26,7 +29,7 @@ ENVIRONMENT := DATABASE_URL="$(DATABASE_URL)" ADDR="$(ADDR)" ENV="$(ENV)"
 # `seed` chains migrate, hierarchy, facilities and verify, and each depends on
 # the one before it having finished. -j must not reorder them.
 .NOTPARALLEL:
-.PHONY: help build run start stop restart logs status test vet fmt check migrate \
+.PHONY: help build run start stop restart logs status test test-db test-integration vet fmt check migrate \
         seed seed-hierarchy seed-facilities verify admin dist clean
 
 help: ## Print this list
@@ -99,6 +102,14 @@ logs: ## Follow the background server's log
 
 test: ## Run the test suite
 	go test ./...
+
+test-db: ## Rebuild the disposable integration database from the seeded one
+	dropdb --if-exists --force "$(notdir $(TEST_DATABASE_URL))"
+	createdb "$(notdir $(TEST_DATABASE_URL))"
+	pg_dump --no-owner --no-privileges -d "$(DATABASE_URL)" | psql -q -o /dev/null -d "$(TEST_DATABASE_URL)"
+
+test-integration: ## Run the store's tests against the disposable database (make test-db first)
+	HWR_TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -count=1 ./internal/store/...
 
 vet: ## Run go vet
 	go vet ./...
