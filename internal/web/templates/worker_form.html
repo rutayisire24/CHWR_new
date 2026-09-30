@@ -1,7 +1,7 @@
 {{define "title"}}{{if .Page.Worker.ID}}Edit worker{{else}}Add a worker{{end}} · Health Workers Registry{{end}}
 
 {{define "content"}}
-<h1>{{if .Page.Worker.ID}}Edit {{.Page.Worker.FullName}}{{else}}Add a health worker{{end}}</h1>
+<h1>{{if .Page.Worker.ID}}Edit {{.Page.Worker.FullName}} <code class="worker-code">{{.Page.Worker.Code}}</code>{{else}}Add a health worker{{end}}</h1>
 
 {{if .Page.Duplicates}}
 <div class="card warnbox">

@@ -44,7 +44,12 @@ const (
 // lives on deployments. What a worker does and where they do it is a
 // Deployment; who they are survives every transfer.
 type HealthWorker struct {
-	ID        int64
+	ID int64
+	// Code is the human-legible permanent identifier, e.g. KYE00042: the
+	// district's three-letter code and a serial. Issued by trigger with the
+	// first deployment, never supplied and never changed, so no input type
+	// carries it. Empty only inside the creating transaction.
+	Code      string
 	NIN       string // empty when not recorded; unique where present
 	FirstName string
 	LastName  string

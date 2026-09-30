@@ -212,13 +212,18 @@ carries no date.
 
 ## Searching and paging the register
 
-One search box, not two. Whether the input is a name or a NIN is decided by its shape —
-two leading letters and a digit, no spaces or punctuation, means NIN — because a radio
-button asking the user to classify their own input is a button they get wrong. A NIN
-matches from the start, the way someone reads one off a form; a name matches anywhere
-within `first_name || ' ' || last_name`, which is the exact expression `health_workers_name_trgm`
+One search box, and it searches names and worker codes. A name matches anywhere within
+`first_name || ' ' || last_name`, which is the exact expression `health_workers_name_trgm`
 is built on, so the search has to be written against it rather than against the two
-columns separately.
+columns separately. A worker code has a shape no name has, so `domain.NormalizeWorkerCode`
+recognises one — forgiving case, spaces and a hyphen — and it is matched exactly.
+
+**The box does not match a NIN.** It once did — the shape of the input chose between the
+two — and that is now deliberately gone. A register is browsed by the name a clerk is
+holding, while a box that answers to a national identity number lets anyone confirm
+whether a given NIN is on the register, one guess at a time. Looking a worker up by NIN
+remains possible where it is already authorized: `Workers.ByNIN` serves the importer's
+duplicate check, which answers about a NIN the caller already had.
 
 Paging is **keyset, not offset**. The register runs to tens of thousands of rows across
 71,207 villages: an offset makes every page slower than the last, and a record inserted

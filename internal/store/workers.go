@@ -28,7 +28,7 @@ type Workers struct {
 // needs no type registration, and nin is coalesced because "not recorded" is
 // the common case, not an error.
 const workerColumns = `
-    w.id, coalesce(w.nin,''), w.first_name, w.last_name, w.sex::text,
+    w.id, coalesce(w.worker_code,''), coalesce(w.nin,''), w.first_name, w.last_name, w.sex::text,
     w.age_years, w.age_captured_on, w.district_id,
     w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
     w.created_by, w.updated_by, w.created_at, w.updated_at,
@@ -63,7 +63,7 @@ func scanWorker(row pgx.Row) (domain.HealthWorker, error) {
 	var cadreSlug, cadreLabel, cadreLevel, locName, distName, facName, endReason string
 	var startedOn, endedOn *time.Time
 
-	err := row.Scan(&w.ID, &w.NIN, &w.FirstName, &w.LastName, &sex,
+	err := row.Scan(&w.ID, &w.Code, &w.NIN, &w.FirstName, &w.LastName, &sex,
 		&w.AgeYears, &w.AgeCapturedOn, &w.DistrictID,
 		&status, &w.DeactivatedAt, &w.DeactivationReason,
 		&w.CreatedBy, &w.UpdatedBy, &w.CreatedAt, &w.UpdatedAt,
@@ -164,8 +164,10 @@ func (s *Workers) ByNIN(ctx context.Context, sc auth.Scope, nin string) (domain.
 // Filter narrows a listing. The zero Filter is "everything in the scope",
 // which is what the register shows when nobody has typed anything.
 type Filter struct {
-	// Query matches a name or a NIN. Which of the two is decided by the shape
-	// of the input, not by a radio button the user has to get right.
+	// Query matches a name, anywhere within it, or a worker code exactly. It
+	// does not match a NIN: a register is browsed by the name a clerk is
+	// holding, and a search that answered to a national identity number
+	// invites someone to probe for one.
 	Query string
 	// Cadre is a cadres slug ('vht'), matched against the posting the worker
 	// is seen through.
@@ -205,26 +207,6 @@ type Page struct {
 	HasNext bool
 }
 
-// ninish reports whether a query looks like someone reaching for a NIN rather
-// than a name: NINs start with two letters and carry digits, and no Ugandan
-// surname does.
-func ninish(q string) bool {
-	if len(q) < 3 {
-		return false
-	}
-	hasDigit := false
-	for _, r := range q {
-		switch {
-		case r >= '0' && r <= '9':
-			hasDigit = true
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
-		default:
-			return false // a space, a hyphen: that is a name
-		}
-	}
-	return hasDigit
-}
-
 // where builds the predicate the listing and the count share. Keeping it in one
 // place is not tidiness: a count that filtered differently from the page it
 // counts would be a bug nobody notices until the numbers disagree.
@@ -252,9 +234,17 @@ func (f Filter) where(sc auth.Scope) (string, []any) {
 			" AND l.path LIKE (SELECT path FROM locations WHERE id = $%d) || '%%'", len(args))
 	}
 	if q := strings.TrimSpace(f.Query); q != "" {
-		if ninish(q) {
-			args = append(args, strings.ToUpper(q)+"%")
-			where += fmt.Sprintf(" AND w.nin LIKE $%d", len(args))
+		if code, ok := domain.NormalizeWorkerCode(q); ok {
+			// One box, two things it can hold. A worker code has a shape a
+			// name cannot, so recognising it costs nothing and saves an
+			// operator holding a printed list from knowing which field to use.
+			//
+			// This is not the NIN exception in reverse: a NIN is a national
+			// identifier and searching by one lets a register be probed with
+			// it, whereas a code is issued by this register and exists to be
+			// looked up. The Scope still decides whether the row comes back.
+			args = append(args, code)
+			where += fmt.Sprintf(" AND w.worker_code = $%d", len(args))
 		} else {
 			// The trigram index is built on this exact expression, so the
 			// search has to be written against it rather than against the two
@@ -426,7 +416,7 @@ func (s *Workers) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor 
 	        RETURNING *
 	    )
 	    SELECT
-	        w.id, coalesce(w.nin,''), w.first_name, w.last_name, w.sex::text,
+	        w.id, coalesce(w.worker_code,''), coalesce(w.nin,''), w.first_name, w.last_name, w.sex::text,
 	        w.age_years, w.age_captured_on, dep.district_id,
 	        w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
 	        w.created_by, w.updated_by, w.created_at, w.updated_at,

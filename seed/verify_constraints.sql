@@ -65,6 +65,13 @@ BEGIN
     UPDATE deployments SET facility_id = fac_same WHERE id = dep2;
     RAISE NOTICE 'allowed   deployment attached to a facility in its own district';
 
+    -- The first deployment issues the worker code; a worker with no posting
+    -- yet has none, and neither does anything else change it.
+    IF (SELECT worker_code FROM health_workers WHERE id = w1) !~ '^[A-Z]{3}[0-9]{5}$' THEN
+        RAISE EXCEPTION 'the first deployment did not issue a worker code';
+    END IF;
+    RAISE NOTICE 'allowed   worker code issued with the first deployment';
+
     -- A worker who left: their posting ended before the deactivation, which is
     -- the only order the schema allows.
     INSERT INTO health_workers(first_name,last_name,sex)
@@ -139,7 +146,17 @@ BEGIN
       ['attached across districts at insert',
                                            format('INSERT INTO deployments(health_worker_id,cadre_id,location_id,district_id,facility_id) VALUES(%s,%s,%s,0,%s)',w4,vht,vil,fac_other)],
       ['moved to another district while attached',
-                                           format('UPDATE deployments SET location_id=%s WHERE id=%s',par_other,dep2)]
+                                           format('UPDATE deployments SET location_id=%s WHERE id=%s',par_other,dep2)],
+      -- The worker code is assigned by the register, and permanent (0006)
+      ['worker_code supplied on insert',   'INSERT INTO health_workers(first_name,last_name,sex,worker_code) VALUES(''Mary'',''Akello'',''female'',''ZZZ00001'')'],
+      ['worker_code supplied before placement',
+                                           format('UPDATE health_workers SET worker_code=''ZZZ00001'' WHERE id=%s',w4)],
+      ['worker_code changed after assignment',
+                                           format('UPDATE health_workers SET worker_code=''ZZZ00001'' WHERE id=%s',w1)],
+      ['worker_code cleared',              format('UPDATE health_workers SET worker_code=NULL WHERE id=%s',w1)],
+      ['district code of the wrong shape', 'INSERT INTO district_codes VALUES(''999'',''ZZZZ'',''Verify'')'],
+      ['district code that is not numeric','INSERT INTO district_codes VALUES(''99A'',''ZZZ'',''Verify'')'],
+      ['three-letter code claimed twice',  'INSERT INTO district_codes VALUES(''999'',''KYE'',''Verify'')']
     ];
 
     FOR i IN 1..array_length(cases,1) LOOP

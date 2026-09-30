@@ -129,6 +129,11 @@ type LogEntry struct {
 	Action     string
 	Entity     string
 	EntityID   *int64
+	// WorkerID and WorkerCode name the health worker a row is about — the
+	// worker itself, or the worker a deployment row belongs to. Nil for any
+	// other entity: an id alone isn't what a district officer would recognize.
+	WorkerID   *int64
+	WorkerCode *string
 	DistrictID *int64
 	CreatedAt  time.Time
 }
@@ -140,17 +145,21 @@ func (a *Audit) List(ctx context.Context, sc auth.Scope, limit int) ([]LogEntry,
 		limit = 100
 	}
 
-	q := `SELECT id, coalesce(actor_email::text,''), action, entity, entity_id,
-	             district_id, created_at
-	      FROM audit_log
+	q := `SELECT a.id, coalesce(a.actor_email::text,''), a.action, a.entity, a.entity_id,
+	             w.id, w.worker_code, a.district_id, a.created_at
+	      FROM audit_log a
+	      LEFT JOIN deployments dp ON a.entity = 'deployment' AND dp.id = a.entity_id
+	      LEFT JOIN health_workers w ON w.id = CASE a.entity
+	                                     WHEN 'health_worker' THEN a.entity_id
+	                                     WHEN 'deployment'    THEN dp.health_worker_id END
 	      WHERE true`
 	var args []any
 
-	if frag, extra := sc.Filter("district_id", len(args)+1); frag != "" {
+	if frag, extra := sc.Filter("a.district_id", len(args)+1); frag != "" {
 		q += frag
 		args = append(args, extra...)
 	}
-	q += fmt.Sprintf(` ORDER BY created_at DESC LIMIT %d`, limit)
+	q += fmt.Sprintf(` ORDER BY a.created_at DESC LIMIT %d`, limit)
 
 	rows, err := a.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -162,7 +171,7 @@ func (a *Audit) List(ctx context.Context, sc auth.Scope, limit int) ([]LogEntry,
 	for rows.Next() {
 		var e LogEntry
 		if err := rows.Scan(&e.ID, &e.ActorEmail, &e.Action, &e.Entity,
-			&e.EntityID, &e.DistrictID, &e.CreatedAt); err != nil {
+			&e.EntityID, &e.WorkerID, &e.WorkerCode, &e.DistrictID, &e.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan audit: %w", err)
 		}
 		out = append(out, e)

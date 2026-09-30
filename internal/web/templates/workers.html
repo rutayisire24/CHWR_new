@@ -12,8 +12,8 @@
 <form method="get" action="/health-workers" class="filters-bar" data-location-cascade>
   <div class="search">
     <label for="q">Search</label>
-    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name or NIN">
-    <span class="hint">A NIN is matched from the start; a name anywhere within it.</span>
+    <input id="q" name="q" value="{{.Page.Filter.Query}}" placeholder="Name or worker ID">
+    <span class="hint">A name matches anywhere within it; a worker ID exactly.</span>
   </div>
 
   <div>
@@ -85,11 +85,12 @@
 
 <table class="grid">
   <thead>
-    <tr><th>Name</th><th>Cadre</th><th>Placement</th><th>District</th><th>NIN</th><th>Status</th></tr>
+    <tr><th>Worker ID</th><th>Name</th><th>Cadre</th><th>Placement</th><th>District</th><th>NIN</th><th>Status</th></tr>
   </thead>
   <tbody>
   {{range .Page.Workers}}
     <tr class="{{if not .Active}}dim{{end}}">
+      <td><code class="worker-code">{{.Code}}</code></td>
       <td><a href="/health-workers/{{.ID}}">{{.LastName}}, {{.FirstName}}</a></td>
       {{if .Deployment}}
       <td>{{.Deployment.Cadre.Label}}</td>
@@ -102,7 +103,7 @@
       <td><span class="pill {{.Status}}">{{.Status}}</span></td>
     </tr>
   {{else}}
-    <tr><td colspan="6" class="muted">
+    <tr><td colspan="7" class="muted">
       {{if .Page.Filter.Active}}Nothing matches this search. <a href="/health-workers">Clear the filters</a>.
       {{else}}No health workers on the register yet.{{if .Page.CanEdit}} <a href="/health-workers/new">Add the first one</a>.{{end}}{{end}}
     </td></tr>

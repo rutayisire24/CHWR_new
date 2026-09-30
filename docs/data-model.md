@@ -131,6 +131,41 @@ it, each carrying the level it is placed at and the spellings an import may use:
 A new cadre is an `INSERT`, not a migration. Each category owns its own profile surface —
 `chw_profiles` and its junctions belong to the CHW category; a future one gets its own.
 
+### The worker code
+
+`worker_code` is the register's human-legible identifier: three letters of district, five
+digits of serial, e.g. `KYE00042` for the 42nd health worker registered in Kyenjojo.
+`health_workers.id` remains the key everything joins on; this is the one a person reads off
+a printed list or says down a phone. It sits on the person, not the posting or the
+category, so every cadre shares one sequence per district.
+
+| Piece | Source | Mutability |
+|---|---|---|
+| `KYE` | `district_codes.abbr`, keyed by the official numeric district code | curated, checked in as `data/district_codes.tsv` |
+| `00042` | `worker_code_counters.last_serial` for that district | issued once, never reused |
+
+A worker's district is not known when their row is inserted: `district_id` is copied from
+the first deployment by `deployments_sync_worker_district`, a statement later in the same
+transaction. So `health_workers_assign_code()` fires `BEFORE INSERT OR UPDATE OF
+worker_code, district_id` and does three things: refuses a code supplied on insert or
+before placement; refuses any change to a code once issued; and, the first time
+`district_id` goes from NULL to a value, takes the serial from a single upsert (`ON
+CONFLICT DO UPDATE ... RETURNING`) so concurrent registrations in one district serialize on
+that row and those in different districts do not touch each other. A district with no code
+is refused rather than invented. The CHECK `health_workers_code_assigned` makes "has a
+district, has no code" unrepresentable, so the window without a code is exactly the one
+without a district.
+
+The code is permanent: a transfer, a re-cadring and a district split all leave it alone,
+because an identifier that changes is not one. The refusals and the district-code shape
+constraints are cases in `seed/verify_constraints.sql`.
+
+`district_codes` is populated by migration 0006 rather than by a seed step, because
+`locations` is empty when migrations run on a fresh database and the trigger cannot wait.
+That is why it is keyed by `district_code text` and not by `locations.id`. A district
+created after 0006 needs a row added before workers can be registered there — the refusal
+is loud on purpose; the alternative is a register carrying two ID schemes.
+
 ### Placement
 
 `deployments_set_placement()` reads the required level from the posting's `cadres` row —
@@ -182,6 +217,7 @@ the same location — runs on `deployments_location_idx`, which covers open post
 | `health_workers_district_idx (district_id)` | every scoped read |
 | `health_workers_name_trgm` | name search, on the first and last name joined by a space |
 | `health_workers_nin_prefix_idx (nin text_pattern_ops) WHERE nin IS NOT NULL` | `LIKE 'CM90%'` as an index scan; `health_workers_nin_uniq` only answers equality |
+| `health_workers_code_uniq (worker_code)` | the search box's exact match when what was typed is a code, and the uniqueness the code claims |
 | `deployments_district_idx`, `deployments_location_idx` | open postings by district and by place |
 
 `lower()` because the source data is inconsistently cased and a case-sensitive sort
