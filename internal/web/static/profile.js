@@ -1,68 +1,68 @@
-// Profile form behaviour: branch visibility and the two interlocks the schema
-// also enforces.
+// Survey form behaviour, read from the questionnaire's own data attributes:
+// a branch shows when the question it hangs on has the answer that opens it,
+// a subset offers only what its parent was given, and None stands alone.
 //
-// Everything here has a CHECK or a trigger behind it. The script is for the
-// person filling the form, not for the integrity of the data.
+// Every one of these has a rule behind it in the schema and in the server's
+// own check. The script is for the person filling the form, not for the
+// integrity of the data: with it off, the server drops a closed branch's
+// answers and refuses the rest with a message.
 (function () {
   "use strict";
 
   var form = document.getElementById("profile-form");
   if (!form) return;
 
-  // Branches. The source form asks a yes/no and then reveals follow-ups;
-  // phone_branch_exclusive and incentive_details_require_yes refuse the
-  // crossings, so a hidden branch must not post its values either.
-  var branches = Array.prototype.slice.call(form.querySelectorAll(".branch"));
+  function each(list, fn) { Array.prototype.forEach.call(list, fn); }
 
-  function applyBranches() {
-    branches.forEach(function (branch) {
-      var parts = branch.dataset.when.split("=");
-      var name = parts[0], want = parts[1];
-      var checked = form.querySelector("input[name=" + name + "]:checked");
-      var on = checked && checked.value === want;
-      branch.hidden = !on;
+  function answered(code, option) {
+    return !!form.querySelector("input[name='" + code + "'][value='" + option + "']:checked");
+  }
+
+  // A question is open when it has no branch, or its parent is open and was
+  // answered with the opening option — branches can hang off branches.
+  function open(block) {
+    var parent = block.dataset.depends;
+    if (!parent) return true;
+    var parentBlock = document.getElementById("q-" + parent);
+    return (!parentBlock || open(parentBlock)) && answered(parent, block.dataset.dependsOption);
+  }
+
+  function apply() {
+    each(form.querySelectorAll(".question"), function (block) {
+      var on = open(block);
+      block.hidden = !on;
       // Disabled fields are not submitted, which is what keeps a hidden branch
       // from posting the answer to a question that was not asked.
-      Array.prototype.forEach.call(branch.querySelectorAll("input, select"), function (field) {
-        field.disabled = !on;
+      each(block.querySelectorAll("input, select"), function (field) { field.disabled = !on; });
+    });
+
+    // A subset offers only the choices its parent was given; None always.
+    each(form.querySelectorAll(".question[data-subset-of]"), function (block) {
+      if (block.hidden) return;
+      var parent = block.dataset.subsetOf;
+      each(block.querySelectorAll("input[type=checkbox]"), function (box) {
+        var allowed = box.value === "none" || answered(parent, box.value);
+        box.disabled = !allowed;
+        if (!allowed) box.checked = false;
+        box.closest("label").classList.toggle("muted", !allowed);
       });
     });
   }
 
-  Array.prototype.forEach.call(form.querySelectorAll("[data-branch] input"), function (radio) {
-    radio.addEventListener("change", applyBranches);
-  });
-
-  // A tool's condition is only asked about a tool the worker holds — the source
-  // form choice-filters `tool_functional` the same way.
-  function applyTool(box) {
-    Array.prototype.forEach.call(
-      form.querySelectorAll("input[data-for-tool='" + box.dataset.tool + "']"),
-      function (radio) {
-        radio.disabled = !box.checked;
-        if (!box.checked && radio.value === "") radio.checked = true;
+  // None is the recorded empty answer: ticking it clears the rest, and ticking
+  // anything else clears it.
+  each(form.querySelectorAll("fieldset.checks"), function (set) {
+    set.addEventListener("change", function (e) {
+      var box = e.target;
+      if (!box.checked) return;
+      each(set.querySelectorAll("input[type=checkbox]"), function (other) {
+        if (other !== box && (box.hasAttribute("data-none") || other.hasAttribute("data-none"))) {
+          other.checked = false;
+        }
       });
-    var cell = box.closest("tr").querySelector(".condition");
-    if (cell) cell.classList.toggle("muted", !box.checked);
-  }
-
-  Array.prototype.forEach.call(form.querySelectorAll("input[data-tool]"), function (box) {
-    box.addEventListener("change", function () { applyTool(box); });
-    applyTool(box);
+    });
   });
 
-  // trained_implies_provides: training is a subset of what they provide.
-  // Unticking "provides" unticks the training with it.
-  Array.prototype.forEach.call(form.querySelectorAll("input[data-domain]"), function (box) {
-    var trained = form.querySelector("input[data-trained='" + box.dataset.domain + "']");
-    if (!trained) return;
-    function apply() {
-      trained.disabled = !box.checked;
-      if (!box.checked) trained.checked = false;
-    }
-    box.addEventListener("change", apply);
-    apply();
-  });
-
-  applyBranches();
+  form.addEventListener("change", apply);
+  apply();
 })();

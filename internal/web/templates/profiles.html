@@ -1,0 +1,38 @@
+{{define "title"}}Surveys · Health Workers Registry{{end}}
+
+{{define "content"}}
+<h1>Surveys</h1>
+<p class="muted">A survey is a questionnaire a health worker answers — the CHW baseline survey is the
+  first. Questions are data: adding one here puts it on the survey form, in the import template's
+  reach, and in the dashboard's completeness view, without a code change.</p>
+
+<table class="grid">
+  <thead><tr><th>Survey</th><th>Code</th><th>Asked of</th><th class="num">Questions</th><th class="num">Submissions</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Page.Profiles}}
+    <tr class="{{if not .Active}}dim{{end}}">
+      <td><a href="/profiles/{{.ID}}">{{.Name}}</a></td>
+      <td><code>{{.Code}}</code></td>
+      <td>{{if .Cadres}}{{.Cadres}}{{else}}<span class="muted">no cadre</span>{{end}}</td>
+      <td class="num">{{len .Questions}}</td>
+      <td class="num">{{num .Submissions}}</td>
+      <td>{{if .Active}}offered{{else}}retired{{end}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+
+<details class="card">
+  <summary>Add a survey</summary>
+  <form method="post" action="/profiles" class="two-up">
+    {{template "csrf" .}}
+    <div><label for="p_code">Code</label>
+      <input id="p_code" name="code" required maxlength="32" pattern="[a-z][a-z0-9_]{1,31}" placeholder="nurse_baseline">
+      <span class="hint">Fixed once created.</span></div>
+    <div><label for="p_name">Name</label><input id="p_name" name="name" required></div>
+    <div><label for="p_desc">Description</label><input id="p_desc" name="description"></div>
+    <div class="actions"><button type="submit">Add</button></div>
+  </form>
+  <p class="hint">Choose which cadres answer it on the survey's own page.</p>
+</details>
+{{end}}

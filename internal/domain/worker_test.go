@@ -7,8 +7,8 @@ import "testing"
 // four ways, and normalising them is what lets an import of the existing
 // register land at all.
 func TestCadreMatchesImport(t *testing.T) {
-	vht := Cadre{Slug: "vht", ImportAliases: []string{"village health team"}}
-	chew := Cadre{Slug: "chew", ImportAliases: []string{"chw", "community health extension worker"}}
+	vht := Cadre{Code: "vht", ImportAliases: []string{"village health team"}}
+	chew := Cadre{Code: "chew", ImportAliases: []string{"chw", "community health extension worker"}}
 
 	for _, in := range []string{"vht", "VHT", " Vht ", "Village Health Team", "village-health-team"} {
 		if !vht.MatchesImport(in) {
@@ -68,66 +68,13 @@ func TestValidationError(t *testing.T) {
 	}
 }
 
-// The profile columns are all nullable, so "no" and "not asked" are different
-// answers and the accessors have to keep them apart.
-func TestProfileNullableAnswers(t *testing.T) {
-	no := false
-	yes := true
-
-	var unanswered Profile
-	if unanswered.SpeaksEnglish() {
-		t.Error("an unanswered profile reports English proficiency")
-	}
-	if unanswered.Answered() {
-		t.Error("an unanswered profile reports Answered()")
-	}
-
-	// A profile row that exists but says no to everything has still been
-	// answered — the answers are just negative.
-	answered := Profile{Exists: true, OwnsPhone: &no, ReceivesIncentive: &no}
-	if !answered.Answered() {
-		t.Error("a profile of noes reports nothing answered")
-	}
-
-	partial := Profile{EnglishSpeak: &yes, EnglishRead: &yes, EnglishWrite: &no}
-	if !partial.SpeaksEnglish() {
-		t.Error("speaks and reads should count as English proficiency")
-	}
-	if got := partial.EnglishSummary(); got != "speaks, reads" {
-		t.Errorf("EnglishSummary = %q, want %q", got, "speaks, reads")
-	}
-	if got := (Profile{EnglishWrite: &no}).EnglishSummary(); got != "" {
-		t.Errorf("EnglishSummary with nothing true = %q, want empty", got)
-	}
-}
-
-// The two phone columns are alternatives, not two lines for one person.
-func TestProfilePhone(t *testing.T) {
-	owner := Profile{PhonePrimary: "772123456"}
-	if got := owner.Phone(); got != "772123456" {
-		t.Errorf("Phone = %q for an owner", got)
-	}
-	reachable := Profile{PhoneAlternate: "700111222"}
-	if got := reachable.Phone(); got != "700111222" {
-		t.Errorf("Phone = %q for a non-owner with an alternate", got)
-	}
-	if got := (Profile{}).Phone(); got != "" {
-		t.Errorf("Phone = %q with neither recorded", got)
-	}
-}
-
-func TestEducationAndIncentiveEnums(t *testing.T) {
+func TestEducationEnum(t *testing.T) {
 	for _, e := range EducationLevels {
 		if !e.Valid() || e.Label() == string(e) {
 			t.Errorf("%s is in EducationLevels but invalid or unlabelled", e)
 		}
 	}
-	for _, f := range IncentiveFrequencies {
-		if !f.Valid() || f.Label() == string(f) {
-			t.Errorf("%s is in IncentiveFrequencies but invalid or unlabelled", f)
-		}
-	}
-	if EducationLevel("degree").Valid() || IncentiveFrequency("weekly").Valid() {
-		t.Error("a value outside the enum reported valid")
+	if EducationLevel("degree").Valid() {
+		t.Error("an unknown education level reports valid")
 	}
 }

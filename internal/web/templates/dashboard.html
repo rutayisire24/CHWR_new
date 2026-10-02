@@ -286,6 +286,36 @@
 </div>
 {{end}}
 
+<!-- The dated events: what the register's keepers recorded happening, not
+     what a survey said. Counts of workers and of tools, never shares: there is
+     no denominator that would make an absent hand-out a percentage. -->
+<div class="viz-grid">
+  <section class="viz span-6">
+    <h2>Tools handed out</h2>
+    {{if $p.ToolsGivenTo}}
+    <p class="muted">{{num $p.ToolsGivenTo}} worker(s) in this selection have received tools. <a href="/distributions">All distributions</a></p>
+    <table class="grid">
+      <thead><tr><th>Tool</th><th class="num">Handed out</th></tr></thead>
+      <tbody>{{range $p.ToolsGiven}}<tr><td>{{.Label}}</td><td class="num">{{num .Count}}</td></tr>{{end}}</tbody>
+    </table>
+    {{else}}
+    <p class="empty">No tool distributions recorded for this selection. They are recorded under Tools.</p>
+    {{end}}
+  </section>
+  <section class="viz span-6">
+    <h2>Services reported, last 90 days</h2>
+    {{if $p.ServicesReporters}}
+    <p class="muted">{{num $p.ServicesReporters}} worker(s) in this selection reported.</p>
+    <table class="grid">
+      <thead><tr><th>Service</th><th class="num">Workers</th></tr></thead>
+      <tbody>{{range $p.ServicesRecent}}<tr><td>{{.Label}}</td><td class="num">{{num .Count}}</td></tr>{{end}}</tbody>
+    </table>
+    {{else}}
+    <p class="empty">No service reports in the last ninety days. They are recorded on each worker's page.</p>
+    {{end}}
+  </section>
+</div>
+
 <!-- The league table. The chart above ranks the tier over this one; this is
      where a name becomes a link into the register. -->
 {{if $p.LeagueLevel}}

@@ -295,8 +295,9 @@ dl.detail { display: grid; grid-template-columns: 11rem 1fr; gap: 0.5rem 1rem; m
 dl.detail dt { font-weight: 600; font-size: 0.875rem; color: var(--ink-soft); }
 dl.detail dd { margin: 0; }
 
-.two-up { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0 1.25rem; }
-.two-up > div > label:first-child { margin-top: 0.9rem; }
+.two-up, .three-up { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0 1.25rem; }
+.three-up { grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.two-up > div > label:first-child, .three-up > div > label:first-child { margin-top: 0.9rem; }
 
 h2.section {
   margin: 1.75rem 0 0; padding-top: 1.25rem; border-top: 1px solid var(--line);
@@ -532,3 +533,25 @@ h2.spaced { margin-top: 2rem; }
 
 /* The listing's own actions, so Download sits beside Add rather than under it. */
 .page-actions { display: flex; gap: 0.75rem; align-items: center; }
+
+/* A table wider than the page — the distribution grid, a column per tool —
+   scrolls inside its card rather than pushing the whole page sideways. */
+.table-scroll { overflow-x: auto; margin: 0 -0.25rem; padding: 0 0.25rem; }
+.table-scroll table.grid th.num, .table-scroll table.grid td.num { white-space: nowrap; }
+
+/* Multi-select answers: a grid of ticks with their labels beside them, not
+   the full-width field every other input is. */
+fieldset.checks { border: 0; padding: 0; margin: 0.9rem 0 0.25rem; min-width: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0.35rem 1.25rem; }
+fieldset.checks legend { font-weight: 600; padding: 0; margin-bottom: 0.4rem; }
+label.check { display: flex; align-items: center; gap: 0.5rem; font-weight: 400; margin: 0.25rem 0; }
+label.check input { width: auto; margin: 0; flex: none; }
+
+/* A row's own small action, such as removing a contact: a quiet link-styled
+   button inside an inline form, not a primary call to action. */
+form.inline { display: inline; margin: 0 0 0 0.5rem; }
+button.link { background: none; border: 0; padding: 0; color: var(--blue);
+  font: inherit; font-size: 0.875em; text-decoration: underline; cursor: pointer; min-height: 0; box-shadow: none; }
+button.link:hover { background: none; }
+ul.plain { list-style: none; padding: 0; margin: 0.25rem 0 0.5rem; }
+ul.plain li { padding: 0.2rem 0; }

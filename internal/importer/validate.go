@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"hwr/internal/auth"
 	"hwr/internal/domain"
@@ -14,21 +15,28 @@ import (
 
 // Record is the register record a row parses to — the importer's own shape, so
 // that this package does not depend on internal/store. It mirrors the register's
-// own split: the person, their deployment, and the category profile beside
-// them. The handler maps it to store.WorkerInput, which is where district_id is
-// absent by design and derived by trigger from the placement.
+// own split: the person, their deployment, the person's details, and their
+// answers to the survey. The handler maps it to store.WorkerInput, which is
+// where district_id is absent by design and derived by trigger from the
+// placement.
 type Record struct {
-	NIN        string           `json:"nin,omitempty"`
-	FirstName  string           `json:"first_name"`
-	LastName   string           `json:"last_name"`
-	Sex        domain.Sex       `json:"sex"`
-	AgeYears   *int16           `json:"age_years,omitempty"`
-	Deployment DeploymentRecord `json:"deployment"`
-	Profile    ProfileRecord    `json:"profile,omitempty"`
+	NIN       string     `json:"nin,omitempty"`
+	FirstName string     `json:"first_name"`
+	LastName  string     `json:"last_name"`
+	OtherName string     `json:"other_name,omitempty"`
+	Sex       domain.Sex `json:"sex"`
+	// DOB is YYYY-MM-DD: the date of birth, or the estimate an age implied on
+	// the day the file was checked.
+	DOB          string           `json:"dob,omitempty"`
+	DOBEstimated bool             `json:"dob_estimated,omitempty"`
+	Deployment   DeploymentRecord `json:"deployment"`
+	Person       PersonRecord     `json:"person,omitempty"`
+	// Answers are to the CHW baseline survey, by question code.
+	Answers domain.Answers `json:"answers,omitempty"`
 }
 
 // DeploymentRecord is the posting a row creates. The cadre travels as its
-// slug: the staged JSON is a wire format read months later, and a slug still
+// code: the staged JSON is a wire format read months later, and a code still
 // says what it meant.
 type DeploymentRecord struct {
 	Cadre      string `json:"cadre"`
@@ -110,6 +118,7 @@ func fields(r Row, cadres []domain.Cadre) (Record, *domain.Cadre, []domain.Probl
 	rec := Record{
 		FirstName: r.Value(ColFirstName),
 		LastName:  r.Value(ColLastName),
+		OtherName: r.Value(ColOtherName),
 	}
 	if rec.FirstName == "" {
 		add(domain.Problem{Field: ColFirstName, Code: domain.ProblemRequired,
@@ -132,6 +141,10 @@ func fields(r Row, cadres []domain.Cadre) (Record, *domain.Cadre, []domain.Probl
 
 	cadre := parseCadre(cadres, r.Value(ColCadre), &rec, add)
 
+	// A date of birth when the file has one; otherwise the age, recorded as
+	// the birth date it implies and flagged as an estimate. Both, disagreeing,
+	// is a question for the person who wrote them, not one to settle here.
+	var age *int
 	if raw := r.Value(ColAge); raw != "" {
 		n, err := strconv.Atoi(raw)
 		switch {
@@ -142,9 +155,29 @@ func fields(r Row, cadres []domain.Cadre) (Record, *domain.Cadre, []domain.Probl
 			add(domain.Problem{Field: ColAge, Code: domain.ProblemBadValue,
 				Message: fmt.Sprintf("An age of %d is outside %d to %d.", n, domain.MinAge, domain.MaxAge)})
 		default:
-			years := int16(n)
-			rec.AgeYears = &years
+			age = &n
 		}
+	}
+	if raw := r.Value(ColDOB); raw != "" {
+		dob, ok := domain.ParseDate(raw)
+		years := domain.Person{DOB: &dob}.Age()
+		switch {
+		case !ok:
+			add(domain.Problem{Field: ColDOB, Code: domain.ProblemBadValue,
+				Message: fmt.Sprintf("%q is not a date (YYYY-MM-DD).", raw)})
+		case !domain.ValidAge(*years):
+			add(domain.Problem{Field: ColDOB, Code: domain.ProblemBadValue,
+				Message: fmt.Sprintf("A date of birth of %s makes them %d, outside %d to %d.",
+					dob.Format(time.DateOnly), *years, domain.MinAge, domain.MaxAge)})
+		case age != nil && (*age-*years > 1 || *years-*age > 1):
+			add(domain.Problem{Field: ColAge, Code: domain.ProblemBadValue,
+				Message: fmt.Sprintf("An age of %d disagrees with a date of birth of %s.", *age, dob.Format(time.DateOnly))})
+		default:
+			rec.DOB = dob.Format(time.DateOnly)
+		}
+	} else if age != nil {
+		rec.DOB = domain.EstimateDOB(*age, time.Now()).Format(time.DateOnly)
+		rec.DOBEstimated = true
 	}
 
 	if raw := r.Value(ColNIN); raw != "" {
@@ -193,21 +226,25 @@ func (im *Importer) row(ctx context.Context, r Row, resolver *Resolver) Staged {
 		})
 	}
 
-	// The optional survey attributes of the category profile.
-	profile, profileProblems := im.profileFields(ctx, r)
-	for _, p := range profileProblems {
+	// The optional survey attributes: answers to the baseline, and the
+	// person's details beside them.
+	answers, person, surveyProblems := surveyFields(r, resolver.survey.Profile)
+	for _, p := range surveyProblems {
 		add(p)
 	}
-	// The profile columns are the CHW category's survey. On a row in another
-	// category they answer questions nobody asked that worker, and storing them
-	// would give a nurse a CHW profile. Refused, not dropped: dropping is
-	// silent, and invariant 7 says nothing is.
-	if cadre != nil && !cadre.CarriesCHWProfile() && profile.Answered() {
+	// The survey is asked of the cadres it applies to. On a row in another
+	// cadre its columns answer questions nobody asked that worker, and storing
+	// them would give a nurse a CHW survey. Refused, not dropped: dropping is
+	// silent, and invariant 7 says nothing is. The person's details apply to
+	// anyone and are kept.
+	if cadre != nil && !resolver.survey.Applies(cadre.ID) && answers.Answered() {
 		add(domain.Problem{Field: ColCadre, Code: domain.ProblemProfileCategory,
-			Message: fmt.Sprintf("A %s is not in the Community Health Workers category, so the CHW profile columns must be blank.", cadre.Label)})
-		profile = ProfileRecord{}
+			Message: fmt.Sprintf("The %s is not asked of a %s, so its columns must be blank.",
+				resolver.survey.Profile.Name, cadre.Label)})
+		answers = nil
 	}
-	rec.Profile = profile
+	rec.Answers = answers
+	rec.Person = person
 
 	// Against the register. Both of these read it, so they are asked only once
 	// the row is otherwise sound — there is nothing to compare a nameless row
@@ -286,7 +323,7 @@ func parseCadre(cadres []domain.Cadre, raw string, rec *Record, add func(domain.
 	}
 	for _, c := range cadres {
 		if c.MatchesImport(raw) {
-			rec.Deployment.Cadre = c.Slug
+			rec.Deployment.Cadre = c.Code
 			matched := c
 			return &matched
 		}

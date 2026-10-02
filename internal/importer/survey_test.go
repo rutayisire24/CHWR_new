@@ -8,7 +8,7 @@ import (
 	"hwr/internal/domain"
 )
 
-// profileHeader is the core columns plus every profile column, which is what
+// profileHeader is the core columns plus every survey column, which is what
 // the downloaded template carries.
 var profileHeader = strings.Join([]string{
 	"first_name", "last_name", "sex", "cadre", "age_years", "nin",
@@ -19,10 +19,10 @@ var profileHeader = strings.Join([]string{
 	"incentive_amount_ugx", "tools", "tools_functional", "services", "trained",
 }, ",") + "\n"
 
-// core is a clean VHT in ABIM; the profile cells are appended per case.
+// core is a clean VHT in ABIM; the survey cells are appended per case.
 const core = `Grace,Okello,f,vht,34,,ABIM,MORULEM,ALEREK,KANU-EAST,,`
 
-// profile validates one row: the core columns above, then the profile cells.
+// profile validates one row: the core columns above, then the survey cells.
 func profile(t *testing.T, cells string, lookup *fakeLookup) Staged {
 	t.Helper()
 	if lookup == nil {
@@ -39,20 +39,20 @@ func profile(t *testing.T, cells string, lookup *fakeLookup) Staged {
 	return only(t, staged)
 }
 
-// A file that carries the profile columns and leaves them empty writes no
-// profile at all. "Nothing recorded" and "recorded as nothing" are different
-// answers, and an all-null row would claim the second.
-func TestEmptyProfileColumnsRecordNothing(t *testing.T) {
+// A file that carries the survey columns and leaves them empty records
+// nothing at all. "Nothing recorded" and "recorded as nothing" are different
+// answers, and a submission of empties would claim the second.
+func TestEmptySurveyColumnsRecordNothing(t *testing.T) {
 	s := profile(t, ",,,,,,,,,,,,,,,,", nil)
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
-	if s.Record.Profile.Answered() {
-		t.Errorf("an empty profile was recorded as answered: %+v", s.Record.Profile)
+	if s.Record.Answers.Answered() || s.Record.Person.Answered() {
+		t.Errorf("an empty survey was recorded as answered: %+v %+v", s.Record.Answers, s.Record.Person)
 	}
 }
 
-func TestProfileFieldsParse(t *testing.T) {
+func TestSurveyFieldsParse(t *testing.T) {
 	// phone_owner, phone_primary, phone_for_reporting, phone_alternate,
 	// facility, service_start_year, households_served, education, english,
 	// other_languages, receives_incentive, incentive_frequency,
@@ -63,58 +63,40 @@ func TestProfileFieldsParse(t *testing.T) {
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
-	p := s.Record.Profile
-
-	if !isTrue(p.OwnsPhone) || p.PhonePrimary != "772123456" || !isTrue(p.PhoneForReporting) {
-		t.Errorf("phone: owner=%v primary=%q reporting=%v", p.OwnsPhone, p.PhonePrimary, p.PhoneForReporting)
+	a, person := s.Record.Answers, s.Record.Person
+	want := domain.Answers{
+		"owns_phone": {"yes"}, "phone_for_reporting": {"yes"},
+		"service_start_year": {"2019"},
+		// Thousands separators are how a spreadsheet writes a number.
+		"households_served": {"1250"},
+		// The free text is kept verbatim.
+		"other_languages":    {"Luo, Ateso"},
+		"receives_incentive": {"yes"}, "incentive_frequency": {"monthly"}, "incentive_amount_ugx": {"25000"},
+		"tools_held": {"bicycle", "gumboots"}, "tools_functional": {"bicycle"},
+		"services_provided": {"iccm", "nutrition"}, "services_trained": {"iccm"},
+	}
+	for code, values := range want {
+		if strings.Join(a[code], ";") != strings.Join(values, ";") {
+			t.Errorf("%s = %v, want %v", code, a[code], values)
+		}
+	}
+	if len(a) != len(want) {
+		t.Errorf("answers = %v, want exactly %v", a, want)
 	}
 	// The facility is an attachment on the posting, not a survey answer, so it
 	// lands on the deployment section of the record.
 	if s.Record.Deployment.FacilityID == nil || *s.Record.Deployment.FacilityID != 101 {
 		t.Errorf("facility = %v, want 101", s.Record.Deployment.FacilityID)
 	}
-	if p.ServiceStartYear == nil || *p.ServiceStartYear != 2019 {
-		t.Errorf("service year = %v", p.ServiceStartYear)
-	}
-	// Thousands separators are how a spreadsheet writes a number.
-	if p.HouseholdsServed == nil || *p.HouseholdsServed != 1250 {
-		t.Errorf("households = %v, want 1250", p.HouseholdsServed)
-	}
-	if p.Education != domain.EducationUCE {
-		t.Errorf("education = %q", p.Education)
+	// The phone and the schooling are the person's, not the survey's.
+	if person.PhoneOwn != "772123456" || person.PhoneAlternate != "" || person.Education != domain.EducationUCE {
+		t.Errorf("person = %+v", person)
 	}
 	// English is a proficiency multi-select: speaks and reads but does not
-	// write is a real answer, and the third is a recorded no, not a null.
-	if !isTrue(p.EnglishSpeak) || !isTrue(p.EnglishRead) || !isFalse(p.EnglishWrite) {
-		t.Errorf("english: speak=%v read=%v write=%v", p.EnglishSpeak, p.EnglishRead, p.EnglishWrite)
-	}
-	if p.OtherLanguagesRaw != "Luo, Ateso" {
-		t.Errorf("other languages = %q — the raw string is kept verbatim", p.OtherLanguagesRaw)
-	}
-	if !isTrue(p.ReceivesIncentive) || p.IncentiveFrequency != domain.IncentiveMonthly ||
-		p.IncentiveAmountUGX == nil || *p.IncentiveAmountUGX != 25000 {
-		t.Errorf("incentive: %v %q %v", p.ReceivesIncentive, p.IncentiveFrequency, p.IncentiveAmountUGX)
-	}
-
-	if len(p.Tools) != 2 {
-		t.Fatalf("tools = %+v, want two", p.Tools)
-	}
-	for _, tool := range p.Tools {
-		want := tool.ToolID == 1 // bicycle is the one named as working
-		if tool.Functional == nil || *tool.Functional != want {
-			t.Errorf("tool %d functional = %v, want %v", tool.ToolID, tool.Functional, want)
-		}
-	}
-	if len(p.Domains) != 2 {
-		t.Fatalf("domains = %+v, want two", p.Domains)
-	}
-	for _, d := range p.Domains {
-		if !d.Provides {
-			t.Errorf("domain %d not marked as provided", d.DomainID)
-		}
-		if want := d.DomainID == 1; d.Trained != want {
-			t.Errorf("domain %d trained = %v, want %v", d.DomainID, d.Trained, want)
-		}
+	// write is a real answer, and the third is a recorded none, not a blank.
+	if e := person.English; e == nil || e.Understanding != domain.ProficiencyBasic ||
+		e.Reading != domain.ProficiencyBasic || e.Writing != domain.ProficiencyNone {
+		t.Errorf("english = %+v", person.English)
 	}
 }
 
@@ -126,7 +108,7 @@ func TestPhoneNumbersAreTidiedNotRefused(t *testing.T) {
 			t.Errorf("%q was refused: %v", written, s.Row.Problems)
 			continue
 		}
-		if got := s.Record.Profile.PhonePrimary; got != "772123456" {
+		if got := s.Record.Person.PhoneOwn; got != "772123456" {
 			t.Errorf("%q stored as %q", written, got)
 		}
 	}
@@ -137,9 +119,9 @@ func TestPhoneNumbersAreTidiedNotRefused(t *testing.T) {
 	}
 }
 
-// phone_branch_exclusive: the two numbers are alternatives, not two lines for
-// one person. The profile form silently drops the crossing value; an import
-// must not, because nothing is dropped silently.
+// The two numbers are alternatives, not two lines for one person. The survey
+// form silently drops the crossing value; an import must not, because nothing
+// is dropped silently.
 func TestPhoneBranchIsRefusedNotDropped(t *testing.T) {
 	// Owns a phone, and an alternate number as well.
 	s := profile(t, "yes,772123456,,772999888,,,,,,,,,,,,,", nil)
@@ -158,19 +140,18 @@ func TestPhoneBranchIsRefusedNotDropped(t *testing.T) {
 
 	// Owns no phone, but a reporting flag is given: there is no phone to report on.
 	s = profile(t, "no,,yes,772999888,,,,,,,,,,,,,", nil)
-	if !hasCode(s, domain.ProblemBadValue) {
-		t.Errorf("codes = %v", codes(s))
+	if !hasCode(s, domain.ProblemBadValue) || !onField(s, ColPhoneReporting) {
+		t.Errorf("codes = %v, problems %+v", codes(s), s.Row.Problems)
 	}
 
 	// The legitimate no-phone shape.
 	s = profile(t, "no,,,772999888,,,,,,,,,,,,,", nil)
-	if s.Row.Status != domain.RowReady {
+	if s.Row.Status != domain.RowReady || s.Record.Person.PhoneAlternate != "772999888" {
 		t.Errorf("a CHW with no phone and a fallback number was refused: %v", s.Row.Problems)
 	}
 }
 
-// incentive_details_require_yes: an amount is a detail of a yes and means
-// nothing without one.
+// An amount or a frequency is a detail of a yes and means nothing without one.
 func TestIncentiveDetailsNeedTheYes(t *testing.T) {
 	for _, cells := range []string{
 		",,,,,,,,,,no,monthly,,,,,",    // no, with a frequency
@@ -183,27 +164,27 @@ func TestIncentiveDetailsNeedTheYes(t *testing.T) {
 		}
 	}
 
-	s := profile(t, ",,,,,,,,,,yes,quarterly,50000,,,,", nil)
-	if s.Row.Status != domain.RowReady {
-		t.Errorf("a complete incentive answer was refused: %v", s.Row.Problems)
+	s := profile(t, ",,,,,,,,,,yes,yearly,50000,,,,", nil)
+	if s.Row.Status != domain.RowReady || s.Record.Answers.One("incentive_frequency") != "annually" {
+		t.Errorf("a complete incentive answer, frequency by alias: %v %v", s.Row.Problems, s.Record.Answers)
 	}
 
-	// The bounds are the schema's own.
+	// The bounds are the question's own.
 	s = profile(t, ",,,,,,,,,,yes,monthly,999,,,,", nil)
 	if !hasCode(s, domain.ProblemBadValue) {
 		t.Errorf("an amount below the minimum was accepted")
 	}
 }
 
-// trained_implies_provides is the form's own choice_filter as a database
-// invariant, and the importer says so before the CHECK has to.
+// Trained is choice-filtered to the services offered, and the importer says so
+// before the schema has to.
 func TestTrainedMustBeAmongTheServicesOffered(t *testing.T) {
 	s := profile(t, ",,,,,,,,,,,,,,,iccm,nutrition", nil)
 	if !hasCode(s, domain.ProblemBadValue) {
 		t.Fatalf("codes = %v", codes(s))
 	}
-	if !strings.Contains(s.Row.Summary(), "cannot be trained on a service they do not offer") {
-		t.Errorf("the message does not say why: %q", s.Row.Summary())
+	if !strings.Contains(s.Row.Summary(), "not among the answers") || !onField(s, ColTrained) {
+		t.Errorf("the message does not say why, or where: %+v", s.Row.Problems)
 	}
 }
 
@@ -214,42 +195,30 @@ func TestFunctionalToolsMustBeHeld(t *testing.T) {
 		t.Fatalf("codes = %v", codes(s))
 	}
 
-	// A tool held but not named as working is not thereby broken — but when the
-	// column was filled in at all, the ones left out are recorded as not working.
 	s = profile(t, ",,,,,,,,,,,,,bicycle;gumboots,bicycle,,", nil)
-	if s.Row.Status != domain.RowReady {
-		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
-	}
-	for _, tool := range s.Record.Profile.Tools {
-		if tool.Functional == nil {
-			t.Errorf("tool %d has no condition though the column was filled in", tool.ToolID)
-		}
+	if s.Row.Status != domain.RowReady || strings.Join(s.Record.Answers["tools_functional"], ";") != "bicycle" {
+		t.Fatalf("status = %s (%v), answers %v", s.Row.Status, s.Row.Problems, s.Record.Answers)
 	}
 
 	// With the column left empty, the condition was not asked at all.
 	s = profile(t, ",,,,,,,,,,,,,bicycle;gumboots,,,", nil)
-	for _, tool := range s.Record.Profile.Tools {
-		if tool.Functional != nil {
-			t.Errorf("tool %d was recorded as %v though nobody asked", tool.ToolID, *tool.Functional)
-		}
+	if _, asked := s.Record.Answers["tools_functional"]; asked {
+		t.Error("tools_functional was recorded though nobody asked")
 	}
 }
 
-// Slugs are what the template documents; labels are what someone writes who
+// Codes are what the template documents; labels are what someone writes who
 // read the form instead.
-func TestToolsAndServicesAcceptSlugOrLabel(t *testing.T) {
+func TestToolsAndServicesAcceptCodeOrLabel(t *testing.T) {
 	s := profile(t, ",,,,,,,,,,,,,VHT Reporting Tools,,Maternal and Newborn Health,", nil)
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
-	if len(s.Record.Profile.Tools) != 1 || s.Record.Profile.Tools[0].ToolID != 7 {
-		t.Errorf("tools = %+v", s.Record.Profile.Tools)
-	}
-	if len(s.Record.Profile.Domains) != 1 || s.Record.Profile.Domains[0].DomainID != 2 {
-		t.Errorf("domains = %+v", s.Record.Profile.Domains)
+	if got := s.Record.Answers; got.One("tools_held") != "register" || got.One("services_provided") != "maternal_newborn" {
+		t.Errorf("answers = %v", got)
 	}
 
-	// A tool the register does not know refuses the row rather than importing
+	// A tool the survey does not offer refuses the row rather than importing
 	// a partial set.
 	s = profile(t, ",,,,,,,,,,,,,bicycle;helicopter,,,", nil)
 	if !hasCode(s, domain.ProblemBadValue) {
@@ -257,35 +226,63 @@ func TestToolsAndServicesAcceptSlugOrLabel(t *testing.T) {
 	}
 }
 
-// The choice list's None means "no tools" — the empty set, not a tool.
-func TestNoneIsTheEmptySet(t *testing.T) {
+// The choice list's None is a recorded answer of nothing — which an empty cell
+// is not — and it stands alone.
+func TestNoneIsARecordedEmptyAnswer(t *testing.T) {
 	s := profile(t, ",,,,,,,,,,,,,none,,,", nil)
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
-	if len(s.Record.Profile.Tools) != 0 {
-		t.Errorf("None became %+v", s.Record.Profile.Tools)
+	if got := s.Record.Answers["tools_held"]; len(got) != 1 || got[0] != domain.NoneOption {
+		t.Errorf("None became %v", got)
+	}
+	s = profile(t, ",,,,,,,,,,,,,none;bicycle,,,", nil)
+	if !hasCode(s, domain.ProblemBadValue) {
+		t.Errorf("none beside a tool gave %v", codes(s))
 	}
 }
 
-// english=none is a recorded no on all three, which is not the same as a blank
-// cell.
-func TestEnglishNoneIsARecordedNo(t *testing.T) {
+// english=none is a recorded none on all three, which is not the same as a
+// blank cell.
+func TestEnglishNoneIsARecordedNone(t *testing.T) {
 	s := profile(t, ",,,,,,,,none,,,,,,,,", nil)
-	p := s.Record.Profile
-	if !isFalse(p.EnglishSpeak) || !isFalse(p.EnglishRead) || !isFalse(p.EnglishWrite) {
-		t.Errorf("none gave %v/%v/%v, want three recorded noes", p.EnglishSpeak, p.EnglishRead, p.EnglishWrite)
+	if e := s.Record.Person.English; e == nil || e.Understanding != domain.ProficiencyNone ||
+		e.Reading != domain.ProficiencyNone || e.Writing != domain.ProficiencyNone {
+		t.Errorf("none gave %+v, want three recorded nones", s.Record.Person.English)
 	}
 
 	s = profile(t, ",,,,,,,,,,,,,,,,", nil)
-	p = s.Record.Profile
-	if p.EnglishSpeak != nil || p.EnglishRead != nil || p.EnglishWrite != nil {
-		t.Errorf("a blank cell gave %v/%v/%v, want three nulls", p.EnglishSpeak, p.EnglishRead, p.EnglishWrite)
+	if s.Record.Person.English != nil {
+		t.Errorf("a blank cell gave %+v, want no record", s.Record.Person.English)
 	}
 
 	s = profile(t, ",,,,,,,,fluent,,,,,,,,", nil)
 	if !hasCode(s, domain.ProblemBadValue) {
 		t.Errorf("codes = %v", codes(s))
+	}
+}
+
+// The register's own export carries supervision, and it imports.
+func TestSupervisionImports(t *testing.T) {
+	header := strings.Join([]string{"first_name", "last_name", "sex", "cadre", "age_years", "nin",
+		"district", "subcounty", "parish", "village", "location_code",
+		"received_supervision", "last_supervised_on"}, ",") + "\n"
+	read := func(cells string) Staged {
+		f, err := ReadCSV("s.csv", strings.NewReader(header+core+cells+"\n"))
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		staged, err := New(&fakeLookup{}, auth.National()).Validate(t.Context(), f)
+		if err != nil {
+			t.Fatalf("validate: %v", err)
+		}
+		return only(t, staged)
+	}
+	if s := read("yes,2026-03"); s.Row.Status != domain.RowReady || s.Record.Answers.One("last_supervised_on") != "2026-03-01" {
+		t.Errorf("a supervision month: %s %v %v", s.Row.Status, s.Row.Problems, s.Record.Answers)
+	}
+	if s := read("no,2026-03"); !hasCode(s, domain.ProblemBadValue) {
+		t.Errorf("a month with no supervision gave %v", codes(s))
 	}
 }
 
@@ -345,7 +342,7 @@ func TestFacilityListIsCachedPerFile(t *testing.T) {
 // the staged row rather than rebuilt.
 func TestTheStagedRecordRoundTrips(t *testing.T) {
 	s := profile(t, `yes,772123456,no,,ABIM HOSPITAL,2020,900,ple,write,Lugbara,`+
-		`yes,one_off,1000,thermometer,thermometer,nutrition,nutrition`, nil)
+		`yes,once,1000,thermometer,thermometer,nutrition,nutrition`, nil)
 	if s.Row.Status != domain.RowReady {
 		t.Fatalf("status = %s (%v)", s.Row.Status, s.Row.Problems)
 	}
@@ -377,9 +374,9 @@ func TestARefusedRowCarriesNoRecord(t *testing.T) {
 	}
 }
 
-// The profile columns are the CHW category's survey. A worker in another
-// category answering them is refused, not stored and not silently dropped.
-func TestProfileColumnsOnANonCHWCadreAreRefused(t *testing.T) {
+// The survey is asked of the cadres it applies to. A worker in another cadre
+// answering it is refused, not stored and not silently dropped.
+func TestSurveyColumnsOnACadreItSkipsAreRefused(t *testing.T) {
 	f, err := ReadCSV("p.csv", strings.NewReader(profileHeader+
 		"Ruth,Akello,f,ha,,,ABIM,MORULEM,,,,no,,,,,,,,,,,,,,,,\n"))
 	if err != nil {
@@ -393,15 +390,26 @@ func TestProfileColumnsOnANonCHWCadreAreRefused(t *testing.T) {
 	if !hasCode(s, domain.ProblemProfileCategory) {
 		t.Errorf("profile on a Health Assistant gave %v", codes(s))
 	}
-	if s.Record.Profile.Answered() {
-		t.Error("a refused row still carries a profile")
+	if s.Record.Answers.Answered() {
+		t.Error("a refused row still carries answers")
 	}
 
-	// The same row with the profile left blank is fine.
+	// The same row with the survey left blank is fine; the person's details
+	// apply to anyone and are kept.
 	f, _ = ReadCSV("p.csv", strings.NewReader(profileHeader+
-		"Ruth,Akello,f,ha,,,ABIM,MORULEM,,,,,,,,,,,,,,,,,,,,\n"))
+		"Ruth,Akello,f,ha,,,ABIM,MORULEM,,,,,772123456,,,,,,uce,,,,,,,,,\n"))
 	staged, _ = New(&fakeLookup{}, auth.National()).Validate(t.Context(), f)
-	if s := only(t, staged); s.Row.Status != domain.RowReady {
-		t.Errorf("blank profile on a Health Assistant: %s (%v)", s.Row.Status, s.Row.Problems)
+	if s := only(t, staged); s.Row.Status != domain.RowReady || s.Record.Person.PhoneOwn != "772123456" {
+		t.Errorf("blank survey on a Health Assistant: %s (%v) %+v", s.Row.Status, s.Row.Problems, s.Record.Person)
 	}
+}
+
+// onField reports whether a row's problems name a column.
+func onField(s Staged, column string) bool {
+	for _, p := range s.Row.Problems {
+		if p.Field == column {
+			return true
+		}
+	}
+	return false
 }

@@ -24,12 +24,12 @@ type Deployments struct {
 
 // deploymentColumns is the projection every deployment read shares.
 const deploymentColumns = `
-    dep.id, dep.health_worker_id, dep.cadre_id,
-    cd.slug, cd.label, cd.placement_level::text,
+    dep.id, coalesce(dep.code,''), dep.health_worker_id, dep.cadre_id,
+    cd.code, cd.label, cd.placement_level::text,
     dep.location_id, dep.district_id, l.name, dl.name,
     dep.facility_id, coalesce(f.name,''),
     dep.started_on, dep.ended_on, coalesce(dep.end_reason,''),
-    dep.created_by, dep.updated_by, dep.created_at, dep.updated_at`
+    dep.created_by, dep.last_updated_by, dep.created_on, dep.last_updated_on`
 
 const deploymentFrom = `
     FROM deployments dep
@@ -40,19 +40,19 @@ const deploymentFrom = `
 
 func scanDeployment(row pgx.Row) (domain.Deployment, error) {
 	var d domain.Deployment
-	var slug, label, level string
-	err := row.Scan(&d.ID, &d.HealthWorkerID, &d.CadreID,
-		&slug, &label, &level,
+	var code, label, level string
+	err := row.Scan(&d.ID, &d.Code, &d.HealthWorkerID, &d.CadreID,
+		&code, &label, &level,
 		&d.LocationID, &d.DistrictID, &d.LocationName, &d.DistrictName,
 		&d.FacilityID, &d.FacilityName,
 		&d.StartedOn, &d.EndedOn, &d.EndReason,
-		&d.CreatedBy, &d.UpdatedBy, &d.CreatedAt, &d.UpdatedAt)
+		&d.CreatedBy, &d.LastUpdatedBy, &d.CreatedOn, &d.LastUpdatedOn)
 	if err != nil {
 		return domain.Deployment{}, err
 	}
 	d.Cadre = domain.Cadre{
 		ID:             d.CadreID,
-		Slug:           slug,
+		Code:           code,
 		Label:          label,
 		PlacementLevel: domain.Level(level),
 	}
@@ -71,15 +71,18 @@ func (s *Deployments) Cadres(ctx context.Context) ([]domain.Cadre, error) {
 // cadreColumns and cadreFrom are the projection every cadre read shares, so the
 // form, the importer and the admin screen cannot disagree about a cadre.
 const cadreColumns = `
-    c.id, c.category_id, cat.slug, cat.label, c.slug, c.label,
+    c.id, c.cadre_category_id, cat.code, cat.label, c.code, c.label,
     c.placement_level::text, c.import_aliases, c.sort_order, c.active`
 
 const cadreFrom = `
-    FROM cadres c JOIN cadre_categories cat ON cat.id = c.category_id`
+    FROM cadres c JOIN cadre_categories cat ON cat.id = c.cadre_category_id`
 
 const cadreOrder = ` ORDER BY cat.sort_order, cat.id, c.sort_order, c.id`
 
+// querier is the slice of *pgxpool.Pool and pgx.Tx a read needs, so one
+// implementation serves inside a transaction and outside one.
 type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
@@ -104,8 +107,8 @@ func queryCadres(ctx context.Context, q querier, where string, args ...any) ([]d
 func scanCadre(row pgx.Row) (domain.Cadre, error) {
 	var c domain.Cadre
 	var level string
-	if err := row.Scan(&c.ID, &c.CategoryID, &c.CategorySlug, &c.CategoryLabel,
-		&c.Slug, &c.Label, &level, &c.ImportAliases, &c.SortOrder, &c.Active); err != nil {
+	if err := row.Scan(&c.ID, &c.CategoryID, &c.CategoryCode, &c.CategoryLabel,
+		&c.Code, &c.Label, &level, &c.ImportAliases, &c.SortOrder, &c.Active); err != nil {
 		return domain.Cadre{}, fmt.Errorf("scan cadre: %w", err)
 	}
 	c.PlacementLevel = domain.Level(level)
@@ -191,9 +194,8 @@ func (s *Deployments) startTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, act
 
 	const q = `
 	    WITH dep AS (
-	        INSERT INTO deployments (health_worker_id, cadre_id, location_id, district_id,
-	                                 facility_id, created_by, updated_by)
-	        VALUES ($1, $2, $3, 0, $4, $5, $5)
+	        INSERT INTO deployments (health_worker_id, cadre_id, location_id, district_id, facility_id)
+	        VALUES ($1, $2, $3, 0, $4)
 	        RETURNING *
 	    )
 	    SELECT ` + deploymentColumns + `
@@ -204,12 +206,17 @@ func (s *Deployments) startTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, act
 	    LEFT JOIN facilities f ON f.id = dep.facility_id`
 
 	d, err := scanDeployment(tx.QueryRow(ctx, q,
-		workerID, in.CadreID, in.LocationID, in.FacilityID, actor.ID))
+		workerID, in.CadreID, in.LocationID, in.FacilityID))
 	if err != nil {
 		return domain.Deployment{}, fmt.Errorf("deploy worker %d: %w", workerID, translate(err))
 	}
 	if !sc.Allows(d.DistrictID) {
 		return domain.Deployment{}, fmt.Errorf("deploy worker %d in district %d: %w", workerID, d.DistrictID, domain.ErrForbidden)
+	}
+	// The posting's code is issued by an AFTER trigger, so the CTE's snapshot
+	// predates it.
+	if d, err = s.byIDTx(ctx, tx, d.ID); err != nil {
+		return domain.Deployment{}, err
 	}
 
 	if err := s.auditTx(ctx, tx, actor, ActionDeploymentStart, d, nil, auditDeployment(d), ip); err != nil {
@@ -236,10 +243,9 @@ func (s *Deployments) endTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor
 
 	if _, err := tx.Exec(ctx, `
 	    UPDATE deployments SET
-	        ended_on = current_date, end_reason = nullif($2,''),
-	        updated_by = $3, updated_at = now()
+	        ended_on = current_date, end_reason = nullif($2,'')
 	    WHERE id = $1 AND ended_on IS NULL`,
-		before.ID, reason, actor.ID); err != nil {
+		before.ID, reason); err != nil {
 		return nil, fmt.Errorf("end deployment %d: %w", before.ID, translate(err))
 	}
 
@@ -303,7 +309,7 @@ func (s *Deployments) ForWorker(ctx context.Context, sc auth.Scope, workerID int
 func (s *Deployments) SetFacility(ctx context.Context, sc auth.Scope, actor domain.User,
 	workerID int64, facilityID *int64, ip netip.Addr) error {
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return fmt.Errorf("attach facility for worker %d: %w", workerID, err)
 	}
@@ -337,9 +343,9 @@ func (s *Deployments) setFacilityTx(ctx context.Context, tx pgx.Tx, sc auth.Scop
 
 	if _, err := tx.Exec(ctx, `
 	    UPDATE deployments SET
-	        facility_id = $2, updated_by = $3, updated_at = now()
+	        facility_id = $2
 	    WHERE id = $1 AND ended_on IS NULL`,
-		before.ID, facilityID, actor.ID); err != nil {
+		before.ID, facilityID); err != nil {
 		return fmt.Errorf("attach facility on deployment %d: %w", before.ID, translate(err))
 	}
 
@@ -392,8 +398,9 @@ func (s *Deployments) auditTx(ctx context.Context, tx pgx.Tx, actor domain.User,
 func auditDeployment(d domain.Deployment) map[string]any {
 	m := map[string]any{
 		"id":               d.ID,
+		"code":             d.Code,
 		"health_worker_id": d.HealthWorkerID,
-		"cadre":            d.Cadre.Slug,
+		"cadre":            d.Cadre.Code,
 		"location_id":      d.LocationID,
 		"district_id":      d.DistrictID,
 		"facility_id":      d.FacilityID,

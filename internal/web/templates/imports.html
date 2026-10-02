@@ -68,7 +68,7 @@
   {{range .Page.Batches}}
     <tr class="{{if not .Pending}}dim{{end}}">
       <td><a href="/imports/{{.ID}}">{{.Filename}}</a></td>
-      <td>{{.CreatedAt.Format "2 Jan 2006, 15:04"}}</td>
+      <td>{{.CreatedOn.Format "2 Jan 2006, 15:04"}}</td>
       <td>{{.UploaderName}}{{if .DistrictName}} · {{.DistrictName}}{{end}}</td>
       <td>{{num .Total}}</td>
       <td>{{if eq .Status "committed"}}{{num .Imported}}{{else}}<span class="muted">—</span>{{end}}</td>

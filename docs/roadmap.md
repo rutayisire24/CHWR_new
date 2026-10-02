@@ -4,6 +4,16 @@ Go + `html/template` + vanilla CSS/JS, PostgreSQL. No framework, no ORM, no JS b
 
 ## Where we are
 
+**Phase 9 (October 2026): the reviewer's target schema.** The migration sequence was
+rewritten as 0001–0007 — persons and their satellites, record columns on every table,
+codes on cadres, facilities and deployments, the questionnaire engine with the CHW
+baseline as its first survey, services and tools with dated events — and every database
+is rebuilt and re-seeded; the ODK seed below predates it and is re-imported, not
+migrated. Surveys are administered at `/profiles`, distributions at `/distributions`,
+and person details and service reports on the worker page. See
+[decisions.md](decisions.md#the-reviewers-target-schema-october-2026). Next: CSV import
+for service reports and distributions, and the reviewer's three open questions.
+
 **Phases 1–7 complete, and the register now holds a real national seed:** 44,446 CHWs
 converted from the August 2026 ODK export and imported district by district — 42,956 VHTs
 and 1,490 CHEWs across 54 districts, every one of them with an `audit_log` row.

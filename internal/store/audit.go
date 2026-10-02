@@ -42,7 +42,17 @@ const (
 	ActionDeploymentStart  = "deployment.start"
 	ActionDeploymentEnd    = "deployment.end"
 	ActionDeploymentUpdate = "deployment.update"
-	ActionProfileUpdate    = "chw.profile_update"
+	// A questionnaire submission; the worker's survey history.
+	ActionProfileSubmit = "profile.submit"
+	// The questionnaires themselves: national vocabulary, like cadres.
+	ActionProfileCreate = "profile.create"
+	ActionProfileUpdate = "profile.update"
+	// What is recorded about the person beyond the persons row.
+	ActionPersonDetailAdd    = "person.detail_add"
+	ActionPersonDetailRemove = "person.detail_remove"
+	// Dated events against a posting.
+	ActionServiceReport    = "service.report"
+	ActionToolDistribution = "tool.distribute"
 	// The cadre taxonomy. National vocabulary, so these rows carry no district.
 	ActionCadreCreate    = "cadre.create"
 	ActionCadreUpdate    = "cadre.update"

@@ -181,8 +181,8 @@ for p in dump("select id, district_id, name from facilities"):
 already = set()
 # Placement lives on the posting now: the location a worker is seen at is their
 # open deployment's, else their latest -- the same posting the listing shows.
-for p in dump("select dep.location_id, lower(w.first_name), lower(w.last_name)"
-              " from health_workers w cross join lateral ("
+for p in dump("select dep.location_id, lower(p.first_name), lower(p.last_name)"
+              " from health_workers w join persons p on p.id = w.person_id cross join lateral ("
               "   select location_id from deployments x where x.health_worker_id = w.id"
               "    order by (x.ended_on is null) desc, x.started_on desc, x.id desc limit 1"
               " ) dep"):
@@ -190,7 +190,7 @@ for p in dump("select dep.location_id, lower(w.first_name), lower(w.last_name)"
     already.add((int(p[0]), frozenset(re.split(r'\s+', (p[1] + ' ' + p[2]).strip()))))
 
 # ---------------------------------------------------------------- sex
-# The one column eCHIS does not have and the schema will not do without: health_workers.sex
+# The one column eCHIS does not have and the schema will not do without: persons.sex
 # is NOT NULL and the importer requires it. It is never guessed -- a defaulted sex
 # is a wrong fact about a person that no one will ever re-examine, and it would
 # flow straight into the reporting the register exists to feed.
@@ -392,6 +392,6 @@ print(f"field-level notes  : {len(notes)}\n")
 print("rejections by reason:")
 for k,v in stat.most_common(): print(f"  {v:7}  {k}")
 if pending and not SEXMAP:
-    print("\nNo SEX_FILE given, so nothing is import-ready: health_workers.sex is NOT NULL and the")
+    print("\nNo SEX_FILE given, so nothing is import-ready: persons.sex is NOT NULL and the")
     print("importer requires it. The pending/ files are placed and canonical in every")
     print("other column -- fill sex and they upload as they are.")

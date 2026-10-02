@@ -17,8 +17,17 @@ const (
 	// national — a cadre added by one district would appear in every other —
 	// so only the national admin holds it.
 	CapCadreManage Capability = "cadre.manage"
-	CapAuditView   Capability = "audit.view"
-	CapExport      Capability = "export"
+	// CapProfileManage adds and edits questionnaires and their questions. A
+	// profile is national vocabulary like a cadre, so only the national admin
+	// holds it.
+	CapProfileManage Capability = "profile.manage"
+	// CapServiceReport records the services a worker gave, and
+	// CapToolDistribute a hand-out of tools: events against a posting, kept by
+	// the people who keep the register.
+	CapServiceReport  Capability = "service.report"
+	CapToolDistribute Capability = "tool.distribute"
+	CapAuditView      Capability = "audit.view"
+	CapExport         Capability = "export"
 )
 
 // matrix mirrors docs/rbac.md exactly. Presence means the role holds the
@@ -30,6 +39,7 @@ var matrix = map[domain.Role]map[Capability]bool{
 		CapWorkerView: true, CapWorkerCreate: true, CapWorkerUpdate: true,
 		CapWorkerDeactivate: true, CapUserManage: true, CapAuditView: true,
 		CapExport: true, CapImport: true, CapCadreManage: true,
+		CapProfileManage: true, CapServiceReport: true, CapToolDistribute: true,
 	},
 	domain.RoleNationalViewer: {
 		CapWorkerView: true, CapExport: true,
@@ -37,7 +47,7 @@ var matrix = map[domain.Role]map[Capability]bool{
 	domain.RoleDistrictManager: {
 		CapWorkerView: true, CapWorkerCreate: true, CapWorkerUpdate: true,
 		CapWorkerDeactivate: true, CapAuditView: true, CapExport: true,
-		CapImport: true,
+		CapImport: true, CapServiceReport: true, CapToolDistribute: true,
 	},
 	domain.RoleDistrictViewer: {
 		CapWorkerView: true, CapExport: true,

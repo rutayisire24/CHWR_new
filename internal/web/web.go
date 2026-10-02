@@ -251,4 +251,25 @@ var funcs = template.FuncMap{
 		}
 		return t.Format("2 Jan 2006 15:04")
 	},
+	// day renders an optional calendar date, "—" when there is none.
+	"day": func(t *time.Time) string {
+		if t == nil {
+			return "—"
+		}
+		return t.Format("2 Jan 2006")
+	},
+	// intp renders an optional whole number, "" when there is none.
+	"intp": func(n any) string {
+		switch v := n.(type) {
+		case *int:
+			if v != nil {
+				return strconv.Itoa(*v)
+			}
+		case *int16:
+			if v != nil {
+				return strconv.Itoa(int(*v))
+			}
+		}
+		return ""
+	},
 }

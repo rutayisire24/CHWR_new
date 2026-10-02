@@ -10,7 +10,7 @@
 </div>
 
 <p class="muted">
-  Uploaded {{$b.CreatedAt.Format "2 January 2006, 15:04"}} by {{$b.UploaderName}}{{if $b.DistrictName}}, for {{$b.DistrictName}}{{end}}.
+  Uploaded {{$b.CreatedOn.Format "2 January 2006, 15:04"}} by {{$b.UploaderName}}{{if $b.DistrictName}}, for {{$b.DistrictName}}{{end}}.
   {{if $b.CommittedAt}}Imported {{$b.CommittedAt.Format "2 January 2006, 15:04"}}.{{end}}
 </p>
 

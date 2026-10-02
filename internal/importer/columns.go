@@ -40,11 +40,15 @@ var Core = []Column{
 		Help: "Required."},
 	{Name: "last_name", Aliases: []string{"other_names", "surname", "family_name"}, Required: true,
 		Help: "Required. The source form calls this Other Names."},
+	{Name: "other_name", Aliases: []string{"middle_name", "oname"},
+		Help: "Optional. A middle or other name."},
 	{Name: "sex", Required: true, Help: "male or female."},
 	{Name: "cadre", Aliases: []string{"chw_type", "type"}, Required: true,
 		Help: "vht or chew. One only."},
+	{Name: "dob", Aliases: []string{"date_of_birth", "birth_date"},
+		Help: "Date of birth, YYYY-MM-DD. Leave blank and give age_years when only the age is known."},
 	{Name: "age_years", Aliases: []string{"age"},
-		Help: "18 to 99, or leave blank."},
+		Help: "18 to 99, or leave blank. Recorded as an estimated date of birth."},
 	{Name: "nin", Aliases: []string{"national_id", "nin_alternative_no"},
 		Help: "14 characters, or leave blank."},
 	{Name: "district", Required: true, Help: "Required."},
@@ -57,9 +61,13 @@ var Core = []Column{
 
 // Profile is the optional survey attributes, in the order the source form asks
 // them. Every one of them may be blank, and blank is not "no": an empty cell
-// leaves the column NULL, and only an explicit no writes false. A record
-// imported from a file that never asked about incentives must not come back as
-// a CHW who said they receive none.
+// is a question nobody asked, and only an explicit no records an answer of no.
+// A record imported from a file that never asked about incentives must not
+// come back as a CHW who said they receive none.
+//
+// Most are questions of the CHW baseline survey (surveyColumns says which);
+// the phones, education and English are facts about the person and land on
+// the person's own records; the facility is the posting's.
 var Profile = []Column{
 	{Name: "phone_owner", Aliases: []string{"owns_phone", "phones", "has_phone"},
 		Help: "yes or no. Blank means it was not asked."},
@@ -94,6 +102,10 @@ var Profile = []Column{
 		Help: "Semicolon-separated service domains offered."},
 	{Name: "trained", Aliases: []string{"training"},
 		Help: "Which of those they were trained on in the last 2 years."},
+	{Name: "received_supervision", Aliases: []string{"supervised"},
+		Help: "yes or no — has the CHW received support supervision."},
+	{Name: "last_supervised_on", Aliases: []string{"last_supervised"},
+		Help: "The month of the last supervision, YYYY-MM. Only with yes above."},
 }
 
 // Canonical profile column names.
@@ -115,17 +127,54 @@ const (
 	ColToolsFunctional = "tools_functional"
 	ColServices        = "services"
 	ColTrained         = "trained"
+	ColSupervised      = "received_supervision"
+	ColLastSupervised  = "last_supervised_on"
 )
 
-// All is every column the register understands, core first. There is no
-// `support_supervision`: the source form records supervision per service domain
-// and carries no date, so last_supervised_on fills only through the UI.
+// surveyColumns maps each survey column to the CHW baseline question it
+// answers. The column names are the template's and predate the questionnaire,
+// which is why four of them are not spelled like their question.
+var surveyColumns = []struct{ Column, Question string }{
+	{ColPhoneOwner, "owns_phone"},
+	{ColPhoneReporting, "phone_for_reporting"},
+	{ColServiceYear, "service_start_year"},
+	{ColHouseholds, "households_served"},
+	{ColOtherLanguages, "other_languages"},
+	{ColIncentive, "receives_incentive"},
+	{ColIncentiveFreq, "incentive_frequency"},
+	{ColIncentiveAmount, "incentive_amount_ugx"},
+	{ColSupervised, "received_supervision"},
+	{ColLastSupervised, "last_supervised_on"},
+	{ColTools, "tools_held"},
+	{ColToolsFunctional, "tools_functional"},
+	{ColServices, "services_provided"},
+	{ColTrained, "services_trained"},
+}
+
+// SurveyColumn is the column that answers a baseline question, for a report
+// or an export that has the question and wants the column.
+func SurveyColumn(question string) string {
+	for _, c := range surveyColumns {
+		if c.Question == question {
+			return c.Column
+		}
+	}
+	return question
+}
+
+// All is every column the register understands, core first. The ODK form's
+// `support_supervision` is not one of them: it records supervision per service
+// domain and carries no date, so it says nothing received_supervision and
+// last_supervised_on can hold. An export of the register carries both, and
+// they import.
 var All = append(append([]Column{}, Core...), Profile...)
 
 // Canonical column names, so a rule reads as a name rather than a string.
 const (
 	ColFirstName = "first_name"
 	ColLastName  = "last_name"
+	ColOtherName = "other_name"
+	ColDOB       = "dob"
 	ColSex       = "sex"
 	ColCadre     = "cadre"
 	ColAge       = "age_years"
@@ -290,4 +339,15 @@ func TemplateFilename(districtName string) string {
 	}
 	return fmt.Sprintf("chw-import-template-%s.csv",
 		strings.ToLower(strings.ReplaceAll(districtName, " ", "-")))
+}
+
+// SurveyQuestion is the baseline question a survey column answers, "" for a
+// column that answers none.
+func SurveyQuestion(column string) string {
+	for _, c := range surveyColumns {
+		if c.Column == column {
+			return c.Question
+		}
+	}
+	return ""
 }

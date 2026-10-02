@@ -67,6 +67,14 @@ type dashboardPage struct {
 	// The bars are a share of that, not of the register.
 	ServicesFrom int64
 
+	// The dated events, beside the survey: tools handed out to the selection
+	// and services its workers reported in the last ninety days, each with the
+	// number of workers behind it.
+	ToolsGiven        []store.EventCount
+	ToolsGivenTo      int64
+	ServicesRecent    []store.EventCount
+	ServicesReporters int64
+
 	// AnyService is false before the first import lands. The card then shows
 	// an empty state rather than twelve bars pinned at zero, which reads as a
 	// finding when it is only an absence.
@@ -332,6 +340,14 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if page.ToolsGiven, page.ToolsGivenTo, err = s.store.Stats.ToolsHandedOut(ctx, sc, f); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if page.ServicesRecent, page.ServicesReporters, err = s.store.Stats.ServicesReported(ctx, sc, f); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	if page.CanAudit {
 		if page.Recent, err = s.store.Audit.List(ctx, sc, 8); err != nil {
 			s.fail(w, r, err)
@@ -354,7 +370,7 @@ func admitsCHW(f store.Filter, cadres []domain.Cadre) bool {
 	}
 	if f.Cadre != "" {
 		for _, c := range cadres {
-			if c.Slug == f.Cadre {
+			if c.Code == f.Cadre {
 				return c.CarriesCHWProfile()
 			}
 		}

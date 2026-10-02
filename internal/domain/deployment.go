@@ -10,7 +10,7 @@ import (
 // its profile surface (chw_profiles for this one).
 type CadreCategory struct {
 	ID        int16
-	Slug      string
+	Code      string
 	Label     string
 	SortOrder int16
 	Active    bool
@@ -37,11 +37,11 @@ var PlacementLevels = []Level{LevelDistrict, LevelSubcounty, LevelParish, LevelV
 type Cadre struct {
 	ID         int16
 	CategoryID int16
-	// CategorySlug and CategoryLabel are the joined cadre_categories row: the
+	// CategoryCode and CategoryLabel are the joined cadre_categories row: the
 	// label groups the form's choices, the slug decides the profile surface.
-	CategorySlug   string
+	CategoryCode   string
 	CategoryLabel  string
-	Slug           string
+	Code           string
 	Label          string
 	PlacementLevel Level
 	// ImportAliases are the spellings an import may use for this cadre beside
@@ -56,14 +56,14 @@ type Cadre struct {
 // profile — the phone, incentive, tool and service-domain survey. Only the
 // Community Health Workers category does; offering it to a nurse would record
 // answers to questions nobody asked them.
-func (c Cadre) CarriesCHWProfile() bool { return c.CategorySlug == CategoryCHW }
+func (c Cadre) CarriesCHWProfile() bool { return c.CategoryCode == CategoryCHW }
 
 // ImportSpellings is every string an import cell can name this cadre by: the
 // slug and the aliases, exactly what MatchesImport compares against. The admin form checks a new cadre's against
 // every other's, because two cadres answering to one spelling would make the
 // importer's cadre column ambiguous.
 func (c Cadre) ImportSpellings() []string {
-	return append([]string{c.Slug}, c.ImportAliases...)
+	return append([]string{c.Code}, c.ImportAliases...)
 }
 
 // FoldImport is the comparison MatchesImport uses, exported for the admin
@@ -75,7 +75,7 @@ func FoldImport(s string) string { return foldSeparators(s) }
 // "vht" are the same answer.
 func (c Cadre) MatchesImport(s string) bool {
 	folded := foldSeparators(s)
-	if folded == foldSeparators(c.Slug) {
+	if folded == foldSeparators(c.Code) {
 		return true
 	}
 	for _, alias := range c.ImportAliases {
@@ -107,7 +107,10 @@ func foldSeparators(s string) string {
 // A worker holds at most one active deployment (EndedOn nil) —
 // deployments_one_active_idx says so.
 type Deployment struct {
-	ID             int64
+	ID int64
+	// Code is the posting's own identifier, the worker's code and an ordinal:
+	// KYE00042-01 is their first posting. Issued by trigger, never supplied.
+	Code           string
 	HealthWorkerID int64
 
 	CadreID int16
@@ -134,10 +137,10 @@ type Deployment struct {
 	EndedOn   *time.Time
 	EndReason string
 
-	CreatedBy *int64
-	UpdatedBy *int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedBy     *int64
+	LastUpdatedBy *int64
+	CreatedOn     time.Time
+	LastUpdatedOn time.Time
 }
 
 // Active reports whether the posting is current.

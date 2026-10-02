@@ -17,9 +17,11 @@
   <nav>
     <a href="/" class="{{if eq .Nav.Section "/"}}on{{end}}">Dashboard</a>
     {{if .Nav.Workers}}<a href="/health-workers" class="{{if eq .Nav.Section "/health-workers"}}on{{end}}">Register</a>{{end}}
+    {{if .Nav.Tools}}<a href="/distributions" class="{{if eq .Nav.Section "/distributions"}}on{{end}}">Tools</a>{{end}}
     {{if .Nav.Imports}}<a href="/imports" class="{{if eq .Nav.Section "/imports"}}on{{end}}">Import</a>{{end}}
     {{if .Nav.Users}}<a href="/users" class="{{if eq .Nav.Section "/users"}}on{{end}}">Users</a>{{end}}
     {{if .Nav.Cadres}}<a href="/cadres" class="{{if eq .Nav.Section "/cadres"}}on{{end}}">Cadres</a>{{end}}
+    {{if .Nav.Surveys}}<a href="/profiles" class="{{if eq .Nav.Section "/profiles"}}on{{end}}">Surveys</a>{{end}}
     {{if .Nav.Audit}}<a href="/audit" class="{{if eq .Nav.Section "/audit"}}on{{end}}">Audit</a>{{end}}
   </nav>
   <div class="who">

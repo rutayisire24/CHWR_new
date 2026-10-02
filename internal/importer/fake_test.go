@@ -86,30 +86,66 @@ var codePaths = map[string]int64{
 	"10224101010001": layibi,
 }
 
-// The vocabularies, as the migrations seed them. Slug and label both match,
-// because a district reading the template's help will write one or the other.
-var fakeTools = []domain.Tool{
-	{ID: 1, Slug: "bicycle", Label: "Bicycle"},
-	{ID: 2, Slug: "gumboots", Label: "Gumboots"},
-	{ID: 3, Slug: "thermometer", Label: "Thermometer"},
-	{ID: 7, Slug: "register", Label: "VHT Reporting Tools"},
-}
-
-var fakeDomains = []domain.ServiceDomain{
-	{ID: 1, Slug: "iccm", Label: "Management of Common Childhood Illnesses (ICCM)"},
-	{ID: 2, Slug: "maternal_newborn", Label: "Maternal and Newborn Health"},
-	{ID: 7, Slug: "nutrition", Label: "Nutrition Services"},
-}
+// The survey, shaped as 0006 seeds the CHW baseline: the same codes, the same
+// branches, a subset of the tool and service choices. Code and prompt both
+// match a cell, because a district reading the template's help will write one
+// or the other.
+var fakeSurvey = func() Survey {
+	f64 := func(v float64) *float64 { return &v }
+	yesNo := []domain.Option{{ID: 1, Code: "yes", Prompt: "Yes"}, {ID: 2, Code: "no", Prompt: "No"}}
+	tools := []domain.Option{{ID: 0, Code: "none", Prompt: "None"},
+		{ID: 1, Code: "bicycle", Prompt: "Bicycle"}, {ID: 2, Code: "gumboots", Prompt: "Gumboots"},
+		{ID: 3, Code: "thermometer", Prompt: "Thermometer"}, {ID: 7, Code: "register", Prompt: "VHT Reporting Tools"}}
+	services := []domain.Option{{ID: 0, Code: "none", Prompt: "None"},
+		{ID: 1, Code: "iccm", Prompt: "Management of Common Childhood Illnesses (ICCM)"},
+		{ID: 2, Code: "maternal_newborn", Prompt: "Maternal and Newborn Health"},
+		{ID: 7, Code: "nutrition", Prompt: "Nutrition Services"}}
+	q := func(code string, dt domain.DataType, opts []domain.Option, multi bool) domain.Question {
+		return domain.Question{Code: code, Prompt: code, DataType: dt, Options: opts,
+			Closed: opts != nil, Multi: multi, Active: true}
+	}
+	year, households, amount := q("service_start_year", domain.DataInteger, nil, false),
+		q("households_served", domain.DataInteger, nil, false), q("incentive_amount_ugx", domain.DataInteger, nil, false)
+	year.Min, year.Max = f64(1960), f64(2100)
+	households.Min, households.Max = f64(3), f64(100000)
+	amount.Min, amount.Max = f64(1000), f64(500000)
+	amount.DependsOn, amount.DependsOnOption = "receives_incentive", "yes"
+	reporting := q("phone_for_reporting", domain.DataYesNo, yesNo, false)
+	reporting.DependsOn, reporting.DependsOnOption = "owns_phone", "yes"
+	frequency := q("incentive_frequency", domain.DataCharacter, []domain.Option{
+		{ID: 1, Code: "monthly", Prompt: "Monthly", Aliases: []string{"month"}},
+		{ID: 2, Code: "quarterly", Prompt: "Quarterly"},
+		{ID: 3, Code: "annually", Prompt: "Annually", Aliases: []string{"yearly"}},
+		{ID: 4, Code: "one_off", Prompt: "One-off", Aliases: []string{"once"}}}, false)
+	frequency.DependsOn, frequency.DependsOnOption = "receives_incentive", "yes"
+	supervised := q("last_supervised_on", domain.DataMonth, nil, false)
+	supervised.DependsOn, supervised.DependsOnOption = "received_supervision", "yes"
+	functional := q("tools_functional", domain.DataCharacter, tools, true)
+	functional.SubsetOf = "tools_held"
+	trained := q("services_trained", domain.DataCharacter, services, true)
+	trained.SubsetOf = "services_provided"
+	return Survey{
+		Profile: domain.Profile{Code: "chw_baseline", Name: "CHW baseline survey", Questions: []domain.Question{
+			q("owns_phone", domain.DataYesNo, yesNo, false), reporting, year, households,
+			q("other_languages", domain.DataText, nil, false),
+			q("receives_incentive", domain.DataYesNo, yesNo, false), frequency, amount,
+			q("received_supervision", domain.DataYesNo, yesNo, false), supervised,
+			q("tools_held", domain.DataCharacter, tools, true), functional,
+			q("services_provided", domain.DataCharacter, services, true), trained,
+		}},
+		Cadres: []int16{1, 2}, // vht and chew; not the health assistant
+	}
+}()
 
 // The cadre vocabulary, as 0003 seeds it — VHTs at village, CHEWs at parish —
 // plus a cadre outside the CHW category placed at subcounty, the shape an
 // administrator adds through /cadres.
 var fakeCadres = []domain.Cadre{
-	{ID: 1, CategoryID: 1, CategorySlug: domain.CategoryCHW, Slug: "vht", Label: "Village Health Team member",
+	{ID: 1, CategoryID: 1, CategoryCode: domain.CategoryCHW, Code: "vht", Label: "Village Health Team member",
 		PlacementLevel: domain.LevelVillage, ImportAliases: []string{"village health team"}, Active: true},
-	{ID: 2, CategoryID: 1, CategorySlug: domain.CategoryCHW, Slug: "chew", Label: "Community Health Extension Worker",
+	{ID: 2, CategoryID: 1, CategoryCode: domain.CategoryCHW, Code: "chew", Label: "Community Health Extension Worker",
 		PlacementLevel: domain.LevelParish, ImportAliases: []string{"chw", "community health extension worker"}, Active: true},
-	{ID: 3, CategoryID: 2, CategorySlug: "ehs", Slug: "health_assistant", Label: "Health Assistant",
+	{ID: 3, CategoryID: 2, CategoryCode: "ehs", Code: "health_assistant", Label: "Health Assistant",
 		PlacementLevel: domain.LevelSubcounty, ImportAliases: []string{"ha"}, Active: true},
 }
 
@@ -143,12 +179,8 @@ func (f *fakeLookup) Cadres(ctx context.Context) ([]domain.Cadre, error) {
 	return fakeCadres, nil
 }
 
-func (f *fakeLookup) Tools(ctx context.Context) ([]domain.Tool, error) {
-	return fakeTools, nil
-}
-
-func (f *fakeLookup) ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error) {
-	return fakeDomains, nil
+func (f *fakeLookup) Survey(ctx context.Context) (Survey, error) {
+	return fakeSurvey, nil
 }
 
 func (f *fakeLookup) FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error) {

@@ -40,9 +40,11 @@ type page struct {
 // templates ask a boolean rather than re-deriving the capability matrix.
 type nav struct {
 	Workers bool
+	Tools   bool
 	Imports bool
 	Users   bool
 	Cadres  bool
+	Surveys bool
 	Audit   bool
 	Section string // first path segment, so /health-workers/42 still marks Register
 }
@@ -71,6 +73,8 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 			Imports: auth.Can(u.Role, auth.CapImport),
 			Users:   auth.Can(u.Role, auth.CapUserManage),
 			Cadres:  auth.Can(u.Role, auth.CapCadreManage),
+			Surveys: auth.Can(u.Role, auth.CapProfileManage),
+			Tools:   auth.Can(u.Role, auth.CapWorkerView),
 			Audit:   auth.Can(u.Role, auth.CapAuditView),
 			Section: section(r.URL.Path),
 		}

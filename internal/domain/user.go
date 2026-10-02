@@ -63,18 +63,18 @@ const (
 // User is a row of `users` minus the password hash, which never leaves the
 // store layer.
 type User struct {
-	ID           int64
-	Email        string
-	FullName     string
-	MustReset    bool
-	Role         Role
-	DistrictID   *int64
-	DistrictName string // joined from locations; empty for national roles
-	Status       UserStatus
-	LastLoginAt  *time.Time
-	CreatedBy    *int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID            int64
+	Email         string
+	FullName      string
+	MustReset     bool
+	Role          Role
+	DistrictID    *int64
+	DistrictName  string // joined from locations; empty for national roles
+	Status        UserStatus
+	LastLoginAt   *time.Time
+	CreatedBy     *int64
+	CreatedOn     time.Time
+	LastUpdatedOn time.Time
 }
 
 // Active reports whether the account may still authenticate.

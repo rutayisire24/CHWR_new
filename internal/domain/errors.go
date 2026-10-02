@@ -25,6 +25,11 @@ var (
 	// ErrForbidden means authenticated but not permitted: the role lacks the
 	// capability, or the target is outside the user's district.
 	ErrForbidden = errors.New("forbidden")
+
+	// ErrRefused is a write the schema's own rules turned down — a trigger
+	// that raised, such as a service a cadre does not give. The trigger's
+	// message travels with it.
+	ErrRefused = errors.New("refused")
 )
 
 // ValidationError carries per-field messages back to a form template.

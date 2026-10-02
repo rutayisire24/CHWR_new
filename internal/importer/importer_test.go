@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"hwr/internal/auth"
 	"hwr/internal/domain"
@@ -178,8 +179,9 @@ func TestAcceptsACleanVHTAndCHEW(t *testing.T) {
 	if vht.Record.Sex != domain.SexFemale || vht.Record.Deployment.Cadre != "vht" {
 		t.Errorf("VHT parsed as %s/%s", vht.Record.Sex, vht.Record.Deployment.Cadre)
 	}
-	if vht.Record.AgeYears == nil || *vht.Record.AgeYears != 34 {
-		t.Errorf("age = %v, want 34", vht.Record.AgeYears)
+	// An age is recorded as the birth date it implies, flagged as an estimate.
+	if want := domain.EstimateDOB(34, time.Now()).Format(time.DateOnly); vht.Record.DOB != want || !vht.Record.DOBEstimated {
+		t.Errorf("dob = %q (estimated %v), want the estimate %s", vht.Record.DOB, vht.Record.DOBEstimated, want)
 	}
 
 	if chew.Row.Status != domain.RowReady {
@@ -550,7 +552,7 @@ func TestALocationCodeCannotReachAnotherDistrict(t *testing.T) {
 
 func TestDuplicateNINAgainstTheRegisterNamesTheRecord(t *testing.T) {
 	lookup := &fakeLookup{nins: map[string]domain.HealthWorker{
-		"CM90210987654X": {ID: 7, FirstName: "Betty", LastName: "Aber"},
+		"CM90210987654X": {ID: 7, Person: domain.Person{FirstName: "Betty", LastName: "Aber"}},
 	}}
 	s := only(t, validate(t, auth.National(),
 		"Grace,Okello,f,vht,,CM90210987654X,ABIM,MORULEM,ALEREK,KANU-EAST,\n", lookup))
@@ -569,8 +571,8 @@ func TestDuplicateNINAgainstTheRegisterNamesTheRecord(t *testing.T) {
 func TestADistrictUploadNamesOnlyItsOwnNINHolders(t *testing.T) {
 	inAbim, inGulu := int64(abim), int64(gulu)
 	lookup := &fakeLookup{nins: map[string]domain.HealthWorker{
-		"CM90210987654X": {ID: 7, FirstName: "Betty", LastName: "Aber", DistrictID: &inAbim},
-		"CF11122233344Y": {ID: 8, FirstName: "Joyce", LastName: "Lamunu", DistrictID: &inGulu},
+		"CM90210987654X": {ID: 7, Person: domain.Person{FirstName: "Betty", LastName: "Aber"}, DistrictID: &inAbim},
+		"CF11122233344Y": {ID: 8, Person: domain.Person{FirstName: "Joyce", LastName: "Lamunu"}, DistrictID: &inGulu},
 	}}
 	staged := validate(t, auth.District(abim),
 		"Grace,Okello,f,vht,,CM90210987654X,ABIM,MORULEM,ALEREK,KANU-EAST,\n"+
@@ -630,7 +632,7 @@ func TestNINIsTidiedBeforeTheSharedRuleIsAsked(t *testing.T) {
 // own form warns and asks for a second submit rather than refusing.
 func TestDuplicateNameAtALocationWarnsAndStillImports(t *testing.T) {
 	lookup := &fakeLookup{names: map[int64][]domain.HealthWorker{
-		kanu: {{ID: 9, FirstName: "Grace", LastName: "Okello",
+		kanu: {{ID: 9, Person: domain.Person{FirstName: "Grace", LastName: "Okello"},
 			Deployment: &domain.Deployment{LocationName: "KANU-EAST"}}},
 	}}
 	s := only(t, validate(t, auth.National(),

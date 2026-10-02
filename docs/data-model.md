@@ -1,19 +1,32 @@
 # Data model
 
-Five migrations, applied in order, embedded in the binary and run by `goose` at startup.
+Seven migrations, applied in order, embedded in the binary and run by `goose` at startup.
 All verified against PostgreSQL 18.
 
-- `0001_locations.sql` — hierarchy, facilities with their MFL attributes
-- `0002_users_auth.sql` — users, sessions, audit log
-- `0003_health_workers.sql` — the person, the cadre taxonomy, deployments, and the
-  triggers that tie them together
-- `0004_chw_profile.sql` — the Community Health Workers category's profile, junctions and
-  vocabularies
-- `0005_imports.sql` — import staging, the commit claim, the resolved record, quarantine
+- `0001_locations.sql` — hierarchy, facilities (with an external `code`)
+- `0002_users_auth.sql` — users, sessions, audit log; the record columns (`stamp_row`,
+  `record_columns`) and the `districts` view
+- `0003_persons.sql` — the person and their satellites, `identifier_types`, `languages`
+- `0004_health_workers.sql` — cadres, health workers, deployments (with codes), worker
+  codes, and the triggers that tie them together
+- `0005_services_tools.sql` — services, tools, per-cadre applicability, service updates,
+  tool distributions
+- `0006_questionnaire.sql` — the questionnaire engine and the `chw_baseline` survey
+- `0007_imports.sql` — import staging, the commit claim, the resolved record, quarantine
 
-These five replaced an earlier CHW-only sequence (`0003_chws` … `0008_import_record`).
-A database migrated under the old sequence does not upgrade in place; it is rebuilt and
-re-seeded. See [decisions.md](decisions.md).
+These seven replaced the earlier 0001–0008 when the reviewer's target schema was adopted
+(see [decisions.md](decisions.md)). A database migrated under the old sequence does not
+upgrade in place; it is rebuilt and re-seeded.
+
+## Record columns
+
+Every record table ends with the same five columns: `uuid` (unique, defaulted, kept for
+exchange with other systems — joins stay on the bigint `id`), `created_on`, `created_by`,
+`last_updated_on`, `last_updated_by`. `record_columns(regclass)` adds them and two
+triggers; `stamp_row()` fills them from `current_setting('hwr.actor_id', true)`, which
+`store.begin`/`store.ActAs` set per transaction. `uuid`, `created_on` and `created_by` are
+refused if an update changes them. The update trigger fires only when the row changed.
+Logs carry none of this: `sessions`, `audit_log`, `worker_code_counters`, `import_rows`.
 
 ## Locations
 
@@ -145,11 +158,8 @@ would leave every one of those rows violating invariant 1 with nothing to notice
 aliases, sort order and `active` stay editable. A retired cadre is no longer offered or
 imported; the workers serving in it keep it until they are re-cadred.
 
-Each category owns its own profile surface — `chw_profiles` and its junctions belong to
-the CHW category (`domain.CategoryCHW`); a future one gets its own. Nothing in the schema
-ties a `chw_profiles` row to the category, because a worker re-cadred out of it keeps the
-answers they gave; the application offers the form, and the importer accepts the profile
-columns, only for a worker whose posting is in the CHW category.
+Which survey a cadre answers is data too: `profile_applicable_cadre`. A worker re-cadred
+out of a survey's cadres keeps the submissions they made, readable but no longer edited.
 
 ### The worker code
 
@@ -224,79 +234,95 @@ lateral join (`workerFrom` in `internal/store/workers.go`).
 
 ### Constraints carried from the ODK form
 
-| Constraint | Rule | Source |
+| Constraint | Rule | Where |
 |---|---|---|
-| `nin` | `^[A-Z]{2}[A-Z0-9]{11}[A-Z]$`, unique where present | form regex; field is optional |
-| `age_years` | 18–99 | form: `. > 17 and . <= 99` |
-| `households_served` | 3–100,000 | form: `. > 2 and . <= 100000` |
-| `incentive_amount_ugx` | 1,000–500,000 | form constraint |
-| phone columns | `^[0-9]{9}$` | form regex |
+| `persons.nin` | `^[A-Z]{2}[A-Z0-9]{11}[A-Z]$`, unique where present | CHECK and partial unique index |
+| age | 18–99 | `domain.ValidAge`, on the age the birth date gives (a CHECK cannot read today) |
+| `households_served` | 3–100,000 | the question's `min_value`/`max_value` |
+| `incentive_amount_ugx` | 1,000–500,000 | the question's bounds |
+| phone numbers | `^[0-9]{9}$` | `person_contacts_phone_shape` |
 
-`nin` is nullable with a partial unique index: the form does not require it and labels it
-"NIN / Alternative No". Soft duplicate detection where NIN is absent — the same name at
-the same location — runs on `deployments_location_idx`, which covers open postings only.
+Soft duplicate detection where NIN is absent — the same name at the same location —
+runs on `deployments_location_idx`, which covers open postings only.
 
 ### Indexes for browsing
 
 | Index | Answers |
 |---|---|
-| `health_workers_name_sort_idx (lower(last_name), lower(first_name), id)` | the listing and its keyset comparison |
+| `persons_name_sort_idx (lower(last_name), lower(first_name), id)` | the listing's order; the keyset's last column is the worker id |
 | `health_workers_district_idx (district_id)` | every scoped read |
-| `health_workers_name_trgm` | name search, on the first and last name joined by a space |
-| `health_workers_nin_prefix_idx (nin text_pattern_ops) WHERE nin IS NOT NULL` | `LIKE 'CM90%'` as an index scan; `health_workers_nin_uniq` only answers equality |
-| `health_workers_code_uniq (worker_code)` | the search box's exact match when what was typed is a code, and the uniqueness the code claims |
+| `persons_name_trgm` | name search, on the first and last name joined by a space |
+| `health_workers_code_uniq (worker_code)` | the search box's exact match on a code |
 | `deployments_district_idx`, `deployments_location_idx` | open postings by district and by place |
 
-`lower()` because the source data is inconsistently cased and a case-sensitive sort
-interleaves the same surname three ways.
+## The person and their details
 
-`age_captured_on` exists because age is a snapshot, not a fact. ODK provenance is stripped
-by decision, so imports stamp the import date.
+`persons` holds `nin`, `first_name`, `last_name`, `other_name`, `dob`, `dob_estimated`,
+`sex`, and a record `status` (active/deceased/merged). An age from a form or a file is
+stored as the birth date it implies (1 July of that year) with `dob_estimated`; the age is
+always computed. `health_workers.person_id` is NOT NULL UNIQUE — one worker per person,
+until the UNIQUE is dropped.
 
-### Profile constraints
+| Table | Holds | Notable rules |
+|---|---|---|
+| `person_contacts` | phone / email / address; `owned`, `for_reporting`, `is_primary` | phone shape, email shape, ownership only on a phone, one primary per kind |
+| `person_kins` | name, relationship, phone, `is_emergency` | |
+| `person_ids` | `identifier_type_id`, `number` | one of a kind per person, one person per document |
+| `person_education` | `education_level`, institution, qualification, year | |
+| `person_courses`, `person_training`, `person_workhistory` | dated history | end not before start |
+| `person_languages` | per language: `understanding_grade`, `reading_grade`, `writing_grade` | `proficiency` enum; NULL is not asked, `none` is cannot |
 
-Three CHECKs encode branching that the form expressed as `relevant` conditions:
+## The questionnaire
 
-- `phone_branch_exclusive` — the form asks "do you own a phone?" then branches.
-  `phone_primary` and `phone_alternate` are mutually exclusive, not two lines for one
-  person.
-- `incentive_details_require_yes` — no frequency or amount unless `receives_incentive`.
-- `supervision_date_requires_yes` — no date unless `received_supervision`;
-  `last_supervised_on` must be the first of a month, since only year and month are captured.
+| Table | Role |
+|---|---|
+| `response_types` | `single_value`, `multi_value` |
+| `value_types` | `open`, `closed` |
+| `value_data_types` | `text`, `boolean`, `yes_no`, `integer`, `numeric`, `character`, `date`, `month` |
+| `question_pool` | a question: prompt, help, the three types, `response_options` `[{id, code, prompt, aliases?}]`, min/max, pattern, active |
+| `profiles` | a survey: code, name, description, active |
+| `profile_applicable_cadre` | which cadres answer it |
+| `profile_questions` | a profile's question: code, order, required, `depends_on_id` + `depends_on_option`, `subset_of_id` |
+| `health_worker_profiles` | one dated submission (`captured_on`, `source` form/import) |
+| `health_worker_profile_responses` | one answer: `response_option_id` for a closed question, `response` text for an open one |
 
-### Junctions
+Rules, by trigger: a question is sound (closed has choices, ids and codes unique, `none`
+is option 0); a branch and a subset point into the same profile at a question of the
+right shape; each response matches its question (choice exists, value parses as the data
+type, in range, pattern, one answer for a single question); at commit (deferred) a
+branch's answer has its opener, a subset's answer is among its parent's, and `none` is
+alone. Responses cannot be updated or deleted; submissions cannot be deleted or moved; a
+submission's profile must apply to the worker's cadre. An answered question's code, types,
+range and existing choices are frozen; choices may be added.
 
-`chw_profiles` is 1:1 on the worker, not the posting: the survey answers — phones,
-education, incentive — stay true across a transfer.
+"Not asked" is no response row. The CHW survey is `chw_baseline`, 14 questions, applying
+to VHT and CHEW; its tools and services questions take their choices from `tools` and
+`services`.
 
-`chw_service_domains(health_worker_id, domain_id, provides, trained)` collapses what the form
-modelled as two nested multi-selects over one 12-value vocabulary.
-`trained_implies_provides` mirrors the form's `choice_filter`: a CHW cannot be trained on
-a service they do not provide.
+## Services and tools
 
-`chw_tools(health_worker_id, tool_id, functional)` puts functionality on the junction row, because
-the form's `tool_functional` is choice-filtered to tools already held. A single global
-flag could not say *which* tool is broken.
+`services` (12) and `tools` (7) are vocabularies with `service_applicable_cadre` and
+`tool_applicable_cadre`. Events:
 
-`chw_languages` holds parsed values; `chw_profiles.other_languages_raw` keeps the original
-free text verbatim.
+- `health_worker_service_updates(health_worker_id, reporting_date)` — unique per worker and
+  date; `deployment_id` and `district_id` derived from the posting held on that date
+  (`deployment_on()`); no future dates. `health_worker_service_update_details` names the
+  services; each must apply to the cadre held then.
+- `health_worker_tool_distributions(district_id, reporting_date, note)` — a hand-out in a
+  district. `health_worker_tool_distribution_details(worker, tool, quantity)`: the worker
+  must have been posted in that district on that date, the tool must apply to their cadre
+  then. A distribution with recipients cannot move district or date.
 
 ## Vocabularies
 
-Closed lists are Postgres enums: `sex`, `worker_status`, `education_level`,
-`incentive_frequency`, `user_role`, `user_status`, `location_level`. A closed list belongs
-in the type system, where an invalid value cannot be inserted.
-
-Cadres are **not** an enum: MoH will add cadres, and each carries a placement level, so
-they are rows (`0003`). `tools` (7), `service_domains` (12) and `languages` are reference
-tables for the same reason — junction targets MoH may extend — seeded in `0004`.
-
-The source Tool list includes a member called `None`. It is deliberately absent from the
-`tools` table — it means "no tools", which is the empty set, not a tool named None.
+Closed lists are Postgres enums: `sex`, `person_status`, `worker_status`,
+`education_level`, `contact_kind`, `proficiency`, `user_role`, `user_status`,
+`location_level`. Extensible lists are tables: cadres and categories, `identifier_types`,
+`languages`, `services`, `tools`, and the questionnaire's own.
 
 ## Import staging
 
-`0005` adds the tables a bulk upload passes through, the claim
+`0007` adds the tables a bulk upload passes through, the claim
 (`import_batches.committing_at`) that keeps two commits off one batch, and
 `import_quarantine`. See [import.md](import.md) for the flow they serve.
 
@@ -335,21 +361,17 @@ second direction.
 
 ## Verified rejections
 
-`seed/verify_constraints.sql` probes the schema with 69 bad-data cases against a live
-database carrying the full national hierarchy. **69 blocked, 0 leaked.** It also asserts
-positive cases by construction: creating a worker with their first deployment, attaching a
-posting to a facility in its own district, and ending a posting before deactivating must
-all succeed, or the whole block aborts. It runs in a
-transaction and rolls back, and raises if anything leaks — run it after any schema change.
+`seed/verify_constraints.sql` probes the schema with 108 bad-data cases against a live
+database carrying the full national hierarchy. **108 blocked, 0 leaked.** It also asserts
+positive cases by construction — the record columns carry the actor, the first posting
+issues the worker code and `<code>-01`, a facility in the posting's own district attaches,
+a baseline submission with a branch and a subset saves, a service update and a
+distribution land in the worker's own district — and the block aborts if any fails. It
+runs in a transaction (with `SET CONSTRAINTS ALL IMMEDIATE`, so the questionnaire's
+deferred rules fire per statement) and rolls back. Run it after any schema change.
 
-| Group | Cases |
-|---|---|
-| Hierarchy ladder | region given a parent · district with no parent · county off a region · subcounty off a district · parish off a county · village off a subcounty · duplicate code under one parent |
-| Cadre placement | VHT at parish · CHEW at village · VHT at subcounty · CHEW at district · re-cadre without moving |
-| Deployments | a second open posting · ended without a reason · a reason without an end · ended before it started |
-| Worker fields | malformed NIN · duplicate NIN · age below minimum · age above maximum · inactive without `deactivated_at` · active with `deactivated_at` · deactivated with an open posting · deployed while inactive |
-| Users and RBAC | national admin with a district · national viewer with a district · district role without a district · `district_id` pointing at a village · duplicate email |
-| Facilities | parented to a village · parented to a subcounty |
-| Posting to facility | attached across districts · attached across districts at insert · moved to another district while attached |
-| Profile branching | incentive amount without receiving · incentive above maximum · incentive below minimum · phone-owner given fallback number · non-owner given primary phone · malformed phone · households below minimum · supervision date without yes · supervision date mid-month |
-| Junctions | trained on unoffered service · duplicate tool for one worker |
+Groups: hierarchy ladder; record columns; cadre placement; deployments and their codes;
+person fields; satellites; the worker; users and RBAC; facilities; posting to facility;
+each answer against its question; the submission as a whole; history not rewritten; a
+sound question; service updates and distributions; worker codes and district codes; the
+cadre taxonomy; `district_id` derived; import refusals.

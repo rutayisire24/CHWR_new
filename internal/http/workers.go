@@ -3,9 +3,11 @@ package http
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"hwr/internal/auth"
 	"hwr/internal/domain"
@@ -73,10 +75,10 @@ type categoryOption struct {
 func categoryOptions(cadres []domain.Cadre, selectedSlug string) []categoryOption {
 	var out []categoryOption
 	for _, c := range cadres {
-		if len(out) == 0 || out[len(out)-1].Slug != c.CategorySlug {
+		if len(out) == 0 || out[len(out)-1].Slug != c.CategoryCode {
 			out = append(out, categoryOption{
-				Slug: c.CategorySlug, Label: c.CategoryLabel,
-				Selected: c.CategorySlug == selectedSlug,
+				Slug: c.CategoryCode, Label: c.CategoryLabel,
+				Selected: c.CategoryCode == selectedSlug,
 			})
 		}
 	}
@@ -115,20 +117,33 @@ type workerFormPage struct {
 type workerShowPage struct {
 	Worker    domain.HealthWorker
 	Placement []domain.Place
-	Profile   domain.Profile
-	Tools     []domain.CHWTool
-	Domains   []domain.CHWServiceDomain
 	// History is every posting the worker has held, newest first.
 	History []domain.Deployment
 	// Facilities is the supervising-facility picker for the open posting,
 	// assembled only when there is one and the reader may change it.
 	Facilities []facilityOption
 	CanEdit    bool
-	// ProfileApplies says the worker's cadre is in the CHW category, the one
-	// whose profile surface chw_profiles is. A worker in another category is
-	// shown no CHW survey to fill — only any answers already recorded, from a
-	// time they served as a CHW.
-	ProfileApplies bool
+
+	// Details is what is recorded about the person beyond their name, with
+	// the vocabularies the add forms offer.
+	Details         domain.PersonDetails
+	Languages       []domain.Language
+	IdentifierTypes []domain.IdentifierType
+	ContactKinds    []domain.ContactKind
+	EducationLevels []domain.EducationLevel
+	Proficiencies   []domain.Proficiency
+
+	// Surveys are the profiles the worker's cadre answers, and any they
+	// answered under a cadre they have since left, read-only.
+	Surveys []surveyView
+
+	// The dated events: services reported, and tools received. Services is
+	// what the worker's cadre may report, for the form.
+	ServiceUpdates []domain.ServiceUpdate
+	ToolsReceived  []domain.ToolReceipt
+	Services       []domain.Service
+	CanReport      bool
+	Today          string
 }
 
 func (s *Server) workersList(w http.ResponseWriter, r *http.Request) {
@@ -208,9 +223,9 @@ func cadreOptions(cadres []domain.Cadre, selectedSlug string) []cadreGroup {
 		}
 		g := &out[len(out)-1]
 		g.Cadres = append(g.Cadres, cadreOption{
-			ID: c.ID, Slug: c.Slug, Label: c.Label,
+			ID: c.ID, Slug: c.Code, Label: c.Label,
 			Level:    string(c.PlacementLevel),
-			Selected: c.Slug == selectedSlug,
+			Selected: c.Code == selectedSlug,
 		})
 	}
 	return out
@@ -230,7 +245,7 @@ func decodeFilter(r *http.Request, cadres []domain.Cadre) (store.Filter, filterV
 	// one — since retired — is dropped rather than matched against nothing.
 	if slug := q.Get("category"); slug != "" {
 		for _, c := range cadres {
-			if c.CategorySlug == slug {
+			if c.CategoryCode == slug {
 				f.Category = slug
 				view.Category = slug
 				break
@@ -239,7 +254,7 @@ func decodeFilter(r *http.Request, cadres []domain.Cadre) (store.Filter, filterV
 	}
 	if slug := q.Get("cadre"); slug != "" {
 		for _, c := range cadres {
-			if c.Slug == slug {
+			if c.Code == slug {
 				f.Cadre = slug
 				view.Cadre = slug
 				break
@@ -360,37 +375,54 @@ func (s *Server) workerShow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	profile, err := s.store.Profiles.Get(r.Context(), sc, id)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	tools, err := s.store.Profiles.Tools(r.Context(), id)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	domains, err := s.store.Profiles.ServiceDomains(r.Context(), id)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
 	history, err := s.store.Deployments.ForWorker(r.Context(), sc, id)
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-
+	role := auth.MustUser(r.Context()).Role
 	page := workerShowPage{
-		Worker:    worker,
-		Placement: placement,
-		Profile:   profile,
-		Tools:     tools,
-		Domains:   domains,
-		History:   history,
-		CanEdit:   auth.Can(auth.MustUser(r.Context()).Role, auth.CapWorkerUpdate),
-
-		ProfileApplies: worker.Deployment != nil && worker.Deployment.Cadre.CarriesCHWProfile(),
+		Worker:          worker,
+		Placement:       placement,
+		History:         history,
+		CanEdit:         auth.Can(role, auth.CapWorkerUpdate),
+		CanReport:       auth.Can(role, auth.CapServiceReport) && worker.Active(),
+		ContactKinds:    domain.ContactKinds,
+		EducationLevels: domain.EducationLevels,
+		Proficiencies:   domain.Proficiencies,
+		Today:           time.Now().Format(time.DateOnly),
+	}
+	if page.Details, err = s.store.Persons.Details(r.Context(), sc, id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if page.Surveys, err = s.surveysFor(r, worker); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if page.ServiceUpdates, err = s.store.Activities.ServiceUpdates(r.Context(), sc, id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if page.ToolsReceived, err = s.store.Activities.ToolsReceived(r.Context(), sc, id); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if page.CanEdit {
+		if page.Languages, err = s.store.Persons.Languages(r.Context()); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if page.IdentifierTypes, err = s.store.Persons.IdentifierTypes(r.Context()); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if page.CanReport && worker.Deployment != nil {
+		if page.Services, err = s.store.Activities.ServicesFor(r.Context(), worker.Deployment.CadreID); err != nil {
+			s.fail(w, r, err)
+			return
+		}
 	}
 
 	// The supervising facility is an attachment on the open posting. The
@@ -427,7 +459,7 @@ func facilityLabel(name, level, ownership string) string {
 }
 
 func (s *Server) workerNew(w http.ResponseWriter, r *http.Request) {
-	blank := domain.HealthWorker{Sex: domain.SexFemale}
+	blank := domain.HealthWorker{Person: domain.Person{Sex: domain.SexFemale}}
 	p, err := s.workerForm(r, blank, "/health-workers/new", nil, "")
 	if err != nil {
 		s.fail(w, r, err)
@@ -440,7 +472,7 @@ func (s *Server) workerCreate(w http.ResponseWriter, r *http.Request) {
 	actor := auth.MustUser(r.Context())
 	sc := auth.ScopeFrom(r.Context())
 
-	in, age, v := s.decodeWorker(r, sc, nil)
+	in, age, v := s.decodeWorker(r, sc, nil, nil)
 	if v.Any() {
 		s.rerenderWorkerForm(w, r, draftWorker(in), "/health-workers/new", v.Fields, age)
 		return
@@ -489,9 +521,13 @@ func (s *Server) workerEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An estimated birth date is shown as the age it was estimated from; an
+	// exact one is shown as itself, in the date field.
 	age := ""
-	if worker.AgeYears != nil {
-		age = strconv.Itoa(int(*worker.AgeYears))
+	if worker.DOBEstimated {
+		if years := worker.Age(); years != nil {
+			age = strconv.Itoa(*years)
+		}
 	}
 	p, err := s.workerForm(r, worker, workerPath(id), nil, age)
 	if err != nil {
@@ -516,7 +552,7 @@ func (s *Server) workerUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	in, age, v := s.decodeWorker(r, sc, before.Deployment)
+	in, age, v := s.decodeWorker(r, sc, before.Deployment, &before.Person)
 	// An inactive worker's details can still be corrected, but they take no new
 	// posting until reactivated. deployments_set_placement refuses it either
 	// way — as a 500 rather than a message.
@@ -657,13 +693,18 @@ func (s *Server) workerReactivate(w http.ResponseWriter, r *http.Request) {
 // posting. The placement rule is checked here against the location's real
 // level and the cadre's own placement_level, so a mismatch comes back as a
 // field message; deployments_set_placement is still what guarantees it.
-func (s *Server) decodeWorker(r *http.Request, sc auth.Scope, current *domain.Deployment) (store.WorkerInput, string, *domain.ValidationError) {
+//
+// prior is the person as recorded, nil on create: an estimated birth date the
+// form shows as an age is kept as it was when the age comes back unchanged,
+// rather than re-estimated from today and recorded as a change nobody made.
+func (s *Server) decodeWorker(r *http.Request, sc auth.Scope, current *domain.Deployment, prior *domain.Person) (store.WorkerInput, string, *domain.ValidationError) {
 	v := domain.NewValidationError()
 
 	in := store.WorkerInput{
 		NIN:       strings.ToUpper(trimmed(r, "nin")),
 		FirstName: trimmed(r, "first_name"),
 		LastName:  trimmed(r, "last_name"),
+		OtherName: trimmed(r, "other_name"),
 		Sex:       domain.Sex(trimmed(r, "sex")),
 	}
 
@@ -711,14 +752,29 @@ func (s *Server) decodeWorker(r *http.Request, sc auth.Scope, current *domain.De
 		}
 	}
 
+	// A date of birth when there is one; otherwise the age, recorded as the
+	// birth date it implies and flagged as an estimate.
 	age := trimmed(r, "age_years")
-	if age != "" {
-		n, err := strconv.Atoi(age)
-		if err != nil || !domain.ValidAge(n) {
-			v.Add("age_years", "Age must be a whole number between 18 and 99, or left blank.")
+	if raw := trimmed(r, "dob"); raw != "" {
+		dob, ok := domain.ParseDate(raw)
+		if !ok {
+			v.Add("dob", "Enter the date of birth as a date, or leave it blank and give the age.")
+		} else if years := (domain.Person{DOB: &dob}).Age(); !domain.ValidAge(*years) {
+			v.Add("dob", fmt.Sprintf("That date of birth makes them %d; the register holds %d to %d.",
+				*years, domain.MinAge, domain.MaxAge))
 		} else {
-			years := int16(n)
-			in.AgeYears = &years
+			in.DOB = &dob
+		}
+	} else if age != "" {
+		n, err := strconv.Atoi(age)
+		switch {
+		case err != nil || !domain.ValidAge(n):
+			v.Add("age_years", "Age must be a whole number between 18 and 99, or left blank.")
+		case prior != nil && prior.DOBEstimated && prior.Age() != nil && *prior.Age() == n:
+			in.DOB, in.DOBEstimated = prior.DOB, true
+		default:
+			dob := domain.EstimateDOB(n, time.Now())
+			in.DOB, in.DOBEstimated = &dob, true
 		}
 	}
 
@@ -783,7 +839,7 @@ func (s *Server) workerForm(r *http.Request, worker domain.HealthWorker, action 
 
 	selectedSlug := ""
 	if worker.Deployment != nil {
-		selectedSlug = worker.Deployment.Cadre.Slug
+		selectedSlug = worker.Deployment.Cadre.Code
 	}
 	vocab, err := s.store.Deployments.Cadres(r.Context())
 	if err != nil {
@@ -875,11 +931,15 @@ func (s *Server) workerWriteFailed(w http.ResponseWriter, r *http.Request, err e
 // redisplays what was typed instead of clearing it.
 func draftWorker(in store.WorkerInput) domain.HealthWorker {
 	return domain.HealthWorker{
-		NIN:       in.NIN,
-		FirstName: in.FirstName,
-		LastName:  in.LastName,
-		Sex:       in.Sex,
-		AgeYears:  in.AgeYears,
+		Person: domain.Person{
+			NIN:          in.NIN,
+			FirstName:    in.FirstName,
+			LastName:     in.LastName,
+			OtherName:    in.OtherName,
+			Sex:          in.Sex,
+			DOB:          in.DOB,
+			DOBEstimated: in.DOBEstimated,
+		},
 		Deployment: &domain.Deployment{
 			CadreID:    in.CadreID,
 			LocationID: in.LocationID,

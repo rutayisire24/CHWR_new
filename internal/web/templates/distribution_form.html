@@ -1,0 +1,79 @@
+{{define "title"}}Record a distribution · Health Workers Registry{{end}}
+
+{{define "content"}}
+<h1>Record a tool distribution</h1>
+
+<form method="get" action="/distributions/new" class="filters-bar card" data-location-cascade>
+  <div>
+    <label for="district_id">District</label>
+    <select id="district_id" name="district_id" data-level="district" required>
+      <option value="">— choose —</option>
+      {{range .Page.Districts}}<option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Name}}</option>{{end}}
+    </select>
+  </div>
+  <div>
+    <label for="subcounty_id">Subcounty</label>
+    <select id="subcounty_id" name="subcounty_id" data-under="district_id"
+            data-level="subcounty" data-selected="{{index .Page.Prefill "subcounty"}}"><option value="">— any —</option></select>
+  </div>
+  <div>
+    <label for="parish_id">Parish</label>
+    <select id="parish_id" name="parish_id" data-under="subcounty_id"
+            data-level="parish" data-selected="{{index .Page.Prefill "parish"}}"><option value="">— any —</option></select>
+  </div>
+  <div>
+    <label for="village_id">Village</label>
+    <select id="village_id" name="village_id" data-under="parish_id"
+            data-level="village" data-selected="{{index .Page.Prefill "village"}}"><option value="">— any —</option></select>
+  </div>
+  <div>
+    <label for="filter_date">Date of the hand-out</label>
+    <input id="filter_date" name="reporting_date" type="date" value="{{.Page.Date}}">
+  </div>
+  <div class="actions"><button type="submit">Show workers</button></div>
+</form>
+
+{{if .Page.DistrictID}}
+<form method="post" action="/distributions" class="card">
+  {{template "csrf" .}}
+  <input type="hidden" name="district" value="{{.Page.DistrictID}}">
+  {{range $level, $id := .Page.Prefill}}<input type="hidden" name="{{$level}}_id" value="{{$id}}">{{end}}
+
+  {{with .Page.Error}}<div class="form-error-summary" role="alert"><p>{{.}}</p></div>{{end}}
+
+  <div class="two-up">
+    <div>
+      <label for="reporting_date">Date of the hand-out</label>
+      <input id="reporting_date" name="reporting_date" type="date" value="{{.Page.Date}}" required>
+    </div>
+    <div>
+      <label for="note">Note</label>
+      <input id="note" name="note" value="{{.Page.Note}}" placeholder="Programme, supplier, batch…">
+    </div>
+  </div>
+
+  {{if .Page.Rows}}
+  <p class="hint">Tick each tool given to each worker. A box is offered only where the worker's cadre carries the tool.
+    {{if .Page.Truncated}}Only the first {{len .Page.Rows}} workers are listed; narrow by subcounty, parish or village to reach the rest.{{end}}</p>
+  <div class="table-scroll">
+  <table class="grid">
+    <thead><tr><th>Worker</th><th>Cadre, placement</th>{{range .Page.Tools}}<th class="num">{{.Label}}</th>{{end}}</tr></thead>
+    <tbody>
+    {{range .Page.Rows}}
+      <tr>
+        <td>{{.Worker.FullName}} <code class="worker-code">{{.Worker.Code}}</code></td>
+        <td>{{with .Worker.Deployment}}{{.Cadre.Label}}, {{.LocationName}}{{end}}</td>
+        {{range .Boxes}}<td class="num">{{if .Allowed}}<input type="checkbox" name="item" value="{{.Value}}" {{if .Checked}}checked{{end}}>{{else}}<span class="muted">—</span>{{end}}</td>{{end}}
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  <div class="actions"><button type="submit">Record the distribution</button></div>
+  {{else}}
+  <p class="muted">No active workers here.</p>
+  {{end}}
+</form>
+{{end}}
+<script src="/static/locations.js" defer></script>
+{{end}}

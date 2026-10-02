@@ -1,0 +1,97 @@
+{{define "title"}}{{.Page.Row.Name}} · Surveys · Health Workers Registry{{end}}
+
+{{define "content"}}
+{{$p := .Page}}{{$csrf := .CSRFToken}}
+<h1>{{$p.Row.Name}} <code>{{$p.Row.Code}}</code></h1>
+<p class="muted">{{num $p.Row.Submissions}} submission(s). A question with answers keeps its code, kind,
+  range and choices — the answers are read through them — but can be reworded, reordered, given more
+  choices, or retired.</p>
+
+<form method="post" action="/profiles/{{$p.Row.ID}}" class="card">
+  {{template "csrf" .}}
+  <h2>The survey</h2>
+  <div class="two-up">
+    <div><label for="name">Name</label><input id="name" name="name" required value="{{$p.Row.Name}}"></div>
+    <div><label for="description">Description</label><input id="description" name="description" value="{{$p.Row.Description}}"></div>
+  </div>
+  <fieldset class="checks">
+    <legend>Asked of</legend>
+    {{range $p.Cadres}}<label class="check"><input type="checkbox" name="cadre_id" value="{{.ID}}" {{if .Selected}}checked{{end}}> {{.Label}}</label>{{end}}
+  </fieldset>
+  <label class="check"><input type="checkbox" name="active" value="1" {{if $p.Row.Active}}checked{{end}}> Offered</label>
+  <div class="actions"><button type="submit">Save</button></div>
+</form>
+
+<div class="card">
+  <h2>Questions</h2>
+  <table class="grid">
+    <thead><tr><th class="num">#</th><th>Code</th><th>Question</th><th>Answer</th><th>Asked when</th><th></th></tr></thead>
+    <tbody>
+    {{range $p.Row.Questions}}
+      <tr class="{{if not .Active}}dim{{end}}" id="q-{{.Code}}">
+        <td class="num">{{.SortOrder}}</td>
+        <td><code>{{.Code}}</code>{{if index $p.Answered .Code}} <span class="pill">answered</span>{{end}}</td>
+        <td>{{.Prompt}}{{if .Required}} <span class="muted">(required)</span>{{end}}</td>
+        <td>{{.DataType}}{{if .Multi}}, any number{{end}}{{if .Closed}}: {{range $i, $o := .Options}}{{if $i}}, {{end}}{{$o.Code}}{{end}}{{end}}{{if .SubsetOf}} — within {{.SubsetOf}}{{end}}</td>
+        <td>{{if .DependsOn}}{{.DependsOn}} = {{.DependsOnOption}}{{else}}<span class="muted">always</span>{{end}}</td>
+        <td>
+          <details><summary>Edit</summary>
+            <form method="post" action="/profiles/{{$p.Row.ID}}/questions/{{.Code}}">
+              <input type="hidden" name="csrf_token" value="{{$csrf}}">
+              <label>Wording</label><input name="prompt" required value="{{.Prompt}}">
+              <label>Help</label><input name="help" value="{{.Help}}">
+              <label>Order</label><input name="sort_order" inputmode="numeric" value="{{.SortOrder}}">
+              {{if and .Closed (ne .DataType "yes_no")}}<label>Add choices, one per line: <code>code = Prompt</code></label><textarea name="add_options" rows="2"></textarea>{{end}}
+              <label class="check"><input type="checkbox" name="required" value="1" {{if .Required}}checked{{end}}> Required</label>
+              <label class="check"><input type="checkbox" name="active" value="1" {{if .Active}}checked{{end}}> Asked (untick to retire)</label>
+              <button type="submit">Save</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="/profiles/{{$p.Row.ID}}/questions" class="card" id="new-question">
+  {{template "csrf" .}}
+  <h2>Add a question</h2>
+  {{if $p.Errors}}<div class="form-error-summary" role="alert"><ul>{{range $f, $m := $p.Errors}}<li>{{$m}}</li>{{end}}</ul></div>{{end}}
+  <div class="two-up">
+    <div><label for="q_code">Code</label>
+      <input id="q_code" name="code" required maxlength="48" value="{{$p.New.Code}}" placeholder="has_bicycle_repair_kit">
+      <span class="hint">Also the column an import or export would use. Fixed once answered.</span>
+      {{template "field-error" $p.Errors.code}}</div>
+    <div><label for="q_prompt">Question</label><input id="q_prompt" name="prompt" required value="{{$p.New.Prompt}}">
+      {{template "field-error" $p.Errors.prompt}}</div>
+    <div><label for="q_help">Help</label><input id="q_help" name="help" value="{{$p.New.Help}}"></div>
+    <div><label for="q_type">Answer</label>
+      <select id="q_type" name="data_type">
+        {{range $p.DataTypes}}<option value="{{.}}" {{if eq (print .) $p.New.DataType}}selected{{end}}>{{.}}</option>{{end}}
+      </select>
+      <span class="hint">yes_no is a yes/no choice; character is a list of choices; the rest are typed in.</span>
+      {{template "field-error" $p.Errors.data_type}}</div>
+    <div><label for="q_options">Choices, for a list: one per line, <code>code = Prompt</code></label>
+      <textarea id="q_options" name="options" rows="4">{{$p.New.Options}}</textarea>
+      {{template "field-error" $p.Errors.options}}</div>
+    <div><label class="check"><input type="checkbox" name="multi" value="1" {{if $p.New.Multi}}checked{{end}}> Any number of choices (adds None)</label>
+      <label class="check"><input type="checkbox" name="required" value="1" {{if $p.New.Required}}checked{{end}}> Required</label></div>
+    <div><label for="q_min">Least, for a number</label><input id="q_min" name="min" value="{{$p.New.Min}}">{{template "field-error" $p.Errors.min}}</div>
+    <div><label for="q_max">Most, for a number</label><input id="q_max" name="max" value="{{$p.New.Max}}">{{template "field-error" $p.Errors.max}}</div>
+    <div><label for="q_dep">Only asked when</label>
+      <select id="q_dep" name="depends_on"><option value="">— always —</option>
+        {{range $p.Row.Questions}}{{if and .Closed (not .Multi)}}<option value="{{.Code}}" {{if eq .Code $p.New.DependsOn}}selected{{end}}>{{.Code}}</option>{{end}}{{end}}
+      </select>
+      {{template "field-error" $p.Errors.depends_on}}</div>
+    <div><label for="q_depopt">is answered</label><input id="q_depopt" name="depends_on_option" value="{{$p.New.DependsOnOption}}" placeholder="yes"></div>
+    <div><label for="q_subset">Choices drawn from the answers to</label>
+      <select id="q_subset" name="subset_of"><option value="">— none —</option>
+        {{range $p.Row.Questions}}{{if and .Closed .Multi}}<option value="{{.Code}}" {{if eq .Code $p.New.SubsetOf}}selected{{end}}>{{.Code}}</option>{{end}}{{end}}
+      </select>
+      {{template "field-error" $p.Errors.subset_of}}</div>
+  </div>
+  <div class="actions"><button type="submit">Add question</button></div>
+</form>
+<p><a href="/profiles">All surveys</a></p>
+{{end}}

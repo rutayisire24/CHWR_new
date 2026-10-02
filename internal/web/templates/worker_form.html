@@ -22,7 +22,7 @@
   {{template "csrf" .}}
   {{if .Page.Duplicates}}<input type="hidden" name="confirm_duplicate" value="1">{{end}}
 
-  <div class="two-up">
+  <div class="three-up">
     <div>
       <label for="first_name">First name</label>
       <input id="first_name" name="first_name" required value="{{.Page.Worker.FirstName}}">
@@ -32,6 +32,11 @@
       <label for="last_name">Last name</label>
       <input id="last_name" name="last_name" required value="{{.Page.Worker.LastName}}">
       {{template "field-error" .Page.Errors.last_name}}
+    </div>
+    <div>
+      <label for="other_name">Other name</label>
+      <input id="other_name" name="other_name" value="{{.Page.Worker.OtherName}}">
+      <span class="hint">Optional.</span>
     </div>
   </div>
 
@@ -60,11 +65,17 @@
   </div>
   {{template "field-error" .Page.Errors.sex}}
 
-  <div class="two-up">
+  <div class="three-up">
     <div>
-      <label for="age_years">Age</label>
+      <label for="dob">Date of birth</label>
+      <input id="dob" name="dob" type="date"
+             value="{{with .Page.Worker.DOB}}{{if not $.Page.Worker.DOBEstimated}}{{.Format "2006-01-02"}}{{end}}{{end}}">
+      {{template "field-error" .Page.Errors.dob}}
+    </div>
+    <div>
+      <label for="age_years">Or age, if the date is not known</label>
       <input id="age_years" name="age_years" inputmode="numeric" value="{{.Page.Age}}">
-      <span class="hint">18–99, or blank. Recorded as of today.</span>
+      <span class="hint">18–99. Recorded as an estimated date of birth.</span>
       {{template "field-error" .Page.Errors.age_years}}
     </div>
     <div>

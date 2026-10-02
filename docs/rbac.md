@@ -24,8 +24,18 @@ lookup plus a scope predicate.
 | `health_worker.import` | all | — | own district | — |
 | `user.manage` | yes | — | — | — |
 | `cadre.manage` | yes | — | — | — |
+| `profile.manage` | yes | — | — | — |
+| `service.report` | yes | — | own district | — |
+| `tool.distribute` | yes | — | own district | — |
 | `audit.view` | all | — | own district | — |
 | `export` | all | all | own district | own district |
+
+`profile.manage` (the surveys at `/profiles`) is national for the same reason as
+`cadre.manage`. A worker's person details and survey answers are edited under
+`health_worker.update`; service reports and tool distributions are events against a
+posting, recorded by the roles that keep the register and confined by the `Scope` — a
+district reports and hands out in its own district only, and a hand-out's recipients must
+have been posted there on its date.
 
 `cadre.manage` is national for the same reason `user.manage` is: the cadre taxonomy is
 one vocabulary for the whole country, so a cadre a district added would appear in every

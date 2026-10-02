@@ -30,20 +30,25 @@ internal/auth/       Scope, capabilities, argon2id, sessions, CSRF, middleware
 internal/http/       handlers, routing, form decoding
 internal/importer/   CSV/Excel ingest: readers, name resolution, row validation
 internal/web/        templates/ and static/
-migrations/          0001_locations, 0002_users_auth, 0003_health_workers,
-                     0004_chw_profile, 0005_imports, 0006_worker_codes,
-                     0007_cadre_admin, 0008_district_derived
+migrations/          0001_locations, 0002_users_auth (+ record columns), 0003_persons,
+                     0004_health_workers, 0005_services_tools, 0006_questionnaire,
+                     0007_imports
 seed/                hierarchy extraction + load
 data/                source workbooks, the district-to-region map and the
                      curated three-letter district codes (all checked in)
 docs/                detailed reference — see docs/README.md
 ```
 
-## The model: person, cadre, posting
+## The model: person, worker, posting, survey, events
 
-The register is of **people**, not postings. `health_workers` carries only who the
-person is; what they do and where is a `deployments` row — one health worker, one
-cadre, one location, one period. A transfer or a promotion ends one row and opens
+The register is of **people**, not postings. `persons` is who someone is (names, NIN,
+birth date, sex) and carries their satellites — `person_contacts`, `person_kins`,
+`person_ids`, `person_education`, `person_courses`, `person_training`,
+`person_workhistory`, `person_languages` (graded per skill). `health_workers` points at
+a person (`person_id`, 1:1 for now) and carries what the register decides about them:
+workforce status, the derived `district_id`, the `worker_code`. What they do and where
+is a `deployments` row — one cadre, one location, one period, and its own `code`
+(`KYE00042-01`, issued by trigger). A transfer or a promotion ends one row and opens
 another, so the register itself answers "who was deployed at X on date D".
 
 Cadres are **data, not an enum**, in a two-level taxonomy: `cadre_categories`
@@ -51,14 +56,24 @@ Cadres are **data, not an enum**, in a two-level taxonomy: `cadre_categories`
 its own `placement_level` — VHT→village, CHEW→parish — so a new cadre is an INSERT,
 not a migration, and a `national_admin` makes that INSERT at **`/cadres`**. Placement is
 limited to the four levels the cascade reaches (district, subcounty, parish, village),
-and once any deployment names a cadre its slug, category and level are **frozen**
-(`cadres_freeze_trg`): the placement trigger checks a posting when the posting changes,
-not when its cadre does. A cadre that must change shape is retired and replaced. Each
-category owns its profile surface: `chw_profiles` and the `chw_tools` /
-`chw_service_domains` junctions belong to the CHW category (`domain.CategoryCHW`), and
-the profile card, its routes and the importer's profile columns are refused for any
-other; a future category gets its own tables. A worker holds **at most one active deployment**
-(`ended_on IS NULL`, enforced by a partial unique index).
+and once any deployment names a cadre its code, category and level are **frozen**
+(`cadres_freeze_trg`). A worker holds **at most one active deployment**.
+
+Survey answers are a **questionnaire**, not columns (0006): `question_pool` holds
+questions (response type, value type, data type, `response_options` JSON with permanent
+option ids), `profiles` picks them via `profile_questions` (order, branch
+`depends_on`, subset `subset_of`), `profile_applicable_cadre` says who answers, and a
+worker's answers are a dated `health_worker_profiles` submission with
+`health_worker_profile_responses`. Saving writes a **new submission**; the latest is
+what the register shows; responses are append-only. "Not asked" is no row; "no" is the
+`no` option; a multi-select's recorded nothing is option 0, `none`. The CHW survey is
+the `chw_baseline` profile. A `national_admin` edits surveys at **`/profiles`**; a
+question with answers is frozen in code, type, range and existing choices.
+
+Services and tools (0005) are vocabularies with per-cadre applicability, and two kinds
+of dated event: `health_worker_service_updates` (a worker's services on a date) and
+`health_worker_tool_distributions` (a hand-out in a district). Each is checked against
+the posting the worker held **on that date**.
 
 Reads see a worker through one posting — the active one, else the most recent — via a
 lateral join (`workerFrom` in `internal/store/workers.go`), so an inactive worker is
@@ -94,7 +109,11 @@ These are enforced in the schema, not just in application code. Do not work arou
 9. **A deployment's facility is in the deployment's own district.** `deployments.facility_id`
    is an optional attachment, not a placement, and one trigger refuses a cross-district
    row in either direction — a cross-district attach, and a move that would strand one.
-10. **The raw session token is never stored.** The cookie carries it; only its SHA-256
+10. **Every record row says who wrote it.** Record tables carry `uuid`, `created_on/by`,
+    `last_updated_on/by`, filled by `stamp_row()` from the transaction's actor
+    (`SET LOCAL hwr.actor_id`). Mutations open their transaction with `store.begin`
+    (or `store.ActAs` on a caller's), never `pool.Begin`.
+11. **The raw session token is never stored.** The cookie carries it; only its SHA-256
     reaches `sessions.token_hash`. Revocation is a `DELETE`, which is the whole reason
     sessions are rows and not JWTs.
 
@@ -116,8 +135,10 @@ two villages sharing a name.
 `national_admin` · `national_viewer` · `district_manager` · `district_viewer`
 
 Read the matrix in `docs/rbac.md` before touching authorization. Only `national_admin`
-manages users, and only `national_admin` manages cadres (`cadre.manage`): the taxonomy is
-one national vocabulary.
+manages users, and only `national_admin` manages cadres (`cadre.manage`) and surveys
+(`profile.manage`): both are one national vocabulary. Service reports (`service.report`)
+and tool distributions (`tool.distribute`) belong to `national_admin` and
+`district_manager`, confined by the `Scope` like every other write.
 
 ## Working here
 
@@ -129,7 +150,7 @@ python3 seed/extract_units.py                   # writes seed/out/
 psql -d hwr -f seed/load_hierarchy.sql           # run from repo root; ~3s
 python3 seed/extract_facilities.py               # MFL -> seed/out/facilities.tsv
 psql -d hwr -f seed/load_facilities.sql          # 7,895 loaded, 12 quarantined
-psql -d hwr -f seed/verify_constraints.sql       # 69 cases, all must say blocked
+psql -d hwr -f seed/verify_constraints.sql       # 108 cases, all must say blocked
 go run ./cmd/server                              # serves on ADDR, default :8080
 ```
 
@@ -152,16 +173,17 @@ repo root. Run it from there.
 
 ## The register
 
-`health_workers` is the person; their posting is a `deployments` row; `chw_profiles`
-and the two junctions hold the CHW category's optional survey attributes, 1:1 on the
-worker. Placement is the deployment's `location_id` whose level the cadre decides, and
-`district_id` is derived from it — the form never posts a district for the record, only
-for the cascade.
+`health_workers` is a person's place in the workforce; their posting is a `deployments`
+row; their survey answers are submissions. Placement is the deployment's `location_id`
+whose level the cadre decides, and `district_id` is derived from it — the form never
+posts a district for the record, only for the cascade.
 
-Every profile column is nullable, and **"no" and "not asked" are different answers**: the
-Go side carries `*bool`, templates use `deref`, and an imported record that answered
-nothing must not come back as a record that answered no. Junction sets are replaced on
-save, not diffed — they are the answer to a multi-select.
+The form takes a date of birth, or an age that is stored as an **estimated** birth
+date (`dob_estimated`) and shown back as the age; an unchanged age keeps its estimate.
+The survey form is rendered from the questionnaire (`internal/http/profiles.go`,
+`profile.js` reading `data-depends`/`data-subset-of`); it prunes a closed branch's
+residue, while the importer refuses it. `domain.Profile.Check` mirrors the schema's
+response triggers so both report a field, not a constraint violation.
 
 The location selects cascade district > subcounty > parish > village against
 `GET /api/locations?level=&under=`, which is scoped like every other read. County is
@@ -271,16 +293,16 @@ new cadre is importable the moment its row lands. Rules the worker form already 
 the NIN pattern, the age range, the sex vocabulary — live in `internal/domain` and are
 shared, so the importer can never accept what the form refuses.
 
-The optional attributes import too, all seventeen columns. Blank and "no" stay different
-answers: an empty cell is NULL, only an explicit `no` writes false, and a row whose profile
-columns are all empty writes **no `chw_profiles` row at all**. Every branch CHECK is
-pre-checked and reported rather than dropped — the profile *form* silently discards a value
-posted into a hidden branch, which is right for a form and wrong for an import.
+The survey columns import too, under their old template names
+(`importer.surveyColumns` maps column → question code), plus `received_supervision` and
+`last_supervised_on`. Phones, education and English land on the person's satellites;
+the rest becomes one submission with `source = import`. Blank and "no" stay different
+answers, and a row with no survey cells writes no submission. Survey answers on a cadre
+the survey does not apply to are refused; person details are kept for any cadre.
 
-A staged row carries `record`, the resolved register record as JSON (worker, deployment
-and profile sections), beside `raw`. The commit reads it back rather than re-deriving it:
-a facility is resolved by name within the deployment's district, and re-resolving at
-commit would answer from a register that has moved.
+A staged row carries `record`, the resolved register record as JSON (person, deployment,
+person details, answers by question code), beside `raw`. The commit reads it back
+rather than re-deriving it.
 
 ## The export
 
@@ -289,7 +311,8 @@ commit would answer from a register that has moved.
 selection, not the page being looked at — and rows stream through a callback, flushed in
 batches, so the national register never sits in memory.
 
-**Its columns are the importer's columns.** A row that comes out can go back in, junction
+**Its columns are the importer's columns** (an exact birth date goes out as `dob`, an
+estimate as `age_years`). A row that comes out can go back in, junction
 sets and all, which is why `internal/http/export.go` spells them with the `importer.Col*`
 constants rather than string literals. The register-only columns beside them — the id, the
 worker code, the derived placement, the status, the timestamps, supervision — are named as

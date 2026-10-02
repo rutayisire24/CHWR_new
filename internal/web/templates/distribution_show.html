@@ -1,0 +1,21 @@
+{{define "title"}}Distribution of {{date .Page.ReportingDate}} · Health Workers Registry{{end}}
+
+{{define "content"}}
+<h1>Tools handed out in {{.Page.DistrictName}}, {{date .Page.ReportingDate}}</h1>
+<p class="muted">{{num .Page.Units}} tool(s) to {{num .Page.Recipients}} worker(s).{{with .Page.Note}} {{.}}{{end}}</p>
+
+<table class="grid">
+  <thead><tr><th>Worker</th><th>Worker ID</th><th>Tool</th><th class="num">Quantity</th></tr></thead>
+  <tbody>
+  {{range .Page.Items}}
+    <tr>
+      <td><a href="/health-workers/{{.HealthWorkerID}}">{{.WorkerName}}</a></td>
+      <td><code class="worker-code">{{.WorkerCode}}</code></td>
+      <td>{{.Tool.Label}}</td>
+      <td class="num">{{.Quantity}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+<p><a href="/distributions">All distributions</a></p>
+{{end}}

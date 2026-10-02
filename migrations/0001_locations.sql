@@ -17,6 +17,9 @@
 -- Collapsing that tier merges 2198 subcounties into 1466 and 10716 parishes
 -- into 9807. The ODK form omitted it, which is why it carried only 1990
 -- subcounties and 173 unresolvable references.
+--
+-- Every table here carries the record columns (uuid, created_on/by,
+-- last_updated_on/by) too; they reference users, so 0002 adds them.
 
 CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -33,7 +36,6 @@ CREATE TABLE locations (
     code_path  text,                     -- full concatenation, e.g. '00100301003001'
     path       text NOT NULL,            -- '/1/14/233/' surrogate-id ancestors
     active     boolean NOT NULL DEFAULT true,
-    created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (parent_id, code),
     -- deliberately NOT unique on (parent_id, name): the source contains one
     -- genuine case of two villages sharing a name in one parish
@@ -104,9 +106,13 @@ CREATE TRIGGER locations_before_insert_trg BEFORE INSERT ON locations
 CREATE TABLE facilities (
     id          bigserial PRIMARY KEY,
     district_id bigint NOT NULL REFERENCES locations(id),
+    -- The facility's code in an external register (the MFL's own id, or a
+    -- DHIS2 uid). The 2026-02-21 MFL carries none, so it is NULL until one is
+    -- reconciled, and unique where present.
+    code        text UNIQUE CHECK (btrim(code) <> ''),
     name        text NOT NULL,
     slug        text NOT NULL,
-    -- The MFL carries no facility code, so identity stays (district_id, name).
+    -- Identity stays (district_id, name) while code is empty.
     -- These are attributes, not identity.
     level           text,   -- 'HC II' | 'HC III' | 'HC IV' | 'Hospital' | 'Clinic' | 'Drug Shop' | ...
     ownership       text,   -- 'GOV' | 'PFP' | 'PNFP'

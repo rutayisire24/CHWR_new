@@ -80,6 +80,20 @@ func TestCapabilityMatrix(t *testing.T) {
 		{domain.RoleNationalViewer, CapCadreManage, false},
 		{domain.RoleDistrictManager, CapCadreManage, false},
 		{domain.RoleDistrictViewer, CapCadreManage, false},
+		// So are the questionnaires.
+		{domain.RoleNationalAdmin, CapProfileManage, true},
+		{domain.RoleNationalViewer, CapProfileManage, false},
+		{domain.RoleDistrictManager, CapProfileManage, false},
+		{domain.RoleDistrictViewer, CapProfileManage, false},
+		// Events against a posting are recorded by whoever keeps the register.
+		{domain.RoleNationalAdmin, CapServiceReport, true},
+		{domain.RoleDistrictManager, CapServiceReport, true},
+		{domain.RoleNationalViewer, CapServiceReport, false},
+		{domain.RoleDistrictViewer, CapServiceReport, false},
+		{domain.RoleNationalAdmin, CapToolDistribute, true},
+		{domain.RoleDistrictManager, CapToolDistribute, true},
+		{domain.RoleNationalViewer, CapToolDistribute, false},
+		{domain.RoleDistrictViewer, CapToolDistribute, false},
 
 		{domain.RoleNationalAdmin, CapWorkerCreate, true},
 		{domain.RoleNationalViewer, CapWorkerCreate, false},

@@ -23,10 +23,14 @@ import (
 // placement, the status and the timestamps — and the importer names them as
 // unknown and ignores them, which is the right answer for a column it must not
 // let anyone set.
+//
+// A birth date goes out as dob when it is a date, and as age_years when it is
+// an estimate from an age: an import reads either, and turning an estimate
+// into a date would claim a precision nobody recorded.
 var exportColumns = []string{
 	"id", "worker_code",
-	importer.ColNIN, importer.ColFirstName, importer.ColLastName,
-	importer.ColSex, importer.ColCadre, importer.ColAge, "age_captured_on",
+	importer.ColNIN, importer.ColFirstName, importer.ColLastName, importer.ColOtherName,
+	importer.ColSex, importer.ColCadre, importer.ColDOB, importer.ColAge,
 	importer.ColDistrict, importer.ColSubcounty, importer.ColParish, importer.ColVillage,
 	importer.ColCode,
 	"status", "deactivated_on", "deactivation_reason",
@@ -38,8 +42,8 @@ var exportColumns = []string{
 	importer.ColIncentive, importer.ColIncentiveFreq, importer.ColIncentiveAmount,
 	importer.ColTools, importer.ColToolsFunctional,
 	importer.ColServices, importer.ColTrained,
-	"received_supervision", "last_supervised_on",
-	"created_at", "updated_at",
+	importer.ColSupervised, importer.ColLastSupervised,
+	"created_on", "last_updated_on",
 }
 
 // workersExport streams the register as CSV, through the same Scope and the
@@ -94,54 +98,54 @@ func (s *Server) workersExport(w http.ResponseWriter, r *http.Request) {
 
 // exportRecord flattens one row into the file's columns. Formatting lives here
 // rather than in the store, because "yes" and an empty cell are a rendering of
-// *bool, not a fact about the register.
+// an answer, not a fact about the register.
 func exportRecord(r store.ExportRow) []string {
+	dob, age := "", ""
+	if r.DOB != nil {
+		if r.DOBEstimated {
+			age = strconv.Itoa(*(domain.Person{DOB: r.DOB}).Age())
+		} else {
+			dob = r.DOB.Format(time.DateOnly)
+		}
+	}
+	answer := func(column string) string {
+		return strings.Join(r.Answers[importer.SurveyQuestion(column)], ";")
+	}
 	return []string{
 		strconv.FormatInt(r.ID, 10), r.Code,
-		r.NIN, r.FirstName, r.LastName,
-		string(r.Sex), r.Cadre, intPtrString(r.AgeYears), dateString(&r.AgeCapturedOn),
+		r.NIN, r.FirstName, r.LastName, r.OtherName,
+		string(r.Sex), r.Cadre, dob, age,
 		r.District, r.Subcounty, r.Parish, r.Village,
 		r.LocationCode,
-		string(r.Status), timeDateString(r.DeactivatedAt), r.DeactivationReason,
-		boolString(r.OwnsPhone), r.PhonePrimary, boolString(r.PhoneForReporting),
+		string(r.Status), dateString(r.DeactivatedAt), r.DeactivationReason,
+		answer(importer.ColPhoneOwner), r.PhoneOwn, answer(importer.ColPhoneReporting),
 		r.PhoneAlternate,
-		r.Facility, intPtrString(r.ServiceStartYear), int32PtrString(r.HouseholdsServed),
+		r.Facility, answer(importer.ColServiceYear), answer(importer.ColHouseholds),
 		string(r.Education),
-		englishString(r.EnglishSpeak, r.EnglishRead, r.EnglishWrite), r.OtherLanguagesRaw,
-		boolString(r.ReceivesIncentive), string(r.IncentiveFrequency),
-		int32PtrString(r.IncentiveAmountUGX),
-		r.Tools, r.ToolsFunctional,
-		r.Services, r.Trained,
-		boolString(r.ReceivedSupervision), dateString(r.LastSupervisedOn),
-		r.CreatedAt.Format(time.RFC3339), r.UpdatedAt.Format(time.RFC3339),
+		englishString(r.English), answer(importer.ColOtherLanguages),
+		answer(importer.ColIncentive), answer(importer.ColIncentiveFreq),
+		answer(importer.ColIncentiveAmount),
+		answer(importer.ColTools), answer(importer.ColToolsFunctional),
+		answer(importer.ColServices), answer(importer.ColTrained),
+		answer(importer.ColSupervised), answer(importer.ColLastSupervised),
+		r.CreatedOn.Format(time.RFC3339), r.LastUpdatedOn.Format(time.RFC3339),
 	}
 }
 
-// boolString writes the three states the register keeps apart. An empty cell is
-// "not asked" and reads back as NULL; only "no" is a recorded no.
-func boolString(b *bool) string {
-	if b == nil {
-		return ""
-	}
-	if *b {
-		return "yes"
-	}
-	return "no"
-}
-
-// englishString folds the three proficiency flags back into the multi-select
-// the importer reads. All three recorded false is `none`, which is what the
-// source form's own choice list calls it — and is not the same as an empty cell.
-func englishString(speak, read, write *bool) string {
-	if speak == nil && read == nil && write == nil {
+// englishString folds the three grades back into the multi-select the importer
+// reads. Three recorded nones are `none`, which is what the source form's own
+// choice list calls it — and is not the same as an empty cell, which is
+// English never asked about.
+func englishString(e domain.LanguageSkill) string {
+	if e.Understanding == "" && e.Reading == "" && e.Writing == "" {
 		return ""
 	}
 	var parts []string
 	for _, p := range []struct {
-		flag *bool
-		name string
-	}{{speak, "speak"}, {read, "read"}, {write, "write"}} {
-		if p.flag != nil && *p.flag {
+		grade domain.Proficiency
+		name  string
+	}{{e.Understanding, "speak"}, {e.Reading, "read"}, {e.Writing, "write"}} {
+		if p.grade.Can() {
 			parts = append(parts, p.name)
 		}
 	}
@@ -151,28 +155,12 @@ func englishString(speak, read, write *bool) string {
 	return strings.Join(parts, ";")
 }
 
-func intPtrString(n *int16) string {
-	if n == nil {
-		return ""
-	}
-	return strconv.Itoa(int(*n))
-}
-
-func int32PtrString(n *int32) string {
-	if n == nil {
-		return ""
-	}
-	return strconv.Itoa(int(*n))
-}
-
 func dateString(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
 	return t.Format(time.DateOnly)
 }
-
-func timeDateString(t *time.Time) string { return dateString(t) }
 
 // exportFilename names the file for the folder it lands in, beside a dozen
 // others. It carries the scope and the date, and says when a filter was applied

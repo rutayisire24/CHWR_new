@@ -73,6 +73,17 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("POST /cadres/{id}", manageCadres(s.cadreUpdate))
 	mux.Handle("POST /cadres/categories", manageCadres(s.categoryCreate))
 
+	// The questionnaires: national vocabulary, national admin only.
+	manageProfiles := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireAuth(auth.RequireCapability(auth.CapProfileManage, pages)(h))
+	}
+	mux.Handle("GET /profiles", manageProfiles(s.profilesList))
+	mux.Handle("POST /profiles", manageProfiles(s.profileSave))
+	mux.Handle("GET /profiles/{id}", manageProfiles(s.profileShow))
+	mux.Handle("POST /profiles/{id}", manageProfiles(s.profileSave))
+	mux.Handle("POST /profiles/{id}/questions", manageProfiles(s.questionAdd))
+	mux.Handle("POST /profiles/{id}/questions/{code}", manageProfiles(s.questionUpdate))
+
 	// The register. Viewing is every role; writing needs the manage capability,
 	// and the Scope inside each store call is what keeps a district manager to
 	// their own district.
@@ -97,6 +108,9 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("POST /health-workers/{id}/facility", editWorkers(auth.CapWorkerUpdate, s.workerSetFacility))
 	mux.Handle("GET /health-workers/{id}/profile", editWorkers(auth.CapWorkerUpdate, s.workerProfileForm))
 	mux.Handle("POST /health-workers/{id}/profile", editWorkers(auth.CapWorkerUpdate, s.workerProfileSave))
+	mux.Handle("POST /health-workers/{id}/details/{detail}", editWorkers(auth.CapWorkerUpdate, s.workerDetailAdd))
+	mux.Handle("POST /health-workers/{id}/details/{detail}/{row}/remove", editWorkers(auth.CapWorkerUpdate, s.workerDetailRemove))
+	mux.Handle("POST /health-workers/{id}/services", editWorkers(auth.CapServiceReport, s.workerReportServices))
 	mux.Handle("POST /health-workers/{id}/deactivate", editWorkers(auth.CapWorkerDeactivate, s.workerDeactivate))
 	mux.Handle("POST /health-workers/{id}/reactivate", editWorkers(auth.CapWorkerDeactivate, s.workerReactivate))
 
@@ -114,6 +128,13 @@ func New(pool *pgxpool.Pool, cfg config.Config) (http.Handler, error) {
 	mux.Handle("GET /imports/{id}/errors.csv", mayImport(s.importErrors))
 	mux.Handle("POST /imports/{id}/commit", mayImport(s.importCommit))
 	mux.Handle("POST /imports/{id}/discard", mayImport(s.importDiscard))
+
+	// Tool distributions: read by anyone who reads the register, recorded by
+	// those who keep it. The Scope keeps a district to its own hand-outs.
+	mux.Handle("GET /distributions", viewWorkers(s.distributionsList))
+	mux.Handle("GET /distributions/new", editWorkers(auth.CapToolDistribute, s.distributionNew))
+	mux.Handle("POST /distributions", editWorkers(auth.CapToolDistribute, s.distributionCreate))
+	mux.Handle("GET /distributions/{id}", viewWorkers(s.distributionShow))
 
 	// Feeds the cascading selects. Read-only, and scoped like every other read.
 	mux.Handle("GET /api/locations", viewWorkers(s.locationsJSON))

@@ -30,7 +30,7 @@ const batchColumns = `
     b.id, b.filename, b.format, b.uploaded_by, u.full_name,
     b.district_id, coalesce(d.name,''), b.status::text, b.columns,
     b.total_rows, b.ready_rows, b.warning_rows, b.rejected_rows, b.imported_rows,
-    b.skip_duplicates, b.created_at, b.committed_at`
+    b.skip_duplicates, b.created_on, b.committed_at`
 
 const batchFrom = `
     FROM import_batches b
@@ -44,7 +44,7 @@ func scanBatch(row pgx.Row) (domain.Batch, error) {
 	err := row.Scan(&b.ID, &b.Filename, &b.Format, &b.UploadedBy, &b.UploaderName,
 		&b.DistrictID, &b.DistrictName, &status, &columns,
 		&b.Total, &b.Ready, &b.Warning, &b.Rejected, &b.Imported,
-		&b.SkipDuplicates, &b.CreatedAt, &b.CommittedAt)
+		&b.SkipDuplicates, &b.CreatedOn, &b.CommittedAt)
 	if err != nil {
 		return domain.Batch{}, err
 	}
@@ -82,7 +82,7 @@ func (s *Imports) Create(ctx context.Context, sc auth.Scope, actor domain.User,
 		districtID = &id
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.Batch{}, fmt.Errorf("create import batch: %w", err)
 	}
@@ -149,7 +149,7 @@ func (s *Imports) List(ctx context.Context, sc auth.Scope, limit int) ([]domain.
 	}
 	args = append(args, limit)
 	q += fmt.Sprintf(`
-	     ORDER BY (b.status = 'pending') DESC, b.created_at DESC
+	     ORDER BY (b.status = 'pending') DESC, b.created_on DESC
 	     LIMIT $%d`, len(args))
 
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -435,7 +435,7 @@ func (s *Imports) Discard(ctx context.Context, sc auth.Scope, actor domain.User,
 func (s *Imports) finish(ctx context.Context, sc auth.Scope, actor domain.User, id int64,
 	status domain.BatchStatus, skipDuplicates bool, action string, ip netip.Addr) (domain.Batch, error) {
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.Batch{}, fmt.Errorf("%s batch %d: %w", action, id, err)
 	}

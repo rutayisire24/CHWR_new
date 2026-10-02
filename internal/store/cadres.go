@@ -36,15 +36,15 @@ type CadreRow struct {
 }
 
 // InUse reports whether any posting names this cadre, which is exactly when
-// its slug, category and placement level are fixed.
+// its code, category and placement level are fixed.
 func (r CadreRow) InUse() bool { return r.Deployments > 0 }
 
-// CadreInput is the admin form. Slug, category and level are ignored by
+// CadreInput is the admin form. Code, category and level are ignored by
 // Update once the cadre is in use; the trigger would refuse them anyway, and
 // the form does not offer them.
 type CadreInput struct {
 	CategoryID     int16
-	Slug           string
+	Code           string
 	Label          string
 	PlacementLevel domain.Level
 	ImportAliases  []string
@@ -56,7 +56,7 @@ type CadreInput struct {
 
 // CategoryInput is the form for a new category.
 type CategoryInput struct {
-	Slug  string
+	Code  string
 	Label string
 	// SortOrder nil puts the new category last.
 	SortOrder *int16
@@ -79,8 +79,8 @@ func (s *Cadres) All(ctx context.Context) ([]CadreRow, error) {
 	for rows.Next() {
 		var r CadreRow
 		var level string
-		if err := rows.Scan(&r.ID, &r.CategoryID, &r.CategorySlug, &r.CategoryLabel,
-			&r.Slug, &r.Label, &level, &r.ImportAliases, &r.SortOrder, &r.Active,
+		if err := rows.Scan(&r.ID, &r.CategoryID, &r.CategoryCode, &r.CategoryLabel,
+			&r.Code, &r.Label, &level, &r.ImportAliases, &r.SortOrder, &r.Active,
 			&r.Deployments, &r.Serving); err != nil {
 			return nil, fmt.Errorf("scan cadre: %w", err)
 		}
@@ -105,8 +105,8 @@ func (s *Cadres) getOn(ctx context.Context, q interface {
 
 	var r CadreRow
 	var level string
-	if err := row.Scan(&r.ID, &r.CategoryID, &r.CategorySlug, &r.CategoryLabel,
-		&r.Slug, &r.Label, &level, &r.ImportAliases, &r.SortOrder, &r.Active,
+	if err := row.Scan(&r.ID, &r.CategoryID, &r.CategoryCode, &r.CategoryLabel,
+		&r.Code, &r.Label, &level, &r.ImportAliases, &r.SortOrder, &r.Active,
 		&r.Deployments, &r.Serving); err != nil {
 		return CadreRow{}, fmt.Errorf("get cadre %d: %w", id, translate(err))
 	}
@@ -117,7 +117,7 @@ func (s *Cadres) getOn(ctx context.Context, q interface {
 // Categories lists every category, retired ones included.
 func (s *Cadres) Categories(ctx context.Context) ([]domain.CadreCategory, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, label, sort_order, active FROM cadre_categories ORDER BY sort_order, id`)
+		`SELECT id, code, label, sort_order, active FROM cadre_categories ORDER BY sort_order, id`)
 	if err != nil {
 		return nil, fmt.Errorf("list categories: %w", translate(err))
 	}
@@ -126,7 +126,7 @@ func (s *Cadres) Categories(ctx context.Context) ([]domain.CadreCategory, error)
 	var out []domain.CadreCategory
 	for rows.Next() {
 		var c domain.CadreCategory
-		if err := rows.Scan(&c.ID, &c.Slug, &c.Label, &c.SortOrder, &c.Active); err != nil {
+		if err := rows.Scan(&c.ID, &c.Code, &c.Label, &c.SortOrder, &c.Active); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
 		out = append(out, c)
@@ -139,7 +139,7 @@ func (s *Cadres) Create(ctx context.Context, sc auth.Scope, actor domain.User, i
 	if !sc.IsNational() {
 		return CadreRow{}, fmt.Errorf("create cadre: %w", domain.ErrForbidden)
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return CadreRow{}, fmt.Errorf("create cadre: %w", err)
 	}
@@ -147,12 +147,12 @@ func (s *Cadres) Create(ctx context.Context, sc auth.Scope, actor domain.User, i
 
 	var id int16
 	err = tx.QueryRow(ctx, `
-	    INSERT INTO cadres (category_id, slug, label, placement_level, import_aliases, sort_order, active)
+	    INSERT INTO cadres (cadre_category_id, code, label, placement_level, import_aliases, sort_order, active)
 	    VALUES ($1, $2, $3, $4::location_level, $5,
-	            coalesce($6, (SELECT coalesce(max(sort_order), 0) + 1 FROM cadres WHERE category_id = $1)),
+	            coalesce($6, (SELECT coalesce(max(sort_order), 0) + 1 FROM cadres WHERE cadre_category_id = $1)),
 	            $7)
 	    RETURNING id`,
-		in.CategoryID, in.Slug, in.Label, string(in.PlacementLevel), aliases(in.ImportAliases),
+		in.CategoryID, in.Code, in.Label, string(in.PlacementLevel), aliases(in.ImportAliases),
 		in.SortOrder, in.Active).Scan(&id)
 	if err != nil {
 		return CadreRow{}, fmt.Errorf("create cadre: %w", translate(err))
@@ -179,7 +179,7 @@ func (s *Cadres) Update(ctx context.Context, sc auth.Scope, actor domain.User, i
 	if !sc.IsNational() {
 		return CadreRow{}, fmt.Errorf("update cadre %d: %w", id, domain.ErrForbidden)
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return CadreRow{}, fmt.Errorf("update cadre %d: %w", id, err)
 	}
@@ -196,16 +196,16 @@ func (s *Cadres) Update(ctx context.Context, sc auth.Scope, actor domain.User, i
 	}
 	if before.InUse() {
 		in.CategoryID = before.CategoryID
-		in.Slug = before.Slug
+		in.Code = before.Code
 		in.PlacementLevel = before.PlacementLevel
 	}
 
 	tag, err := tx.Exec(ctx, `
 	    UPDATE cadres
-	       SET category_id = $2, slug = $3, label = $4, placement_level = $5::location_level,
+	       SET cadre_category_id = $2, code = $3, label = $4, placement_level = $5::location_level,
 	           import_aliases = $6, sort_order = coalesce($7, sort_order), active = $8
 	     WHERE id = $1`,
-		id, in.CategoryID, in.Slug, in.Label, string(in.PlacementLevel), aliases(in.ImportAliases),
+		id, in.CategoryID, in.Code, in.Label, string(in.PlacementLevel), aliases(in.ImportAliases),
 		in.SortOrder, in.Active)
 	if err != nil {
 		return CadreRow{}, fmt.Errorf("update cadre %d: %w", id, translate(err))
@@ -235,7 +235,7 @@ func (s *Cadres) CreateCategory(ctx context.Context, sc auth.Scope, actor domain
 	if !sc.IsNational() {
 		return domain.CadreCategory{}, fmt.Errorf("create category: %w", domain.ErrForbidden)
 	}
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.CadreCategory{}, fmt.Errorf("create category: %w", err)
 	}
@@ -243,10 +243,10 @@ func (s *Cadres) CreateCategory(ctx context.Context, sc auth.Scope, actor domain
 
 	var c domain.CadreCategory
 	err = tx.QueryRow(ctx, `
-	    INSERT INTO cadre_categories (slug, label, sort_order)
+	    INSERT INTO cadre_categories (code, label, sort_order)
 	    VALUES ($1, $2, coalesce($3, (SELECT coalesce(max(sort_order), 0) + 1 FROM cadre_categories)))
-	    RETURNING id, slug, label, sort_order, active`,
-		in.Slug, in.Label, in.SortOrder).Scan(&c.ID, &c.Slug, &c.Label, &c.SortOrder, &c.Active)
+	    RETURNING id, code, label, sort_order, active`,
+		in.Code, in.Label, in.SortOrder).Scan(&c.ID, &c.Code, &c.Label, &c.SortOrder, &c.Active)
 	if err != nil {
 		return domain.CadreCategory{}, fmt.Errorf("create category: %w", translate(err))
 	}
@@ -257,7 +257,7 @@ func (s *Cadres) CreateCategory(ctx context.Context, sc auth.Scope, actor domain
 	id := int64(c.ID)
 	e.EntityID = &id
 	e.DistrictID = nil // national vocabulary: no district owns it
-	e.After = map[string]any{"id": c.ID, "slug": c.Slug, "label": c.Label,
+	e.After = map[string]any{"id": c.ID, "code": c.Code, "label": c.Label,
 		"sort_order": c.SortOrder, "active": c.Active}
 	e.IP = ip
 	if err := recordOn(ctx, tx, e); err != nil {
@@ -286,7 +286,7 @@ func cadreSnapshot(c CadreRow) map[string]any {
 	return map[string]any{
 		"id":              c.ID,
 		"category_id":     c.CategoryID,
-		"slug":            c.Slug,
+		"code":            c.Code,
 		"label":           c.Label,
 		"placement_level": string(c.PlacementLevel),
 		"import_aliases":  c.ImportAliases,

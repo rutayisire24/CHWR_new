@@ -16,14 +16,15 @@ import (
 // spreadsheet cell collects spaces and stray punctuation that a form field
 // does not, so the importer tidies harder before it asks.
 
-// Age bounds, mirroring the CHECK on health_workers.age_years. The lower bound
-// is the source form's own: a community health worker is an adult.
+// Age bounds. The lower bound is the source form's own: a community health
+// worker is an adult. The schema stores a birth date and cannot hold a rule
+// relative to today, so these are the register's rule alone.
 const (
 	MinAge = 18
 	MaxAge = 99
 )
 
-// ninPattern is the CHECK on health_workers.nin, repeated so a typo comes back
+// ninPattern is the CHECK on persons.nin, repeated so a typo comes back
 // as a field message rather than a constraint violation. The schema is still
 // the enforcement.
 var ninPattern = regexp.MustCompile(`^[A-Z]{2}[A-Z0-9]{11}[A-Z]$`)
@@ -74,9 +75,8 @@ func ParseSex(s string) (Sex, bool) {
 }
 
 // ParseTriState reads a yes / no / not-answered cell. The distinction is the
-// register's own: every profile column is nullable because "no" and "not asked"
-// are different answers, and an imported record that answered nothing must not
-// come back as one that answered no.
+// register's own: "no" and "not asked" are different answers, and an imported
+// record that answered nothing must not come back as one that answered no.
 func ParseTriState(s string) (*bool, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "":
@@ -106,21 +106,6 @@ func ParseEducation(s string) (EducationLevel, bool) {
 		return EducationUACE, true
 	case "tertiary", "university", "college":
 		return EducationTertiary, true
-	}
-	return "", false
-}
-
-// ParseIncentiveFrequency reads how often an incentive arrives, not how much.
-func ParseIncentiveFrequency(s string) (IncentiveFrequency, bool) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "monthly", "month":
-		return IncentiveMonthly, true
-	case "quarterly", "quarter":
-		return IncentiveQuarterly, true
-	case "annually", "annual", "yearly", "year":
-		return IncentiveAnnually, true
-	case "one_off", "one off", "one-off", "once", "oneoff":
-		return IncentiveOneOff, true
 	}
 	return "", false
 }

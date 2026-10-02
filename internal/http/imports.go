@@ -64,31 +64,30 @@ func (l registerLookup) Cadres(ctx context.Context) ([]domain.Cadre, error) {
 	return l.store.Deployments.Cadres(ctx)
 }
 
-// Tools and ServiceDomains read the vocabularies through the same queries the
-// profile form uses, asked about nobody: worker id 0 matches no junction row,
-// so what comes back is the plain list.
-func (l registerLookup) Tools(ctx context.Context) ([]domain.Tool, error) {
-	held, err := l.store.Profiles.Tools(ctx, 0)
+// Survey is the CHW baseline and the cadres it applies to: the questions the
+// survey columns answer.
+func (l registerLookup) Survey(ctx context.Context) (importer.Survey, error) {
+	p, err := l.store.Profiles.ByCode(ctx, store.CHWBaseline)
 	if err != nil {
-		return nil, err
+		return importer.Survey{}, err
 	}
-	out := make([]domain.Tool, 0, len(held))
-	for _, t := range held {
-		out = append(out, t.Tool)
-	}
-	return out, nil
-}
-
-func (l registerLookup) ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error) {
-	offered, err := l.store.Profiles.ServiceDomains(ctx, 0)
+	cadres, err := l.store.Deployments.Cadres(ctx)
 	if err != nil {
-		return nil, err
+		return importer.Survey{}, err
 	}
-	out := make([]domain.ServiceDomain, 0, len(offered))
-	for _, d := range offered {
-		out = append(out, d.ServiceDomain)
+	survey := importer.Survey{Profile: p}
+	for _, c := range cadres {
+		applies, err := l.store.Profiles.ForCadre(ctx, c.ID)
+		if err != nil {
+			return importer.Survey{}, err
+		}
+		for _, a := range applies {
+			if a.ID == p.ID {
+				survey.Cadres = append(survey.Cadres, c.ID)
+			}
+		}
 	}
-	return out, nil
+	return survey, nil
 }
 
 func (l registerLookup) FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error) {
@@ -569,7 +568,7 @@ func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User
 	}
 	var cadreID int16
 	for _, c := range cadres {
-		if c.Slug == record.Deployment.Cadre {
+		if c.Code == record.Deployment.Cadre {
 			cadreID = c.ID
 		}
 	}
@@ -584,26 +583,42 @@ func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User
 	}
 	defer tx.Rollback(ctx)
 
-	worker, err := s.store.Workers.CreateTx(ctx, tx, sc, actor, store.WorkerInput{
-		NIN:        record.NIN,
-		FirstName:  record.FirstName,
-		LastName:   record.LastName,
-		Sex:        record.Sex,
-		AgeYears:   record.AgeYears,
-		CadreID:    cadreID,
-		LocationID: record.Deployment.LocationID,
-		FacilityID: record.Deployment.FacilityID,
-	}, ip)
+	in := store.WorkerInput{
+		NIN:          record.NIN,
+		FirstName:    record.FirstName,
+		LastName:     record.LastName,
+		OtherName:    record.OtherName,
+		Sex:          record.Sex,
+		DOBEstimated: record.DOBEstimated,
+		CadreID:      cadreID,
+		LocationID:   record.Deployment.LocationID,
+		FacilityID:   record.Deployment.FacilityID,
+	}
+	if record.DOB != "" {
+		dob, ok := domain.ParseDate(record.DOB)
+		if !ok {
+			return &domain.Problem{Code: domain.ProblemLostRace,
+				Message: "This row could not be read back the way it was reviewed."}, nil
+		}
+		in.DOB = &dob
+	}
+	worker, err := s.store.Workers.CreateTx(ctx, tx, sc, actor, in, ip)
 	if err != nil {
 		return lostRace(err), nil
 	}
 	// The optional attributes, in the same transaction as the worker they hang
-	// off. A file carrying only the core columns writes no profile row at all,
-	// rather than a row of nulls: "nothing recorded" and "recorded as nothing"
-	// are different answers here too.
-	if record.Profile.Answered() {
-		if _, err := s.store.Profiles.SaveTx(ctx, tx, sc, actor, worker.ID,
-			profileInput(record.Profile), ip); err != nil {
+	// off: the person's details, then the survey answers. A file carrying only
+	// the core columns writes neither — "nothing recorded" and "recorded as
+	// nothing" are different answers here too.
+	if err := s.store.Persons.WriteSurveyDetailsTx(ctx, tx, sc, actor, worker.ID, surveyDetails(record.Person), ip); err != nil {
+		return lostRace(err), nil
+	}
+	if record.Answers.Answered() {
+		survey, err := s.store.Profiles.ByCode(ctx, store.CHWBaseline)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.store.Profiles.SubmitTx(ctx, tx, sc, actor, worker.ID, survey, record.Answers, "import", ip); err != nil {
 			return lostRace(err), nil
 		}
 	}
@@ -617,38 +632,26 @@ func (s *Server) commitRow(ctx context.Context, sc auth.Scope, actor domain.User
 	return nil, nil
 }
 
-// profileInput maps the importer's record onto the store's input. The two are
-// separate types on purpose: internal/importer does not depend on
+// surveyDetails maps the importer's person record onto the store's input. The
+// two are separate types on purpose: internal/importer does not depend on
 // internal/store, so that its whole validation pass can be tested without a
 // database.
-func profileInput(p importer.ProfileRecord) store.ProfileInput {
-	in := store.ProfileInput{
-		OwnsPhone:          p.OwnsPhone,
-		PhonePrimary:       p.PhonePrimary,
-		PhoneForReporting:  p.PhoneForReporting,
-		PhoneAlternate:     p.PhoneAlternate,
-		ServiceStartYear:   p.ServiceStartYear,
-		HouseholdsServed:   p.HouseholdsServed,
-		Education:          p.Education,
-		EnglishSpeak:       p.EnglishSpeak,
-		EnglishRead:        p.EnglishRead,
-		EnglishWrite:       p.EnglishWrite,
-		OtherLanguagesRaw:  p.OtherLanguagesRaw,
-		ReceivesIncentive:  p.ReceivesIncentive,
-		IncentiveFrequency: p.IncentiveFrequency,
-		IncentiveAmountUGX: p.IncentiveAmountUGX,
-		// Supervision is absent by decision: the source form records it per
-		// service domain and carries no date, so last_supervised_on fills only
-		// through the UI. See docs/odk-mapping.md.
+func surveyDetails(p importer.PersonRecord) store.SurveyDetails {
+	yes, no := true, false
+	d := store.SurveyDetails{Education: p.Education}
+	// The survey asks for one number or the other, so whichever is present is
+	// the one to reach them on.
+	if p.PhoneOwn != "" {
+		d.Phones = append(d.Phones, domain.Contact{Kind: domain.ContactPhone, Value: p.PhoneOwn, Owned: &yes, IsPrimary: true})
 	}
-	for _, t := range p.Tools {
-		in.Tools = append(in.Tools, store.ToolInput{ToolID: t.ToolID, Functional: t.Functional})
+	if p.PhoneAlternate != "" {
+		d.Phones = append(d.Phones, domain.Contact{Kind: domain.ContactPhone, Value: p.PhoneAlternate, Owned: &no,
+			IsPrimary: p.PhoneOwn == ""})
 	}
-	for _, d := range p.Domains {
-		in.Domains = append(in.Domains, store.DomainInput{
-			DomainID: d.DomainID, Provides: d.Provides, Trained: d.Trained})
+	if e := p.English; e != nil {
+		d.English = &domain.LanguageSkill{Understanding: e.Understanding, Reading: e.Reading, Writing: e.Writing}
 	}
-	return in
+	return d
 }
 
 // lostRace names what the register did between the report and the commit. Every

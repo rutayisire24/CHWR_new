@@ -152,7 +152,7 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	after, err := s.store.Users.Update(r.Context(), sc, id, in.FullName, in.Role, in.DistrictID)
+	after, err := s.store.Users.Update(r.Context(), sc, auth.MustUser(r.Context()), id, in.FullName, in.Role, in.DistrictID)
 	if err != nil {
 		s.notFoundOrFail(w, r, err)
 		return
@@ -207,7 +207,7 @@ func (s *Server) userStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	after, err := s.store.Users.SetStatus(r.Context(), sc, id, status)
+	after, err := s.store.Users.SetStatus(r.Context(), sc, auth.MustUser(r.Context()), id, status)
 	if err != nil {
 		s.notFoundOrFail(w, r, err)
 		return
@@ -251,7 +251,7 @@ func (s *Server) userResetPassword(w http.ResponseWriter, r *http.Request) {
 		s.notFoundOrFail(w, r, err)
 		return
 	}
-	if err := s.store.Users.ResetPassword(r.Context(), sc, id, password); err != nil {
+	if err := s.store.Users.ResetPassword(r.Context(), sc, auth.MustUser(r.Context()), id, password); err != nil {
 		s.notFoundOrFail(w, r, err)
 		return
 	}

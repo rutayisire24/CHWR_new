@@ -39,10 +39,9 @@ type Lookup interface {
 	// Cadres is the cadre vocabulary the cadre column is matched against —
 	// data, not an enum, so a new cadre is importable the moment its row lands.
 	Cadres(ctx context.Context) ([]domain.Cadre, error)
-	// Tools and ServiceDomains are the closed vocabularies the two multi-select
-	// columns name. Both are small and static; the resolver reads each once.
-	Tools(ctx context.Context) ([]domain.Tool, error)
-	ServiceDomains(ctx context.Context) ([]domain.ServiceDomain, error)
+	// Survey is the questionnaire the survey columns answer and the cadres it
+	// applies to. It is data like the cadres; the resolver reads it once.
+	Survey(ctx context.Context) (Survey, error)
 	// FacilitiesIn lists a district's facilities, for matching the facility
 	// column by name inside the deployment's own district.
 	FacilitiesIn(ctx context.Context, sc auth.Scope, districtID int64) ([]domain.Facility, error)
@@ -183,6 +182,7 @@ type Resolver struct {
 	scope  auth.Scope
 
 	cadres     []domain.Cadre
+	survey     Survey
 	districts  map[string][]domain.Place
 	children   map[childKey][]domain.Place
 	facilities map[int64][]domain.Facility
@@ -206,11 +206,16 @@ func NewResolver(ctx context.Context, lookup Lookup, sc auth.Scope) (*Resolver, 
 	if err != nil {
 		return nil, fmt.Errorf("load cadres: %w", err)
 	}
+	survey, err := lookup.Survey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load survey: %w", err)
+	}
 
 	r := &Resolver{
 		lookup:     lookup,
 		scope:      sc,
 		cadres:     cadres,
+		survey:     survey,
 		districts:  make(map[string][]domain.Place, len(districts)),
 		children:   make(map[childKey][]domain.Place),
 		facilities: make(map[int64][]domain.Facility),

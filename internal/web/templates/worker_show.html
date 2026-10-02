@@ -13,11 +13,12 @@
 <div class="card">
   <dl class="detail">
     <dt>Worker ID</dt><dd><code class="worker-code">{{.Page.Worker.Code}}</code></dd>
+    {{if .Page.Worker.OtherName}}<dt>Other name</dt><dd>{{.Page.Worker.OtherName}}</dd>{{end}}
     <dt>Sex</dt><dd>{{.Page.Worker.Sex.Label}}</dd>
     <dt>Age</dt>
     <dd>
-      {{if .Page.Worker.AgeYears}}{{.Page.Worker.AgeYears}} years
-        <span class="muted">as recorded on {{date .Page.Worker.AgeCapturedOn}}</span>
+      {{with .Page.Worker.DOB}}{{intp $.Page.Worker.Age}} years
+        <span class="muted">{{if $.Page.Worker.DOBEstimated}}estimated from an age recorded earlier{{else}}born {{date .}}{{end}}</span>
       {{else}}<span class="muted">not recorded</span>{{end}}
     </dd>
     <dt>NIN</dt>
@@ -25,10 +26,11 @@
     {{with .Page.Worker.Deployment}}
     <dt>Cadre</dt><dd>{{.Cadre.Label}}</dd>
     <dt>Placement</dt><dd>{{.LocationName}}, {{.DistrictName}} district</dd>
+    <dt>Posting</dt><dd><code>{{.Code}}</code></dd>
     <dt>In this posting</dt><dd>since {{date .StartedOn}}{{if not .Active}} — ended {{date .EndedOn}}{{end}}</dd>
     {{end}}
-    <dt>Added</dt><dd>{{datetime .Page.Worker.CreatedAt}}</dd>
-    <dt>Last changed</dt><dd>{{datetime .Page.Worker.UpdatedAt}}</dd>
+    <dt>Added</dt><dd>{{datetime .Page.Worker.CreatedOn}}</dd>
+    <dt>Last changed</dt><dd>{{datetime .Page.Worker.LastUpdatedOn}}</dd>
   </dl>
 </div>
 
@@ -63,10 +65,11 @@
 <div class="card">
   <h2>Postings</h2>
   <table class="grid">
-    <thead><tr><th>Cadre</th><th>Placement</th><th>District</th><th>From</th><th>To</th><th>Why it ended</th></tr></thead>
+    <thead><tr><th>Posting</th><th>Cadre</th><th>Placement</th><th>District</th><th>From</th><th>To</th><th>Why it ended</th></tr></thead>
     <tbody>
     {{range $.Page.History}}
       <tr class="{{if not .Active}}dim{{end}}">
+        <td><code>{{.Code}}</code></td>
         <td>{{.Cadre.Label}}</td>
         <td>{{.LocationName}}</td>
         <td>{{.DistrictName}}</td>
@@ -81,77 +84,77 @@
 {{end}}
 {{end}}
 
-{{if or .Page.ProfileApplies .Page.Profile.Answered}}
+{{template "details" .}}
+
+{{range .Page.Surveys}}
 <div class="card">
   <div class="row-between">
-    <h2>CHW profile</h2>
-    {{if and .Page.CanEdit .Page.ProfileApplies}}<a href="/health-workers/{{.Page.Worker.ID}}/profile">{{if .Page.Profile.Answered}}Edit{{else}}Add{{end}} profile</a>{{end}}
+    <h2>{{.Profile.Name}}</h2>
+    {{if and $.Page.CanEdit .Applies}}<a href="/health-workers/{{$.Page.Worker.ID}}/profile?profile={{.Profile.Code}}">{{if .Latest.Exists}}Update{{else}}Start{{end}} survey</a>{{end}}
   </div>
-  {{if not .Page.ProfileApplies}}
-  <p class="hint">Recorded while this worker served as a community health worker. Their current
-    cadre carries no CHW profile, so it is kept as it was and no longer edited.</p>
+  {{if not .Applies}}
+  <p class="hint">Answered while this worker served in a cadre that takes this survey. Their current
+    cadre does not, so it is kept as it was and no longer updated.</p>
   {{end}}
-
-  {{if .Page.Profile.Answered}}
+  {{if .Rows}}
+  <p class="muted">As answered on {{date .Latest.CapturedOn}}{{if eq .Latest.Source "import"}}, from an import{{end}}{{if gt .Submissions 1}} — the latest of {{.Submissions}} submissions{{end}}.</p>
   <dl class="detail">
-    <dt>Phone</dt>
-    <dd>
-      {{if .Page.Profile.Phone}}{{.Page.Profile.Phone}}
-        {{if deref .Page.Profile.OwnsPhone}}<span class="muted">own phone{{if deref .Page.Profile.PhoneForReporting}}, used for reporting{{end}}</span>
-        {{else}}<span class="muted">alternative number</span>{{end}}
-      {{else}}<span class="muted">owns a phone: {{yesno .Page.Profile.OwnsPhone}}</span>{{end}}
-    </dd>
-    <dt>Serving since</dt>
-    <dd>{{if .Page.Profile.ServiceStartYear}}{{.Page.Profile.ServiceStartYear}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
-    <dt>Households served</dt>
-    <dd>{{if .Page.Profile.HouseholdsServed}}{{.Page.Profile.HouseholdsServed}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
-    <dt>Education</dt>
-    <dd>{{if .Page.Profile.Education}}{{.Page.Profile.Education.Label}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
-    <dt>English</dt>
-    <dd>
-      {{if .Page.Profile.SpeaksEnglish}}{{.Page.Profile.EnglishSummary}}
-      {{else}}<span class="muted">none recorded</span>{{end}}
-    </dd>
-    <dt>Other languages</dt>
-    <dd>{{if .Page.Profile.OtherLanguagesRaw}}{{.Page.Profile.OtherLanguagesRaw}}{{else}}<span class="muted">not recorded</span>{{end}}</dd>
-    <dt>Incentive</dt>
-    <dd>
-      {{if deref .Page.Profile.ReceivesIncentive}}
-        {{if .Page.Profile.IncentiveAmountUGX}}UGX {{ugx .Page.Profile.IncentiveAmountUGX}}{{else}}amount not recorded{{end}}
-        {{if .Page.Profile.IncentiveFrequency}}<span class="muted">{{.Page.Profile.IncentiveFrequency.Label}}</span>{{end}}
-      {{else}}<span class="muted">{{yesno .Page.Profile.ReceivesIncentive}}</span>{{end}}
-    </dd>
-    <dt>Last supervised</dt>
-    <dd>
-      {{if .Page.Profile.LastSupervisedOn}}{{month .Page.Profile.LastSupervisedOn}}
-      {{else}}<span class="muted">supervision received: {{yesno .Page.Profile.ReceivedSupervision}}</span>{{end}}
-    </dd>
+    {{range .Rows}}<dt>{{.Prompt}}</dt><dd>{{.Answer}}</dd>{{end}}
   </dl>
-
-  <h3>Tools</h3>
-  {{if .Page.Tools}}
-  <ul class="taglist">
-    {{range .Page.Tools}}{{if .Held}}
-    <li class="tag {{if and .Functional (not (deref .Functional))}}broken{{end}}">{{.Label}}{{if .Functional}} — {{if deref .Functional}}working{{else}}broken{{end}}{{end}}</li>
-    {{end}}{{end}}
-  </ul>
-  {{else}}<p class="muted">None recorded.</p>{{end}}
-
-  <h3>Services</h3>
-  {{if .Page.Domains}}
-  <ul class="taglist">
-    {{range .Page.Domains}}{{if .Provides}}
-    <li class="tag {{if .Trained}}trained{{end}}">{{.Label}}{{if .Trained}} — trained{{end}}</li>
-    {{end}}{{end}}
-  </ul>
-  {{else}}<p class="muted">None recorded.</p>{{end}}
-
+  <p class="hint">Questions not listed were not asked.</p>
   {{else}}
-  <p class="muted">Nothing recorded yet. The ODK export answers none of these fields; they
-    fill in through this form.</p>
+  <p class="muted">Nothing recorded yet.</p>
   {{end}}
 </div>
 {{end}}
+
+<div class="card" id="services">
+  <h2>Services reported</h2>
+  {{if .Page.ServiceUpdates}}
+  <table class="grid">
+    <thead><tr><th>Date</th><th>As</th><th>Services</th></tr></thead>
+    <tbody>
+    {{range .Page.ServiceUpdates}}
+      <tr><td>{{date .ReportingDate}}</td><td>{{.CadreLabel}}</td>
+        <td>{{range $i, $s := .Services}}{{if $i}}, {{end}}{{$s.Label}}{{else}}<span class="muted">none</span>{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">No services reported.</p>{{end}}
+
+  {{if and .Page.CanReport .Page.Services}}
+  <details>
+    <summary>Report services</summary>
+    <form method="post" action="/health-workers/{{.Page.Worker.ID}}/services">
+      {{template "csrf" .}}
+      <label for="reporting_date">For the date</label>
+      <input id="reporting_date" name="reporting_date" type="date" value="{{.Page.Today}}" max="{{.Page.Today}}" required>
+      <fieldset class="checks">
+        <legend>Services given</legend>
+        {{range .Page.Services}}
+        <label class="check"><input type="checkbox" name="service_id" value="{{.ID}}"> {{.Label}}</label>
+        {{end}}
+      </fieldset>
+      <p class="hint">A second report for the same date replaces the first.</p>
+      <button type="submit">Record</button>
+    </form>
+  </details>
+  {{end}}
+</div>
+
+<div class="card">
+  <h2>Tools received</h2>
+  {{if .Page.ToolsReceived}}
+  <table class="grid">
+    <thead><tr><th>Date</th><th>Tool</th><th class="num">Quantity</th></tr></thead>
+    <tbody>
+    {{range .Page.ToolsReceived}}
+      <tr><td><a href="/distributions/{{.DistributionID}}">{{date .ReportingDate}}</a></td><td>{{.Tool.Label}}</td><td class="num">{{.Quantity}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">No tools recorded as received. Hand-outs are recorded under Tools.</p>{{end}}
+</div>
 
 {{if not .Page.Worker.Active}}
 <div class="card">
@@ -180,4 +183,210 @@
 {{end}}
 
 <p><a href="/health-workers">Back to the register</a></p>
+{{end}}
+
+{{define "remove"}}{{if .CanEdit}}
+<form method="post" action="/health-workers/{{.WorkerID}}/details/{{.Detail}}/{{.ID}}/remove" class="inline">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <button type="submit" class="link">remove</button>
+</form>{{end}}{{end}}
+
+{{define "details"}}
+{{$p := .Page}}{{$csrf := .CSRFToken}}{{$wid := .Page.Worker.ID}}
+<div class="card" id="details">
+  <h2>Contact and personal details</h2>
+
+  <h3>Contacts</h3>
+  {{if $p.Details.Contacts}}
+  <ul class="plain">
+    {{range $p.Details.Contacts}}
+    <li>{{.Kind.Label}}: {{.Value}}
+      <span class="muted">{{if .IsPrimary}}primary{{end}}{{if .Owned}}{{if deref .Owned}} · own phone{{else}} · someone else's phone{{end}}{{end}}{{if deref .ForReporting}} · used for reporting{{end}}</span>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "contact" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add a contact</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/contact" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="contact_kind">Kind</label>
+        <select id="contact_kind" name="kind">{{range $p.ContactKinds}}<option value="{{.}}">{{.Label}}</option>{{end}}</select></div>
+      <div><label for="contact_value">Number, address or email</label><input id="contact_value" name="value" required></div>
+      <div><label for="contact_owned">A phone the person</label>
+        <select id="contact_owned" name="owned"><option value="">— not asked —</option><option value="yes">owns</option><option value="no">uses, someone else's</option></select></div>
+      <div><label for="contact_reporting">Used for reporting</label>
+        <select id="contact_reporting" name="for_reporting"><option value="">— not asked —</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+      <div><label class="check"><input type="checkbox" name="is_primary" value="1"> Primary contact of its kind</label></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+
+  <h3>Next of kin</h3>
+  {{if $p.Details.Kin}}
+  <ul class="plain">
+    {{range $p.Details.Kin}}
+    <li>{{.Name}} <span class="muted">({{.Relationship}}){{if .Phone}} · {{.Phone}}{{end}}{{if .IsEmergency}} · emergency contact{{end}}</span>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "kin" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add a next of kin</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/kin" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="kin_name">Name</label><input id="kin_name" name="name" required></div>
+      <div><label for="kin_relationship">Relationship</label><input id="kin_relationship" name="relationship" required placeholder="sister, husband, parent…"></div>
+      <div><label for="kin_phone">Phone</label><input id="kin_phone" name="phone" inputmode="numeric"></div>
+      <div><label class="check"><input type="checkbox" name="is_emergency" value="1"> Emergency contact</label></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+
+  <h3>Identity documents</h3>
+  <p>{{if $p.Worker.NIN}}NIN <code>{{$p.Worker.NIN}}</code>{{else}}<span class="muted">No NIN recorded.</span>{{end}}</p>
+  {{if $p.Details.Documents}}
+  <ul class="plain">
+    {{range $p.Details.Documents}}
+    <li>{{.Type.Label}}: <code>{{.Number}}</code>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "document" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add a document</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/document" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="doc_type">Kind</label>
+        <select id="doc_type" name="identifier_type_id">{{range $p.IdentifierTypes}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select></div>
+      <div><label for="doc_number">Number</label><input id="doc_number" name="number" required></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+
+  <h3>Languages</h3>
+  {{if $p.Details.Languages}}
+  <table class="grid">
+    <thead><tr><th>Language</th><th>Understands</th><th>Reads</th><th>Writes</th><th></th></tr></thead>
+    <tbody>
+    {{range $p.Details.Languages}}
+      <tr><td>{{.Language.Label}}</td><td>{{.Understanding.Label}}</td><td>{{.Reading.Label}}</td><td>{{.Writing.Label}}</td>
+        <td>{{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "language" "ID" .ID "CSRF" $csrf)}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Record a language</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/language" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="lang_id">Language</label>
+        <select id="lang_id" name="language_id">{{range $p.Languages}}<option value="{{.ID}}">{{.Label}}</option>{{end}}</select></div>
+      <div><label for="lang_understanding">Understands, speaks</label>
+        <select id="lang_understanding" name="understanding"><option value="">— not asked —</option>{{range $p.Proficiencies}}<option value="{{.}}">{{.Label}}</option>{{end}}</select></div>
+      <div><label for="lang_reading">Reads</label>
+        <select id="lang_reading" name="reading"><option value="">— not asked —</option>{{range $p.Proficiencies}}<option value="{{.}}">{{.Label}}</option>{{end}}</select></div>
+      <div><label for="lang_writing">Writes</label>
+        <select id="lang_writing" name="writing"><option value="">— not asked —</option>{{range $p.Proficiencies}}<option value="{{.}}">{{.Label}}</option>{{end}}</select></div>
+      <div class="actions"><button type="submit">Save</button></div>
+    </form>
+    <p class="hint">Recording a language already listed replaces its grades.</p>
+  </details>
+  {{end}}
+
+  <h3>Education</h3>
+  {{if $p.Details.Education}}
+  <ul class="plain">
+    {{range $p.Details.Education}}
+    <li>{{.Level.Label}}<span class="muted">{{if .Qualification}} · {{.Qualification}}{{end}}{{if .Institution}} · {{.Institution}}{{end}}{{with .YearCompleted}} · {{intp .}}{{end}}</span>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "education" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add education</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/education" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="edu_level">Level</label>
+        <select id="edu_level" name="level">{{range $p.EducationLevels}}<option value="{{.}}">{{.Label}}</option>{{end}}</select></div>
+      <div><label for="edu_inst">Institution</label><input id="edu_inst" name="institution"></div>
+      <div><label for="edu_qual">Qualification</label><input id="edu_qual" name="qualification"></div>
+      <div><label for="edu_year">Year completed</label><input id="edu_year" name="year_completed" inputmode="numeric"></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+
+  <h3>Courses</h3>
+  {{if $p.Details.Courses}}
+  <ul class="plain">
+    {{range $p.Details.Courses}}
+    <li>{{.Course}}<span class="muted">{{if .Institution}} · {{.Institution}}{{end}}{{if .Qualification}} · {{.Qualification}}{{end}} · {{day .StartedOn}} to {{day .CompletedOn}}</span>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "course" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add a course</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/course" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="course_name">Course</label><input id="course_name" name="course" required></div>
+      <div><label for="course_inst">Institution</label><input id="course_inst" name="institution"></div>
+      <div><label for="course_qual">Qualification</label><input id="course_qual" name="qualification"></div>
+      <div><label for="course_from">Started</label><input id="course_from" name="started_on" type="date"></div>
+      <div><label for="course_to">Completed</label><input id="course_to" name="completed_on" type="date"></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+
+  <h3>In-service training</h3>
+  {{if $p.Details.Training}}
+  <ul class="plain">
+    {{range $p.Details.Training}}
+    <li>{{.Title}}<span class="muted">{{if .Provider}} · {{.Provider}}{{end}} · {{day .StartedOn}} to {{day .EndedOn}}{{if deref .Certified}} · certified{{end}}</span>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "training" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add training</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/training" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="train_title">Training</label><input id="train_title" name="title" required></div>
+      <div><label for="train_provider">Provider</label><input id="train_provider" name="provider"></div>
+      <div><label for="train_from">Started</label><input id="train_from" name="started_on" type="date"></div>
+      <div><label for="train_to">Ended</label><input id="train_to" name="ended_on" type="date"></div>
+      <div><label for="train_cert">Certified</label>
+        <select id="train_cert" name="certified"><option value="">— not asked —</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+
+  <h3>Work history</h3>
+  {{if $p.Details.WorkHistory}}
+  <ul class="plain">
+    {{range $p.Details.WorkHistory}}
+    <li>{{.Employer}}<span class="muted">{{if .Position}} · {{.Position}}{{end}} · {{day .StartedOn}} to {{day .EndedOn}}</span>
+      {{template "remove" (dict "CanEdit" $p.CanEdit "WorkerID" $wid "Detail" "work_history" "ID" .ID "CSRF" $csrf)}}</li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">None recorded. Postings in this register are listed above.</p>{{end}}
+  {{if $p.CanEdit}}
+  <details><summary>Add work history</summary>
+    <form method="post" action="/health-workers/{{$wid}}/details/work_history" class="two-up">
+      <input type="hidden" name="csrf_token" value="{{$csrf}}">
+      <div><label for="work_employer">Employer</label><input id="work_employer" name="employer" required></div>
+      <div><label for="work_position">Position</label><input id="work_position" name="position"></div>
+      <div><label for="work_from">From</label><input id="work_from" name="started_on" type="date"></div>
+      <div><label for="work_to">To</label><input id="work_to" name="ended_on" type="date"></div>
+      <div class="actions"><button type="submit">Add</button></div>
+    </form>
+  </details>
+  {{end}}
+</div>
 {{end}}

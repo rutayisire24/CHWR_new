@@ -156,7 +156,7 @@ type Batch struct {
 	// explains the gap between Warning and Imported a month later.
 	SkipDuplicates bool
 
-	CreatedAt   time.Time
+	CreatedOn   time.Time
 	CommittedAt *time.Time
 }
 

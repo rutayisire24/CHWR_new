@@ -23,17 +23,18 @@ type Workers struct {
 	deployments *Deployments
 }
 
-// workerColumns is the projection every register query shares: the person,
-// plus the posting they are seen through. The enums are cast to text so pgx
-// needs no type registration, and nin is coalesced because "not recorded" is
-// the common case, not an error.
+// workerColumns is the projection every register query shares: the worker and
+// the person they are, plus the posting they are seen through. The enums are
+// cast to text so pgx needs no type registration, and nin is coalesced because
+// "not recorded" is the common case, not an error.
 const workerColumns = `
-    w.id, coalesce(w.worker_code,''), coalesce(w.nin,''), w.first_name, w.last_name, w.sex::text,
-    w.age_years, w.age_captured_on, w.district_id,
+    w.id, coalesce(w.worker_code,''),
+    p.id, coalesce(p.nin,''), p.first_name, p.last_name, coalesce(p.other_name,''), p.sex::text,
+    p.dob, p.dob_estimated, p.status::text, w.district_id,
     w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
-    w.created_by, w.updated_by, w.created_at, w.updated_at,
-    dep.id, dep.cadre_id, coalesce(cd.slug,''), coalesce(cd.label,''),
-        coalesce(cd.placement_level::text,''), coalesce(cat.slug,''), coalesce(cat.label,''),
+    w.created_by, w.last_updated_by, w.created_on, w.last_updated_on,
+    dep.id, coalesce(dep.code,''), dep.cadre_id, coalesce(cd.code,''), coalesce(cd.label,''),
+        coalesce(cd.placement_level::text,''), coalesce(cat.code,''), coalesce(cat.label,''),
     dep.location_id, dep.district_id, coalesce(l.name,''), coalesce(dl.name,''),
     dep.facility_id, coalesce(f.name,''),
     dep.started_on, dep.ended_on, coalesce(dep.end_reason,'')`
@@ -44,6 +45,7 @@ const workerColumns = `
 // the day they left would be unreadable.
 const workerFrom = `
     FROM health_workers w
+    JOIN persons p ON p.id = w.person_id
     LEFT JOIN LATERAL (
         SELECT x.* FROM deployments x
          WHERE x.health_worker_id = w.id
@@ -51,41 +53,44 @@ const workerFrom = `
          LIMIT 1
     ) dep ON true
     LEFT JOIN cadres cd    ON cd.id = dep.cadre_id
-    LEFT JOIN cadre_categories cat ON cat.id = cd.category_id
+    LEFT JOIN cadre_categories cat ON cat.id = cd.cadre_category_id
     LEFT JOIN locations l  ON l.id  = dep.location_id
     LEFT JOIN locations dl ON dl.id = dep.district_id
     LEFT JOIN facilities f ON f.id  = dep.facility_id`
 
 func scanWorker(row pgx.Row) (domain.HealthWorker, error) {
 	var w domain.HealthWorker
-	var sex, status string
+	var sex, personStatus, status string
 	var depID, depLocationID, depDistrictID, facilityID *int64
 	var cadreID *int16
-	var cadreSlug, cadreLabel, cadreLevel, catSlug, catLabel, locName, distName, facName, endReason string
+	var depCode, cadreSlug, cadreLabel, cadreLevel, catSlug, catLabel, locName, distName, facName, endReason string
 	var startedOn, endedOn *time.Time
 
-	err := row.Scan(&w.ID, &w.Code, &w.NIN, &w.FirstName, &w.LastName, &sex,
-		&w.AgeYears, &w.AgeCapturedOn, &w.DistrictID,
+	err := row.Scan(&w.ID, &w.Code,
+		&w.Person.ID, &w.NIN, &w.FirstName, &w.LastName, &w.OtherName, &sex,
+		&w.DOB, &w.DOBEstimated, &personStatus, &w.DistrictID,
 		&status, &w.DeactivatedAt, &w.DeactivationReason,
-		&w.CreatedBy, &w.UpdatedBy, &w.CreatedAt, &w.UpdatedAt,
-		&depID, &cadreID, &cadreSlug, &cadreLabel, &cadreLevel, &catSlug, &catLabel,
+		&w.CreatedBy, &w.LastUpdatedBy, &w.CreatedOn, &w.LastUpdatedOn,
+		&depID, &depCode, &cadreID, &cadreSlug, &cadreLabel, &cadreLevel, &catSlug, &catLabel,
 		&depLocationID, &depDistrictID, &locName, &distName,
 		&facilityID, &facName, &startedOn, &endedOn, &endReason)
 	if err != nil {
 		return domain.HealthWorker{}, err
 	}
 	w.Sex = domain.Sex(sex)
+	w.Person.Status = domain.PersonStatus(personStatus)
 	w.Status = domain.WorkerStatus(status)
 
 	if depID != nil {
 		d := domain.Deployment{
 			ID:             *depID,
+			Code:           depCode,
 			HealthWorkerID: w.ID,
 			Cadre: domain.Cadre{
-				Slug:           cadreSlug,
+				Code:           cadreSlug,
 				Label:          cadreLabel,
 				PlacementLevel: domain.Level(cadreLevel),
-				CategorySlug:   catSlug,
+				CategoryCode:   catSlug,
 				CategoryLabel:  catLabel,
 			},
 			LocationID:   *depLocationID,
@@ -113,14 +118,18 @@ func scanWorker(row pgx.Row) (domain.HealthWorker, error) {
 // being created or edited with. district_id is absent by design — a trigger
 // derives it from location_id, and nothing outside the database may set it.
 type WorkerInput struct {
-	NIN        string // empty means not recorded
-	FirstName  string
-	LastName   string
-	Sex        domain.Sex
-	AgeYears   *int16
-	CadreID    int16
-	LocationID int64
-	FacilityID *int64
+	NIN       string // empty means not recorded
+	FirstName string
+	LastName  string
+	OtherName string
+	Sex       domain.Sex
+	// DOB is the birth date, or the estimate an age implies (DOBEstimated);
+	// nil when neither was given.
+	DOB          *time.Time
+	DOBEstimated bool
+	CadreID      int16
+	LocationID   int64
+	FacilityID   *int64
 }
 
 // Get returns one worker inside the scope. A worker in another district is
@@ -149,7 +158,7 @@ func (s *Workers) Get(ctx context.Context, sc auth.Scope, id int64) (domain.Heal
 // national. The bulk importer therefore asks nationally and reports the
 // collision without naming where it is; see docs/import.md.
 func (s *Workers) ByNIN(ctx context.Context, sc auth.Scope, nin string) (domain.HealthWorker, error) {
-	q := `SELECT ` + workerColumns + workerFrom + ` WHERE w.nin = $1`
+	q := `SELECT ` + workerColumns + workerFrom + ` WHERE p.nin = $1`
 	args := []any{nin}
 
 	if frag, extra := sc.Filter("w.district_id", len(args)+1); frag != "" {
@@ -172,7 +181,7 @@ type Filter struct {
 	// holding, and a search that answered to a national identity number
 	// invites someone to probe for one.
 	Query string
-	// Category is a cadre_categories slug ('chw'), and Cadre a cadres slug
+	// Category is a cadre_categories code ('chw'), and Cadre a cadres code
 	// ('vht'); both are matched against the posting the worker is seen through.
 	Category string
 	Cadre    string
@@ -229,15 +238,15 @@ func (f Filter) where(sc auth.Scope, args []any) (string, []any) {
 	if f.Category != "" {
 		args = append(args, f.Category)
 		where += fmt.Sprintf(
-			" AND cd.category_id = (SELECT id FROM cadre_categories WHERE slug = $%d)", len(args))
+			" AND cd.cadre_category_id = (SELECT id FROM cadre_categories WHERE code = $%d)", len(args))
 	}
 	if f.Cadre != "" {
 		args = append(args, f.Cadre)
-		where += fmt.Sprintf(" AND cd.slug = $%d", len(args))
+		where += fmt.Sprintf(" AND cd.code = $%d", len(args))
 	}
 	if f.Sex != "" {
 		args = append(args, string(f.Sex))
-		where += fmt.Sprintf(" AND w.sex = $%d::sex", len(args))
+		where += fmt.Sprintf(" AND p.sex = $%d::sex", len(args))
 	}
 	if f.Status != "" {
 		args = append(args, string(f.Status))
@@ -267,7 +276,7 @@ func (f Filter) where(sc auth.Scope, args []any) (string, []any) {
 			// search has to be written against it rather than against the two
 			// columns separately.
 			args = append(args, "%"+q+"%")
-			where += fmt.Sprintf(" AND (w.first_name || ' ' || w.last_name) ILIKE $%d", len(args))
+			where += fmt.Sprintf(" AND (p.first_name || ' ' || p.last_name) ILIKE $%d", len(args))
 		}
 	}
 	return where, args
@@ -297,12 +306,12 @@ func (s *Workers) List(ctx context.Context, sc auth.Scope, f Filter) (Page, erro
 	if cursor := f.After; cursor != nil {
 		args = append(args, strings.ToLower(cursor.LastName), strings.ToLower(cursor.FirstName), cursor.ID)
 		where += fmt.Sprintf(
-			" AND (lower(w.last_name), lower(w.first_name), w.id) > ($%d, $%d, $%d)",
+			" AND (lower(p.last_name), lower(p.first_name), w.id) > ($%d, $%d, $%d)",
 			len(args)-2, len(args)-1, len(args))
 	} else if cursor := f.Before; cursor != nil {
 		args = append(args, strings.ToLower(cursor.LastName), strings.ToLower(cursor.FirstName), cursor.ID)
 		where += fmt.Sprintf(
-			" AND (lower(w.last_name), lower(w.first_name), w.id) < ($%d, $%d, $%d)",
+			" AND (lower(p.last_name), lower(p.first_name), w.id) < ($%d, $%d, $%d)",
 			len(args)-2, len(args)-1, len(args))
 		// Walking backwards means reading the rows nearest the cursor, which
 		// is the far end of the page; the slice is flipped below.
@@ -313,7 +322,7 @@ func (s *Workers) List(ctx context.Context, sc auth.Scope, f Filter) (Page, erro
 	// without counting the whole set.
 	args = append(args, f.Limit+1)
 	q := `SELECT ` + workerColumns + workerFrom + where +
-		fmt.Sprintf(" ORDER BY lower(w.last_name) %s, lower(w.first_name) %s, w.id %s LIMIT $%d",
+		fmt.Sprintf(" ORDER BY lower(p.last_name) %s, lower(p.first_name) %s, w.id %s LIMIT $%d",
 			order, order, order, len(args))
 
 	rows, err := s.pool.Query(ctx, q, args...)
@@ -374,7 +383,7 @@ func (s *Workers) Matching(ctx context.Context, sc auth.Scope, f Filter) (int64,
 	f.Limit, f.After, f.Before = 0, nil, nil
 	where, args := f.where(sc, nil)
 
-	from := ` FROM health_workers w`
+	from := ` FROM health_workers w JOIN persons p ON p.id = w.person_id`
 	if f.needsDeployment() {
 		from = workerFrom
 	}
@@ -389,7 +398,7 @@ func (s *Workers) Matching(ctx context.Context, sc auth.Scope, f Filter) (int64,
 // Create inserts a worker, their first deployment and both audit rows in one
 // transaction.
 func (s *Workers) Create(ctx context.Context, sc auth.Scope, actor domain.User, in WorkerInput, ip netip.Addr) (domain.HealthWorker, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.HealthWorker{}, fmt.Errorf("create worker: %w", err)
 	}
@@ -418,40 +427,49 @@ func (s *Workers) Create(ctx context.Context, sc auth.Scope, actor domain.User, 
 // stops a district user importing into another district even if every check
 // above this one is wrong.
 func (s *Workers) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor domain.User, in WorkerInput, ip netip.Addr) (domain.HealthWorker, error) {
-	// The deployment's district_id is a placeholder the placement trigger
-	// overwrites; the worker's own district anchor is filled by the sync
-	// trigger as the deployment lands. The read-back takes the district from
-	// the deployment because the CTE snapshot predates that sync.
+	// The person, the worker who is that person, and their first posting, in
+	// one statement. The deployment's district_id is a placeholder the
+	// placement trigger overwrites; the worker's own district anchor is filled
+	// by the sync trigger as the deployment lands. The read-back takes the
+	// district from the deployment because the CTE snapshot predates that sync.
+	// created_by and last_updated_by are stamped from the transaction's actor.
 	const q = `
-	    WITH w AS (
-	        INSERT INTO health_workers (nin, first_name, last_name, sex, age_years,
-	                                    created_by, updated_by)
-	        VALUES (nullif($1,''), $2, $3, $4::sex, $5, $6, $6)
+	    WITH p AS (
+	        INSERT INTO persons (nin, first_name, last_name, other_name, sex, dob, dob_estimated)
+	        VALUES (nullif($1,''), $2, $3, nullif($4,''), $5::sex, $6, $7)
+	        RETURNING *
+	    ), w AS (
+	        INSERT INTO health_workers (person_id) SELECT id FROM p
 	        RETURNING *
 	    ), dep AS (
-	        INSERT INTO deployments (health_worker_id, cadre_id, location_id, district_id,
-	                                 facility_id, created_by, updated_by)
-	        SELECT w.id, $7, $8, 0, $9, $6, $6 FROM w
+	        INSERT INTO deployments (health_worker_id, cadre_id, location_id, district_id, facility_id)
+	        SELECT w.id, $8, $9, 0, $10 FROM w
 	        RETURNING *
 	    )
 	    SELECT
-	        w.id, coalesce(w.worker_code,''), coalesce(w.nin,''), w.first_name, w.last_name, w.sex::text,
-	        w.age_years, w.age_captured_on, dep.district_id,
+	        w.id, coalesce(w.worker_code,''),
+	        p.id, coalesce(p.nin,''), p.first_name, p.last_name, coalesce(p.other_name,''), p.sex::text,
+	        p.dob, p.dob_estimated, p.status::text, dep.district_id,
 	        w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
-	        w.created_by, w.updated_by, w.created_at, w.updated_at,
-	        dep.id, dep.cadre_id, cd.slug, cd.label, cd.placement_level::text, cat.slug, cat.label,
+	        w.created_by, w.last_updated_by, w.created_on, w.last_updated_on,
+	        dep.id, coalesce(dep.code,''), dep.cadre_id, cd.code, cd.label, cd.placement_level::text, cat.code, cat.label,
 	        dep.location_id, dep.district_id, l.name, dl.name,
 	        dep.facility_id, coalesce(f.name,''),
 	        dep.started_on, dep.ended_on, coalesce(dep.end_reason,'')
-	    FROM w, dep
+	    FROM p, w, dep
 	    JOIN cadres cd    ON cd.id = dep.cadre_id
-	    JOIN cadre_categories cat ON cat.id = cd.category_id
+	    JOIN cadre_categories cat ON cat.id = cd.cadre_category_id
 	    JOIN locations l  ON l.id  = dep.location_id
 	    JOIN locations dl ON dl.id = dep.district_id
 	    LEFT JOIN facilities f ON f.id = dep.facility_id`
 
+	// The importer brings its own transaction; naming the actor again is
+	// harmless and makes this method correct whoever opened it.
+	if err := ActAs(ctx, tx, actor); err != nil {
+		return domain.HealthWorker{}, err
+	}
 	w, err := scanWorker(tx.QueryRow(ctx, q,
-		in.NIN, in.FirstName, in.LastName, string(in.Sex), in.AgeYears, actor.ID,
+		in.NIN, in.FirstName, in.LastName, in.OtherName, string(in.Sex), in.DOB, in.DOBEstimated,
 		in.CadreID, in.LocationID, in.FacilityID))
 	if err != nil {
 		return domain.HealthWorker{}, fmt.Errorf("create worker: %w", translate(err))
@@ -459,9 +477,11 @@ func (s *Workers) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor 
 	if !sc.Allows(w.Deployment.DistrictID) {
 		return domain.HealthWorker{}, fmt.Errorf("create worker in district %d: %w", w.Deployment.DistrictID, domain.ErrForbidden)
 	}
-	// The worker code is issued by the same sync that sets district_id, so the
-	// CTE's snapshot of the worker predates it too.
-	if err := tx.QueryRow(ctx, `SELECT worker_code FROM health_workers WHERE id = $1`, w.ID).Scan(&w.Code); err != nil {
+	// The worker code, and the posting's code after it, are issued by the same
+	// sync that sets district_id, so the CTE's snapshot predates them too.
+	if err := tx.QueryRow(ctx, `
+	    SELECT w.worker_code, d.code FROM health_workers w, deployments d
+	     WHERE w.id = $1 AND d.id = $2`, w.ID, w.Deployment.ID).Scan(&w.Code, &w.Deployment.Code); err != nil {
 		return domain.HealthWorker{}, fmt.Errorf("read worker code %d: %w", w.ID, translate(err))
 	}
 
@@ -476,15 +496,13 @@ func (s *Workers) CreateTx(ctx context.Context, tx pgx.Tx, sc auth.Scope, actor 
 
 // Update rewrites the register form: the person's fields, and — when the cadre
 // or location changed — the posting, as an ended deployment plus a newly opened
-// one in the same transaction. age_captured_on is re-stamped only when the age
-// actually changes: age is a snapshot, and a save that left it alone must not
-// claim the snapshot is fresh.
+// one in the same transaction.
 //
 // A district user cannot move a worker out of their district — the pre-update
 // scope filter blocks editing someone else's, and the post-move check inside
 // the deployment write blocks transferring one away.
 func (s *Workers) Update(ctx context.Context, sc auth.Scope, actor domain.User, id int64, in WorkerInput, ip netip.Addr) (domain.HealthWorker, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.HealthWorker{}, fmt.Errorf("update worker %d: %w", id, err)
 	}
@@ -495,23 +513,15 @@ func (s *Workers) Update(ctx context.Context, sc auth.Scope, actor domain.User, 
 		return domain.HealthWorker{}, err
 	}
 
-	q := `
-	    WITH updated AS (
-	        UPDATE health_workers w SET
-	            nin = nullif($2,''), first_name = $3, last_name = $4,
-	            sex = $5::sex, age_years = $6,
-	            age_captured_on = CASE WHEN w.age_years IS DISTINCT FROM $6
-	                                   THEN current_date ELSE w.age_captured_on END,
-	            updated_by = $7, updated_at = now()
-	        WHERE w.id = $1`
-	args := []any{id, in.NIN, in.FirstName, in.LastName, string(in.Sex),
-		in.AgeYears, actor.ID}
-
-	if frag, extra := sc.Filter("w.district_id", len(args)+1); frag != "" {
-		q += frag
-		args = append(args, extra...)
-	}
-	q += ` RETURNING id ) SELECT id FROM updated`
+	// The scope was applied by getTx above; the person is reached through the
+	// worker it read, so this statement needs no filter of its own.
+	const q = `
+	    UPDATE persons SET
+	        nin = nullif($2,''), first_name = $3, last_name = $4, other_name = nullif($5,''),
+	        sex = $6::sex, dob = $7, dob_estimated = $8
+	    WHERE id = $1`
+	args := []any{before.Person.ID, in.NIN, in.FirstName, in.LastName, in.OtherName,
+		string(in.Sex), in.DOB, in.DOBEstimated}
 
 	if _, err := tx.Exec(ctx, q, args...); err != nil {
 		return domain.HealthWorker{}, fmt.Errorf("update worker %d: %w", id, translate(err))
@@ -556,7 +566,8 @@ func (s *Workers) Update(ctx context.Context, sc auth.Scope, actor domain.User, 
 	// transfer is already told by the deployment rows.
 	if before.NIN != after.NIN ||
 		before.FirstName != after.FirstName || before.LastName != after.LastName ||
-		before.Sex != after.Sex || !sameInt16p(before.AgeYears, after.AgeYears) {
+		before.OtherName != after.OtherName || before.Sex != after.Sex ||
+		!sameDate(before.DOB, after.DOB) || before.DOBEstimated != after.DOBEstimated {
 		if err := s.auditTx(ctx, tx, actor, ActionWorkerUpdate, after, auditWorker(before), auditWorker(after), ip); err != nil {
 			return domain.HealthWorker{}, err
 		}
@@ -594,11 +605,11 @@ func redeployment(before domain.HealthWorker, in WorkerInput) (bool, string) {
 	return true, "transfer"
 }
 
-func sameInt16p(a, b *int16) bool {
+func sameDate(a, b *time.Time) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return *a == *b
+	return a.Equal(*b)
 }
 
 // Deactivate retires a worker from the workforce. Workers are never deleted:
@@ -622,7 +633,7 @@ func (s *Workers) Reactivate(ctx context.Context, sc auth.Scope, actor domain.Us
 func (s *Workers) setStatus(ctx context.Context, sc auth.Scope, actor domain.User, id int64,
 	status domain.WorkerStatus, reason, action string, ip netip.Addr) (domain.HealthWorker, error) {
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.HealthWorker{}, fmt.Errorf("%s %d: %w", action, id, err)
 	}
@@ -652,10 +663,9 @@ func (s *Workers) setStatus(ctx context.Context, sc auth.Scope, actor domain.Use
 	    UPDATE health_workers w SET
 	        status = $2::worker_status,
 	        deactivated_at = CASE WHEN $3 THEN now() ELSE NULL END,
-	        deactivation_reason = nullif($4,''),
-	        updated_by = $5, updated_at = now()
+	        deactivation_reason = nullif($4,'')
 	    WHERE w.id = $1`
-	args := []any{id, string(status), status == domain.WorkerInactive, reason, actor.ID}
+	args := []any{id, string(status), status == domain.WorkerInactive, reason}
 
 	if frag, extra := sc.Filter("w.district_id", len(args)+1); frag != "" {
 		q += frag
@@ -688,8 +698,8 @@ func (s *Workers) PossibleDuplicates(ctx context.Context, sc auth.Scope, locatio
 	q := `SELECT ` + workerColumns + workerFrom + `
 	      WHERE dep.ended_on IS NULL
 	        AND dep.location_id = $1
-	        AND lower(w.last_name) = lower($2)
-	        AND lower(w.first_name) = lower($3)
+	        AND lower(p.last_name) = lower($2)
+	        AND lower(p.first_name) = lower($3)
 	        AND w.id <> $4`
 	args := []any{locationID, last, first, excludeID}
 
@@ -754,19 +764,29 @@ func (s *Workers) auditTx(ctx context.Context, tx pgx.Tx, actor domain.User, act
 // the history unreconstructable.
 func auditWorker(w domain.HealthWorker) map[string]any {
 	m := map[string]any{
-		"id":              w.ID,
-		"nin":             w.NIN,
-		"first_name":      w.FirstName,
-		"last_name":       w.LastName,
-		"sex":             string(w.Sex),
-		"age_years":       w.AgeYears,
-		"age_captured_on": w.AgeCapturedOn.Format(time.DateOnly),
-		"district_id":     w.DistrictID,
-		"status":          string(w.Status),
+		"id":            w.ID,
+		"person_id":     w.Person.ID,
+		"worker_code":   w.Code,
+		"nin":           w.NIN,
+		"first_name":    w.FirstName,
+		"last_name":     w.LastName,
+		"other_name":    w.OtherName,
+		"sex":           string(w.Sex),
+		"dob":           dateOrNil(w.DOB),
+		"dob_estimated": w.DOBEstimated,
+		"district_id":   w.DistrictID,
+		"status":        string(w.Status),
 	}
 	if w.DeactivatedAt != nil {
 		m["deactivated_at"] = w.DeactivatedAt.Format(time.RFC3339)
 		m["deactivation_reason"] = w.DeactivationReason
 	}
 	return m
+}
+
+func dateOrNil(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.Format(time.DateOnly)
 }

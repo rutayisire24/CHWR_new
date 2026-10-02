@@ -499,3 +499,68 @@ should become authoritative and the form regenerated from it. Roadmap item, not 
 
 **`phone_for_reporting` retention.** Flagged for possible removal; kept for now as a
 single boolean.
+
+## The reviewer's target schema (October 2026)
+
+A reviewer's target schema was adopted as binding: a `person` separate from the
+`health_worker`, satellite tables for contacts, next of kin, documents, education,
+courses, training, work history and languages; a generic dated questionnaire in place
+of the fixed `chw_profiles` columns; services and tools with per-cadre applicability
+and dated events; and `uuid`, `created_on/by`, `last_updated_on/by` on every table.
+The seeded worker data was disposable, so the migration sequence was **rewritten**
+(0001–0007) rather than appended to, and every database is rebuilt and re-seeded.
+
+Interpretations, where the target and an invariant met:
+
+**Plural table names stay** (`persons`, `deployments`, `health_workers`): the repo's
+convention, and `health_worker_deployment` is `deployments`.
+
+**District is a view over `locations`, not a table.** Every derived `district_id`, every
+user's scope and every facility's parent is a `locations` row reached by a path walk,
+which cannot cross into a second table. `districts` exposes it as an entity.
+
+**`district_id` stays derived, never supplied** — on deployments, on service updates
+(from the posting held on the reporting date), and refused when written directly. A tool
+distribution's district is the event's own attribute, like a user's.
+
+**Two statuses.** `health_workers.status` is the workforce (active/inactive, tied to the
+open posting); `persons.status` is the record (active/deceased/merged).
+
+**Birth date, not age.** The field forms collected an age; it is stored as the birth
+date it implies, flagged `dob_estimated`, and the age is computed. Estimates are dated
+1 July of the implied year.
+
+**Survey answers stay survey answers.** What a CHW said about the tools they hold and
+the services they give became `multi_value` questions of the `chw_baseline` profile, not
+distributions or service reports: moving them there would invent events that never
+happened. Distributions and service updates start empty. Phones, education and English
+are facts about the person and moved to the person's satellites; English is graded per
+skill, with the ODK multi-select's "speak/read/write" recorded as `basic` and an unnamed
+skill as `none`.
+
+**The generic option sets dropped earlier are back**, as the reviewer's questionnaire.
+What the typed CHECKs guaranteed is guaranteed twice over: a trigger checks each answer
+against its question as it is written (choice exists, value parses, in range, one answer
+to a single question), a deferred trigger checks each submission at commit (branch
+opened, subset within parent, `none` alone), and `domain.Profile.Check` says the same
+first, by field. Answered questions are frozen like used cadres.
+
+**Submissions are history.** Saving writes a new dated submission; responses are
+append-only and submissions undeletable. Unchanged answers write nothing.
+
+**`none` is option 0.** No rows is "not asked"; a multi-select needs a recorded empty
+answer too, and the ODK list had one.
+
+**Record columns are structural.** `stamp_row()` fills them from a transaction-local
+actor that `store.begin` sets, so no statement can forget them — the same reasoning as
+the audit trail. Logs (sessions, audit_log, counters, staged import rows) carry none.
+
+**Deployment codes** are `<worker_code>-NN`, issued when the posting lands, never
+changed — the target asked for a code on the posting, and this one says whose it is.
+
+**Typos in the target, read as meant:** `tools_aplicable_cadre.service_id` is `tool_id`;
+the second `health_worker_service_update_detail` is the tool distribution's detail table.
+
+Open with the reviewer: the language grade scale (`none/basic/good/fluent` proposed);
+whether a person can ever be more than one health worker (the UNIQUE is one line to
+drop); and a source for facility codes (`facilities.code` waits for one).

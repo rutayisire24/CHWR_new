@@ -66,7 +66,7 @@ func (s *Server) cadresPage(r *http.Request, draft store.CategoryInput, errs map
 	groups := make([]categorySection, 0, len(categories))
 	at := make(map[int16]int, len(categories))
 	for i, c := range categories {
-		groups = append(groups, categorySection{Category: c, HasProfile: c.Slug == domain.CategoryCHW})
+		groups = append(groups, categorySection{Category: c, HasProfile: c.Code == domain.CategoryCHW})
 		at[c.ID] = i
 	}
 	for _, c := range cadres {
@@ -104,7 +104,7 @@ func (s *Server) cadreCreate(w http.ResponseWriter, r *http.Request) {
 
 	created, err := s.store.Cadres.Create(r.Context(), sc, actor, in, s.clientIP(r))
 	if errors.Is(err, domain.ErrConflict) {
-		v.Add("slug", "Another cadre already has that slug.")
+		v.Add("code", "Another cadre already has that code.")
 		s.renderCadreForm(w, r, http.StatusUnprocessableEntity, draftCadre(0, in), aliasText, "/cadres/new", v.Fields)
 		return
 	}
@@ -152,9 +152,9 @@ func (s *Server) cadreUpdate(w http.ResponseWriter, r *http.Request) {
 		// a value posted anyway is replaced, not refused, because the store
 		// would carry the stored ones over regardless.
 		in.CategoryID = before.CategoryID
-		in.Slug = before.Slug
+		in.Code = before.Code
 		in.PlacementLevel = before.PlacementLevel
-		v = withoutFields(v, "category_id", "slug", "placement_level")
+		v = withoutFields(v, "category_id", "code", "placement_level")
 	}
 	s.checkCadre(r, id, in, v)
 	if v.Any() {
@@ -166,7 +166,7 @@ func (s *Server) cadreUpdate(w http.ResponseWriter, r *http.Request) {
 
 	after, err := s.store.Cadres.Update(r.Context(), sc, actor, id, in, s.clientIP(r))
 	if errors.Is(err, domain.ErrConflict) {
-		v.Add("slug", "Another cadre already has that slug.")
+		v.Add("code", "Another cadre already has that code.")
 		draft := draftCadre(id, in)
 		draft.Deployments, draft.Serving = before.Deployments, before.Serving
 		s.renderCadreForm(w, r, http.StatusUnprocessableEntity, draft, aliasText, cadrePath(id), v.Fields)
@@ -194,11 +194,11 @@ func (s *Server) categoryCreate(w http.ResponseWriter, r *http.Request) {
 
 	v := domain.NewValidationError()
 	in := store.CategoryInput{
-		Slug:  strings.ToLower(trimmed(r, "category_slug")),
+		Code:  strings.ToLower(trimmed(r, "category_code")),
 		Label: trimmed(r, "category_label"),
 	}
-	if !slugPattern.MatchString(in.Slug) {
-		v.Add("category_slug", slugRule)
+	if !codePattern.MatchString(in.Code) {
+		v.Add("category_code", codeRule)
 	}
 	if in.Label == "" {
 		v.Add("category_label", "Name the category.")
@@ -211,7 +211,7 @@ func (s *Server) categoryCreate(w http.ResponseWriter, r *http.Request) {
 		created, err := s.store.Cadres.CreateCategory(r.Context(), sc, actor, in, s.clientIP(r))
 		switch {
 		case errors.Is(err, domain.ErrConflict):
-			v.Add("category_slug", "Another category already has that slug.")
+			v.Add("category_code", "Another category already has that code.")
 		case err != nil:
 			s.notFoundOrFail(w, r, err)
 			return
@@ -230,18 +230,18 @@ func (s *Server) categoryCreate(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusUnprocessableEntity, "cadres", p)
 }
 
-// slugPattern is cadres_slug_shape and cadre_categories_slug_shape. It is
+// codePattern is the code CHECK on cadres and cadre_categories. It is
 // checked here so the admin gets a sentence rather than a constraint name.
-var slugPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
+var codePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,31}$`)
 
-const slugRule = "2–32 characters: lower-case letters, digits and underscores, starting with a letter."
+const codeRule = "2–32 characters: lower-case letters, digits and underscores, starting with a letter."
 
 // decodeCadre reads the cadre form. The aliases are one per line (commas work
 // too), because an alias may itself contain a space.
 func decodeCadre(r *http.Request) (store.CadreInput, string, *domain.ValidationError) {
 	v := domain.NewValidationError()
 	in := store.CadreInput{
-		Slug:           strings.ToLower(trimmed(r, "slug")),
+		Code:           strings.ToLower(trimmed(r, "code")),
 		Label:          trimmed(r, "label"),
 		PlacementLevel: domain.Level(trimmed(r, "placement_level")),
 		Active:         r.PostForm.Get("active") == "1",
@@ -252,8 +252,8 @@ func decodeCadre(r *http.Request) (store.CadreInput, string, *domain.ValidationE
 	} else {
 		v.Add("category_id", "Choose a category.")
 	}
-	if !slugPattern.MatchString(in.Slug) {
-		v.Add("slug", slugRule)
+	if !codePattern.MatchString(in.Code) {
+		v.Add("code", codeRule)
 	}
 	if in.Label == "" {
 		v.Add("label", "Name the cadre.")
@@ -270,7 +270,7 @@ func decodeCadre(r *http.Request) (store.CadreInput, string, *domain.ValidationE
 	in.SortOrder = sortOrder(r, "sort_order", v, "sort_order")
 
 	aliasText := r.PostForm.Get("import_aliases")
-	seen := map[string]bool{domain.FoldImport(in.Slug): true}
+	seen := map[string]bool{domain.FoldImport(in.Code): true}
 	for _, a := range strings.FieldsFunc(aliasText, func(r rune) bool { return r == '\n' || r == ',' }) {
 		a = strings.TrimSpace(a)
 		if a == "" {
@@ -281,7 +281,7 @@ func decodeCadre(r *http.Request) (store.CadreInput, string, *domain.ValidationE
 			continue
 		}
 		if seen[domain.FoldImport(a)] {
-			continue // the slug itself, or a repeat: nothing to store
+			continue // the code itself, or a repeat: nothing to store
 		}
 		seen[domain.FoldImport(a)] = true
 		in.ImportAliases = append(in.ImportAliases, a)
@@ -314,7 +314,7 @@ func (s *Server) checkCadre(r *http.Request, id int16, in store.CadreInput, v *d
 		v.Add("import_aliases", "The other cadres could not be read. Try again.")
 		return
 	}
-	mine := domain.Cadre{Slug: in.Slug, ImportAliases: in.ImportAliases}
+	mine := domain.Cadre{Code: in.Code, ImportAliases: in.ImportAliases}
 	for _, other := range others {
 		if other.ID == id {
 			continue
@@ -322,8 +322,8 @@ func (s *Server) checkCadre(r *http.Request, id int16, in store.CadreInput, v *d
 		for _, spelling := range mine.ImportSpellings() {
 			if other.MatchesImport(spelling) {
 				field := "import_aliases"
-				if spelling == in.Slug {
-					field = "slug"
+				if spelling == in.Code {
+					field = "code"
 				}
 				v.Add(field, "“"+spelling+"” already names "+other.Label+" on import. Each spelling can name one cadre only.")
 				return
@@ -355,7 +355,7 @@ func draftCadre(id int16, in store.CadreInput) store.CadreRow {
 	var c store.CadreRow
 	c.ID = id
 	c.CategoryID = in.CategoryID
-	c.Slug = in.Slug
+	c.Code = in.Code
 	c.Label = in.Label
 	c.PlacementLevel = in.PlacementLevel
 	c.ImportAliases = in.ImportAliases

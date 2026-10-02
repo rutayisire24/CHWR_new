@@ -23,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -88,7 +89,7 @@ func build(url string) (*world, error) {
 	w := &world{pool: pool, store: New(pool)}
 
 	if err := pool.QueryRow(ctx,
-		`SELECT (SELECT id FROM cadres WHERE slug='vht'), (SELECT id FROM cadres WHERE slug='chew')`,
+		`SELECT (SELECT id FROM cadres WHERE code='vht'), (SELECT id FROM cadres WHERE code='chew')`,
 	).Scan(&w.vht, &w.chew); err != nil {
 		return nil, err
 	}
@@ -193,13 +194,17 @@ func randomNIN() string {
 	return "CM" + string(mid) + "Q"
 }
 
-func age(n int16) *int16 { return &n }
+// born is the birth date an age stated today implies, as a form records it.
+func born(years int) *time.Time {
+	d := domain.EstimateDOB(years, time.Now())
+	return &d
+}
 
 // vhtIn creates an active VHT in a village of d, as the national admin.
 func (w *world) vhtIn(t *testing.T, d district, first, last string) domain.HealthWorker {
 	t.Helper()
 	hw, err := w.store.Workers.Create(context.Background(), auth.National(), w.admin, WorkerInput{
-		FirstName: first, LastName: last, Sex: domain.SexFemale, AgeYears: age(30),
+		FirstName: first, LastName: last, Sex: domain.SexFemale, DOB: born(30), DOBEstimated: true,
 		CadreID: w.vht, LocationID: d.villages[0],
 	}, ip)
 	if err != nil {
@@ -424,7 +429,7 @@ func TestADistrictScopeCannotWriteOutsideItsDistrict(t *testing.T) {
 
 	mine := w.vhtIn(t, w.a, "Mine", tag)
 	_, err = w.store.Workers.Update(ctx, sc, w.manager, mine.ID, WorkerInput{
-		FirstName: mine.FirstName, LastName: mine.LastName, Sex: mine.Sex, AgeYears: mine.AgeYears,
+		FirstName: mine.FirstName, LastName: mine.LastName, Sex: mine.Sex, DOB: mine.DOB, DOBEstimated: mine.DOBEstimated,
 		CadreID: w.vht, LocationID: w.b.villages[0],
 	}, ip)
 	if err == nil {
@@ -511,7 +516,7 @@ func TestEveryStepOfALifeIsAudited(t *testing.T) {
 		t.Errorf("district_id = %v, want the derived %d", hw.DistrictID, w.a.id)
 	}
 
-	in := WorkerInput{FirstName: "Gracious", LastName: tag, Sex: domain.SexFemale, AgeYears: age(30),
+	in := WorkerInput{FirstName: "Gracious", LastName: tag, Sex: domain.SexFemale, DOB: born(30), DOBEstimated: true,
 		CadreID: w.vht, LocationID: w.a.villages[0]}
 	if _, err := w.store.Workers.Update(ctx, nat, w.admin, hw.ID, in, ip); err != nil {
 		t.Fatal(err)
@@ -652,7 +657,7 @@ func TestACrossDistrictTransfer(t *testing.T) {
 	}
 
 	moved, err := w.store.Workers.Update(ctx, nat, w.admin, hw.ID, WorkerInput{
-		FirstName: hw.FirstName, LastName: hw.LastName, Sex: hw.Sex, AgeYears: hw.AgeYears,
+		FirstName: hw.FirstName, LastName: hw.LastName, Sex: hw.Sex, DOB: hw.DOB, DOBEstimated: hw.DOBEstimated,
 		CadreID: w.vht, LocationID: w.b.villages[0],
 	}, ip)
 	if err != nil {
@@ -928,7 +933,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 
 	_, hash = open()
-	if _, err := w.store.Users.SetStatus(ctx, auth.National(), user.ID, domain.UserDisabled); err != nil {
+	if _, err := w.store.Users.SetStatus(ctx, auth.National(), w.admin, user.ID, domain.UserDisabled); err != nil {
 		t.Fatal(err)
 	}
 	if err := live(hash); !errors.Is(err, domain.ErrSessionExpired) {

@@ -13,26 +13,28 @@ import (
 
 // Export is the register as a file. It is its own file rather than a method on
 // Workers because it deliberately crosses every aggregate — the person, their
-// posting, their profile and both junctions — to produce one row per worker,
-// which is the one shape none of them owns.
+// posting, their details and their latest survey answers — to produce one row
+// per worker, which is the one shape none of them owns.
 type Export struct {
 	pool *pgxpool.Pool
 }
 
-// ExportRow is one worker, flattened. Pointers where the register distinguishes
-// "no" from "not asked", because a file that spelled both as empty would throw
-// away the distinction the whole schema is built around.
+// ExportRow is one worker, flattened. "No" and "not asked" stay apart: an
+// unanswered question is absent from Answers, an unrecorded grade is empty,
+// because a file that spelled both the same would throw away the distinction
+// the whole schema is built around.
 type ExportRow struct {
 	ID   int64
 	Code string
 	NIN  string
 
-	FirstName     string
-	LastName      string
-	Sex           domain.Sex
-	Cadre         string // slug of the posting's cadre
-	AgeYears      *int16
-	AgeCapturedOn time.Time
+	FirstName    string
+	LastName     string
+	OtherName    string
+	Sex          domain.Sex
+	Cadre        string // code of the posting's cadre
+	DOB          *time.Time
+	DOBEstimated bool
 
 	// The placement, spelled out. County is derived and not shown, exactly as
 	// the UI leaves it out: it is mandatory in the data and meaningless to a
@@ -49,37 +51,20 @@ type ExportRow struct {
 	DeactivatedAt      *time.Time
 	DeactivationReason string
 
-	OwnsPhone         *bool
-	PhonePrimary      string
-	PhoneForReporting *bool
-	PhoneAlternate    string
+	Facility string
 
-	Facility         string
-	ServiceStartYear *int16
-	HouseholdsServed *int32
-	Education        domain.EducationLevel
+	// The person's details the CHW survey asks for: their own phone and one
+	// they can be reached on, the highest schooling, and English by skill.
+	PhoneOwn       string
+	PhoneAlternate string
+	Education      domain.EducationLevel
+	English        domain.LanguageSkill
 
-	EnglishSpeak      *bool
-	EnglishRead       *bool
-	EnglishWrite      *bool
-	OtherLanguagesRaw string
+	// Answers is the latest submission to the CHW baseline survey.
+	Answers domain.Answers
 
-	ReceivesIncentive  *bool
-	IncentiveFrequency domain.IncentiveFrequency
-	IncentiveAmountUGX *int32
-
-	ReceivedSupervision *bool
-	LastSupervisedOn    *time.Time
-
-	// The junction sets, already folded to `;`-separated slugs — the same
-	// spelling the importer reads, so a file that comes out can go back in.
-	Tools           string
-	ToolsFunctional string
-	Services        string
-	Trained         string
-
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedOn     time.Time
+	LastUpdatedOn time.Time
 }
 
 // Rows streams the register through yield, one row at a time, inside the scope
@@ -96,9 +81,11 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	// a file nobody asked for.
 	f.Limit, f.After, f.Before = 0, nil, nil
 	where, args := f.where(sc, nil)
+	args = append(args, CHWBaseline)
+	profile := fmt.Sprintf("(SELECT id FROM profiles WHERE code = $%d)", len(args))
 
-	// The junction sets are folded to one row per worker and joined, rather
-	// than probed per row: the dashboard learned the same lesson at this size,
+	// The per-person sets are folded to one row each and joined, rather than
+	// probed per row: the dashboard learned the same lesson at this size,
 	// where the per-row form cost 430ms and the join 9ms.
 	//
 	// The placement comes from the posting the listing sees the worker
@@ -107,40 +94,46 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	// is what keeps a national export off a prefix scan against all 84,635
 	// locations.
 	q := `
-	    WITH tool_sets AS (
-	        SELECT ct.health_worker_id,
-	               string_agg(t.slug, ';' ORDER BY t.sort_order) AS held,
-	               string_agg(t.slug, ';' ORDER BY t.sort_order)
-	                   FILTER (WHERE ct.functional) AS working
-	          FROM chw_tools ct JOIN tools t ON t.id = ct.tool_id
-	         GROUP BY ct.health_worker_id
-	    ), domain_sets AS (
-	        SELECT csd.health_worker_id,
-	               string_agg(sd.slug, ';' ORDER BY sd.sort_order)
-	                   FILTER (WHERE csd.provides) AS provides,
-	               string_agg(sd.slug, ';' ORDER BY sd.sort_order)
-	                   FILTER (WHERE csd.trained) AS trained
-	          FROM chw_service_domains csd JOIN service_domains sd ON sd.id = csd.domain_id
-	         GROUP BY csd.health_worker_id
+	    WITH latest AS (
+	        SELECT DISTINCT ON (s.health_worker_id) s.health_worker_id, s.id
+	          FROM health_worker_profiles s
+	         WHERE s.profile_id = ` + profile + `
+	         ORDER BY s.health_worker_id, s.captured_on DESC, s.id DESC
+	    ), answers AS (
+	        SELECT a.health_worker_id, jsonb_object_agg(a.code, a.vals) AS answers
+	          FROM (SELECT l.health_worker_id, pq.code,
+	                       jsonb_agg(coalesce(o.code, r.response) ORDER BY r.id) AS vals
+	                  FROM latest l
+	                  JOIN health_worker_profile_responses r ON r.health_worker_profile_id = l.id
+	                  JOIN profile_questions pq ON pq.id = r.profile_question_id
+	                  JOIN question_pool q      ON q.id  = pq.question_id
+	                  LEFT JOIN LATERAL (
+	                      SELECT x->>'code' AS code FROM jsonb_array_elements(q.response_options) x
+	                       WHERE (x->>'id')::int = r.response_option_id
+	                  ) o ON true
+	                 GROUP BY l.health_worker_id, pq.code) a
+	         GROUP BY a.health_worker_id
+	    ), phones AS (
+	        SELECT person_id,
+	               (array_agg(value ORDER BY is_primary DESC, id) FILTER (WHERE owned))[1] AS own,
+	               (array_agg(value ORDER BY is_primary DESC, id) FILTER (WHERE owned IS NOT TRUE))[1] AS alternate
+	          FROM person_contacts WHERE kind = 'phone' GROUP BY person_id
+	    ), schooling AS (
+	        SELECT person_id, max(level)::text AS level FROM person_education GROUP BY person_id
 	    )
-	    SELECT w.id, w.worker_code, coalesce(w.nin,''), w.first_name, w.last_name,
-	           w.sex::text, coalesce(cd.slug,''), w.age_years, w.age_captured_on,
+	    SELECT w.id, coalesce(w.worker_code,''), coalesce(p.nin,''), p.first_name, p.last_name,
+	           coalesce(p.other_name,''), p.sex::text, coalesce(cd.code,''), p.dob, p.dob_estimated,
 	           coalesce(dl.name,''), coalesce(sub.name,''), coalesce(par.name,''), coalesce(vil.name,''),
 	           coalesce(l.code_path,''),
 	           w.status::text, w.deactivated_at, coalesce(w.deactivation_reason,''),
-	           p.owns_phone, coalesce(p.phone_primary,''), p.phone_for_reporting,
-	           coalesce(p.phone_alternate,''),
-	           coalesce(fac.name,''), p.service_start_year, p.households_served,
-	           coalesce(p.education::text,''),
-	           p.english_speak, p.english_read, p.english_write,
-	           coalesce(p.other_languages_raw,''),
-	           p.receives_incentive, coalesce(p.incentive_frequency::text,''),
-	           p.incentive_amount_ugx,
-	           p.received_supervision, p.last_supervised_on,
-	           coalesce(ts.held,''), coalesce(ts.working,''),
-	           coalesce(ds.provides,''), coalesce(ds.trained,''),
-	           w.created_at, w.updated_at
+	           coalesce(fac.name,''),
+	           coalesce(ph.own,''), coalesce(ph.alternate,''), coalesce(sch.level,''),
+	           coalesce(en.understanding_grade::text,''), coalesce(en.reading_grade::text,''),
+	           coalesce(en.writing_grade::text,''),
+	           coalesce(ans.answers, '{}'),
+	           w.created_on, w.last_updated_on
 	      FROM health_workers w
+	      JOIN persons p ON p.id = w.person_id
 	      LEFT JOIN LATERAL (
 	          SELECT x.* FROM deployments x
 	           WHERE x.health_worker_id = w.id
@@ -153,11 +146,13 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	      LEFT JOIN locations sub ON sub.id = nullif(split_part(l.path,'/',5),'')::bigint
 	      LEFT JOIN locations par ON par.id = nullif(split_part(l.path,'/',6),'')::bigint
 	      LEFT JOIN locations vil ON vil.id = nullif(split_part(l.path,'/',7),'')::bigint
-	      LEFT JOIN chw_profiles p ON p.health_worker_id = w.id
 	      LEFT JOIN facilities fac ON fac.id = dep.facility_id
-	      LEFT JOIN tool_sets ts ON ts.health_worker_id = w.id
-	      LEFT JOIN domain_sets ds ON ds.health_worker_id = w.id` + where + `
-	     ORDER BY lower(w.last_name), lower(w.first_name), w.id`
+	      LEFT JOIN phones ph ON ph.person_id = p.id
+	      LEFT JOIN schooling sch ON sch.person_id = p.id
+	      LEFT JOIN person_languages en ON en.person_id = p.id
+	                                   AND en.language_id = (SELECT id FROM languages WHERE code = 'english')
+	      LEFT JOIN answers ans ON ans.health_worker_id = w.id` + where + `
+	     ORDER BY lower(p.last_name), lower(p.first_name), w.id`
 
 	rows, err := e.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -167,25 +162,25 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 
 	for rows.Next() {
 		var r ExportRow
-		var sex, cadre, status, education, frequency string
+		var sex, status, education, understanding, reading, writing string
+		var answers map[string][]string
 		if err := rows.Scan(&r.ID, &r.Code, &r.NIN, &r.FirstName, &r.LastName,
-			&sex, &cadre, &r.AgeYears, &r.AgeCapturedOn,
+			&r.OtherName, &sex, &r.Cadre, &r.DOB, &r.DOBEstimated,
 			&r.District, &r.Subcounty, &r.Parish, &r.Village, &r.LocationCode,
 			&status, &r.DeactivatedAt, &r.DeactivationReason,
-			&r.OwnsPhone, &r.PhonePrimary, &r.PhoneForReporting, &r.PhoneAlternate,
-			&r.Facility, &r.ServiceStartYear, &r.HouseholdsServed, &education,
-			&r.EnglishSpeak, &r.EnglishRead, &r.EnglishWrite, &r.OtherLanguagesRaw,
-			&r.ReceivesIncentive, &frequency, &r.IncentiveAmountUGX,
-			&r.ReceivedSupervision, &r.LastSupervisedOn,
-			&r.Tools, &r.ToolsFunctional, &r.Services, &r.Trained,
-			&r.CreatedAt, &r.UpdatedAt); err != nil {
+			&r.Facility,
+			&r.PhoneOwn, &r.PhoneAlternate, &education,
+			&understanding, &reading, &writing,
+			&answers,
+			&r.CreatedOn, &r.LastUpdatedOn); err != nil {
 			return fmt.Errorf("scan export row: %w", err)
 		}
 		r.Sex = domain.Sex(sex)
-		r.Cadre = cadre
 		r.Status = domain.WorkerStatus(status)
 		r.Education = domain.EducationLevel(education)
-		r.IncentiveFrequency = domain.IncentiveFrequency(frequency)
+		r.English = domain.LanguageSkill{Understanding: domain.Proficiency(understanding),
+			Reading: domain.Proficiency(reading), Writing: domain.Proficiency(writing)}
+		r.Answers = answers
 
 		if err := yield(r); err != nil {
 			return err

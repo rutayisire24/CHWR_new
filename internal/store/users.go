@@ -25,14 +25,14 @@ type Users struct {
 const userColumns = `
     u.id, u.email::text, u.full_name, u.must_reset, u.role::text,
     u.district_id, coalesce(d.name, ''), u.status::text,
-    u.last_login_at, u.created_by, u.created_at, u.updated_at`
+    u.last_login_at, u.created_by, u.created_on, u.last_updated_on`
 
 func scanUser(row pgx.Row) (domain.User, error) {
 	var u domain.User
 	var role, status string
 	err := row.Scan(&u.ID, &u.Email, &u.FullName, &u.MustReset, &role,
 		&u.DistrictID, &u.DistrictName, &status,
-		&u.LastLoginAt, &u.CreatedBy, &u.CreatedAt, &u.UpdatedAt)
+		&u.LastLoginAt, &u.CreatedBy, &u.CreatedOn, &u.LastUpdatedOn)
 	if err != nil {
 		return domain.User{}, err
 	}
@@ -61,7 +61,7 @@ func (s *Users) Credentials(ctx context.Context, email string) (domain.User, str
 	var role, status, hash string
 	err := row.Scan(&u.ID, &u.Email, &u.FullName, &u.MustReset, &role,
 		&u.DistrictID, &u.DistrictName, &status,
-		&u.LastLoginAt, &u.CreatedBy, &u.CreatedAt, &u.UpdatedAt, &hash)
+		&u.LastLoginAt, &u.CreatedBy, &u.CreatedOn, &u.LastUpdatedOn, &hash)
 	if err != nil {
 		return domain.User{}, "", fmt.Errorf("load credentials: %w", translate(err))
 	}
@@ -164,15 +164,19 @@ func (s *Users) Create(ctx context.Context, sc auth.Scope, in NewUser) (domain.U
 
 // Update changes the mutable account fields. Password and status have their
 // own methods, because both carry consequences a generic update would hide.
-func (s *Users) Update(ctx context.Context, sc auth.Scope, id int64, fullName string, role domain.Role, districtID *int64) (domain.User, error) {
+func (s *Users) Update(ctx context.Context, sc auth.Scope, actor domain.User, id int64, fullName string, role domain.Role, districtID *int64) (domain.User, error) {
 	if districtID != nil && !sc.Allows(*districtID) {
 		return domain.User{}, fmt.Errorf("update user %d: %w", id, domain.ErrForbidden)
 	}
+	tx, err := begin(ctx, s.pool, actor)
+	if err != nil {
+		return domain.User{}, fmt.Errorf("update user %d: %w", id, err)
+	}
+	defer tx.Rollback(ctx)
 
 	q := `
 	    WITH updated AS (
-	        UPDATE users SET full_name = $2, role = $3::user_role, district_id = $4,
-	                         updated_at = now()
+	        UPDATE users SET full_name = $2, role = $3::user_role, district_id = $4
 	        WHERE id = $1`
 	args := []any{id, fullName, string(role), districtID}
 
@@ -186,9 +190,12 @@ func (s *Users) Update(ctx context.Context, sc auth.Scope, id int64, fullName st
 	    SELECT ` + userColumns + `
 	    FROM updated u LEFT JOIN locations d ON d.id = u.district_id`
 
-	u, err := scanUser(s.pool.QueryRow(ctx, q, args...))
+	u, err := scanUser(tx.QueryRow(ctx, q, args...))
 	if err != nil {
 		return domain.User{}, fmt.Errorf("update user %d: %w", id, translate(err))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.User{}, fmt.Errorf("update user %d: %w", id, err)
 	}
 	return u, nil
 }
@@ -196,8 +203,8 @@ func (s *Users) Update(ctx context.Context, sc auth.Scope, id int64, fullName st
 // SetStatus enables or disables an account. Disabling also drops every session
 // the user holds, in one transaction: an account disabled at 09:00 must not
 // still be browsing at 09:01.
-func (s *Users) SetStatus(ctx context.Context, sc auth.Scope, id int64, status domain.UserStatus) (domain.User, error) {
-	tx, err := s.pool.Begin(ctx)
+func (s *Users) SetStatus(ctx context.Context, sc auth.Scope, actor domain.User, id int64, status domain.UserStatus) (domain.User, error) {
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return domain.User{}, fmt.Errorf("set status: %w", err)
 	}
@@ -205,7 +212,7 @@ func (s *Users) SetStatus(ctx context.Context, sc auth.Scope, id int64, status d
 
 	q := `
 	    WITH updated AS (
-	        UPDATE users SET status = $2::user_status, updated_at = now()
+	        UPDATE users SET status = $2::user_status
 	        WHERE id = $1`
 	args := []any{id, string(status)}
 
@@ -244,13 +251,14 @@ func (s *Users) SetPassword(ctx context.Context, sc auth.Scope, id int64, plaint
 		return fmt.Errorf("set password: %w", err)
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	// The user is changing their own password: they are the actor.
+	tx, err := begin(ctx, s.pool, domain.User{ID: id})
 	if err != nil {
 		return fmt.Errorf("set password: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	q := `UPDATE users SET password_hash = $2, must_reset = false, updated_at = now()
+	q := `UPDATE users SET password_hash = $2, must_reset = false
 	      WHERE id = $1`
 	args := []any{id, hash}
 	if frag, extra := sc.Filter("district_id", len(args)+1); frag != "" {
@@ -276,19 +284,19 @@ func (s *Users) SetPassword(ctx context.Context, sc auth.Scope, id int64, plaint
 // ResetPassword is the admin path: it sets a handover password and turns
 // must_reset back on, so the user must choose their own at next login. Every
 // session the user holds is dropped.
-func (s *Users) ResetPassword(ctx context.Context, sc auth.Scope, id int64, plaintext string) error {
+func (s *Users) ResetPassword(ctx context.Context, sc auth.Scope, actor domain.User, id int64, plaintext string) error {
 	hash, err := auth.HashPassword(plaintext)
 	if err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
 
-	tx, err := s.pool.Begin(ctx)
+	tx, err := begin(ctx, s.pool, actor)
 	if err != nil {
 		return fmt.Errorf("reset password: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	q := `UPDATE users SET password_hash = $2, must_reset = true, updated_at = now()
+	q := `UPDATE users SET password_hash = $2, must_reset = true
 	      WHERE id = $1`
 	args := []any{id, hash}
 	if frag, extra := sc.Filter("district_id", len(args)+1); frag != "" {

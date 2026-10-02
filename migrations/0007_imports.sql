@@ -1,5 +1,5 @@
 -- +goose Up
--- 0005: bulk import staging
+-- 0007: bulk import staging
 --
 -- An upload validates every row and writes nothing to `health_workers`. It
 -- stages the rows here, the operator reads the report, and only then does a
@@ -49,7 +49,6 @@ CREATE TABLE import_batches (
     -- between warning_rows and imported_rows a month later.
     skip_duplicates boolean NOT NULL DEFAULT false,
 
-    created_at    timestamptz NOT NULL DEFAULT now(),
     committed_at  timestamptz,
     -- Held while a commit is running; a lease, so a crashed run expires.
     -- Committing walks tens of seconds at the row cap, and two concurrent runs
@@ -63,11 +62,13 @@ CREATE TABLE import_batches (
     )
 );
 
+SELECT record_columns('import_batches');
+
 -- The scoped listing, newest first.
-CREATE INDEX import_batches_district_idx ON import_batches (district_id, created_at DESC);
+CREATE INDEX import_batches_district_idx ON import_batches (district_id, created_on DESC);
 -- Pending batches sort first on that listing, so an abandoned upload nags
 -- rather than disappears.
-CREATE INDEX import_batches_pending_idx ON import_batches (created_at DESC)
+CREATE INDEX import_batches_pending_idx ON import_batches (created_on DESC)
     WHERE status = 'pending';
 
 -- the district_id above must actually BE a district
@@ -98,8 +99,8 @@ CREATE TABLE import_rows (
     raw    jsonb NOT NULL,
     status import_row_status NOT NULL,
 
-    -- The resolved register record this row will create (worker + deployment +
-    -- profile), NULL for a refused row. `raw` answers "what did the file say";
+    -- The resolved register record this row will create (person + worker +
+    -- deployment + contacts + profile answers), NULL for a refused row. `raw` answers "what did the file say";
     -- `record` is what the commit writes — re-deriving it at commit would
     -- answer from a register that has moved since the report.
     record jsonb,
@@ -141,8 +142,8 @@ CREATE TABLE import_quarantine (
     candidates  jsonb,
     batch_id    bigint REFERENCES import_batches(id),
     resolved_at timestamptz,
-    resolved_by bigint,
-    imported_at timestamptz NOT NULL DEFAULT now()
+    resolved_by bigint REFERENCES users(id)
 );
+SELECT record_columns('import_quarantine');
 CREATE INDEX quarantine_unresolved_idx ON import_quarantine (source, reason) WHERE resolved_at IS NULL;
 CREATE INDEX quarantine_batch_idx      ON import_quarantine (batch_id) WHERE batch_id IS NOT NULL;

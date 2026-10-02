@@ -90,23 +90,13 @@ func TestDigitsOnly(t *testing.T) {
 	}
 }
 
-// triState reads a yes / no / not-asked group. Every profile column is
-// nullable, so "not asked" has to survive as nil rather than collapsing to no.
+// triState reads a yes / no / not-asked control. "Not asked" has to survive as
+// nil rather than collapsing to no.
 func TestTriState(t *testing.T) {
-	cases := map[string]*bool{
-		"yes":     boolPtr(true),
-		"no":      boolPtr(false),
-		"":        nil,
-		"unknown": nil,
-	}
+	yes, no := true, false
+	cases := map[string]*bool{"yes": &yes, "no": &no, "": nil, "unknown": nil}
 	for value, want := range cases {
-		form := url.Values{"owns_phone": {value}}
-		r := httptest.NewRequest(http.MethodPost, "/p", strings.NewReader(form.Encode()))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		if err := r.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		got := triState(r, "owns_phone")
+		got := triState(value)
 		switch {
 		case want == nil && got != nil:
 			t.Errorf("triState(%q) = %v, want nil", value, *got)
@@ -118,37 +108,49 @@ func TestTriState(t *testing.T) {
 	}
 }
 
-// trained_implies_provides is the schema's CHECK and the form's choice_filter.
-// A post that claims training on an unoffered service has been tampered with;
-// it is corrected to the safe reading rather than stored.
-func TestDecodeDomainsDropsTrainingWithoutProvision(t *testing.T) {
+// The survey form posts every field it draws, branch or not; what a closed
+// branch carries, and a subset answer outside its parent, are dropped before
+// the save rather than refused. A typed answer is read by its question.
+func TestTheSurveyFormDropsWhatTheAnswersClose(t *testing.T) {
+	yesNo := []domain.Option{{ID: 1, Code: "yes", Prompt: "Yes"}, {ID: 2, Code: "no", Prompt: "No"}}
+	services := []domain.Option{{ID: 0, Code: "none", Prompt: "None"},
+		{ID: 1, Code: "iccm", Prompt: "ICCM"}, {ID: 7, Code: "nutrition", Prompt: "Nutrition"}}
+	max := 100000.0
+	p := domain.Profile{Questions: []domain.Question{
+		{Code: "owns_phone", Closed: true, DataType: domain.DataYesNo, Options: yesNo, Active: true},
+		{Code: "phone_for_reporting", Closed: true, DataType: domain.DataYesNo, Options: yesNo, Active: true,
+			DependsOn: "owns_phone", DependsOnOption: "yes"},
+		{Code: "households_served", DataType: domain.DataInteger, Max: &max, Active: true},
+		{Code: "services_provided", Closed: true, Multi: true, DataType: domain.DataCharacter, Options: services, Active: true},
+		{Code: "services_trained", Closed: true, Multi: true, DataType: domain.DataCharacter, Options: services, Active: true,
+			SubsetOf: "services_provided"},
+	}}
 	form := url.Values{
-		"provides": {"1", "7"},
-		"trained":  {"1", "4"}, // 4 is trained but not provided
+		"owns_phone": {"no"}, "phone_for_reporting": {"yes"},
+		"households_served": {"1,200"},
+		"services_provided": {"iccm"}, "services_trained": {"iccm", "nutrition"},
 	}
 	r := httptest.NewRequest(http.MethodPost, "/p", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if err := r.ParseForm(); err != nil {
 		t.Fatal(err)
 	}
-
-	got := decodeDomains(r)
-	if len(got) != 2 {
-		t.Fatalf("decoded %d domains, want 2", len(got))
+	answers, v := decodeAnswers(r, p)
+	if v.Any() {
+		t.Fatalf("refused: %v", v.Fields)
 	}
-	for _, d := range got {
-		if !d.Provides {
-			t.Errorf("domain %d decoded with provides false", d.DomainID)
-		}
-		if d.DomainID == 4 {
-			t.Error("domain 4 was trained but not provided, and should not appear")
-		}
-		if d.DomainID == 7 && d.Trained {
-			t.Error("domain 7 was provided but not trained, and should not be trained")
-		}
-		if d.DomainID == 1 && !d.Trained {
-			t.Error("domain 1 was provided and trained, and should be trained")
-		}
+	got := p.Prune(answers)
+	if _, ok := got["phone_for_reporting"]; ok {
+		t.Error("an answer in a closed branch survived")
+	}
+	if got.One("households_served") != "1200" {
+		t.Errorf("households = %q", got.One("households_served"))
+	}
+	if strings.Join(got["services_trained"], ";") != "iccm" {
+		t.Errorf("trained = %v, want only what is also provided", got["services_trained"])
+	}
+	if problems := p.Check(got); len(problems) > 0 {
+		t.Errorf("a pruned form still fails: %+v", problems)
 	}
 }
 
@@ -192,8 +194,8 @@ func TestCursorRoundTrip(t *testing.T) {
 // unrecognised is dropped rather than rejected.
 func TestDecodeFilter(t *testing.T) {
 	cadres := []domain.Cadre{
-		{ID: 1, Slug: "vht", PlacementLevel: domain.LevelVillage},
-		{ID: 2, Slug: "chew", PlacementLevel: domain.LevelParish},
+		{ID: 1, Code: "vht", PlacementLevel: domain.LevelVillage},
+		{ID: 2, Code: "chew", PlacementLevel: domain.LevelParish},
 	}
 	cases := []struct {
 		name       string
@@ -325,8 +327,8 @@ func TestDashboardTiers(t *testing.T) {
 // select a CHW hides it.
 func TestAdmitsCHW(t *testing.T) {
 	cadres := []domain.Cadre{
-		{Slug: "vht", CategorySlug: domain.CategoryCHW},
-		{Slug: "md", CategorySlug: "clinicians"},
+		{Code: "vht", CategoryCode: domain.CategoryCHW},
+		{Code: "md", CategoryCode: "clinicians"},
 	}
 	cases := []struct {
 		f    store.Filter
@@ -447,7 +449,7 @@ func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
 func TestDecodeCadre(t *testing.T) {
 	form := url.Values{
 		"category_id":     {"2"},
-		"slug":            {"Health_Assistant"},
+		"code":            {"Health_Assistant"},
 		"label":           {"Health Assistant"},
 		"placement_level": {"subcounty"},
 		"import_aliases":  {"HA\n health asst ,H.A.\nhealth-assistant\n\n"},
@@ -462,8 +464,8 @@ func TestDecodeCadre(t *testing.T) {
 	if v.Any() {
 		t.Fatalf("refused: %v", v.Fields)
 	}
-	if in.Slug != "health_assistant" {
-		t.Errorf("slug = %q, want it lower-cased", in.Slug)
+	if in.Code != "health_assistant" {
+		t.Errorf("slug = %q, want it lower-cased", in.Code)
 	}
 	if want := []string{"HA", "health asst"}; !reflect.DeepEqual(in.ImportAliases, want) {
 		t.Errorf("aliases = %q, want %q (H.A. folds to HA, health-assistant to the slug)", in.ImportAliases, want)
@@ -474,12 +476,12 @@ func TestDecodeCadre(t *testing.T) {
 
 	// Region and county are not placements the cascade can reach.
 	form.Set("placement_level", "county")
-	form.Set("slug", "1bad")
+	form.Set("code", "1bad")
 	r = httptest.NewRequest(http.MethodPost, "/cadres/new", strings.NewReader(form.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	r.ParseForm()
 	_, _, v = decodeCadre(r)
-	if v.Fields["placement_level"] == "" || v.Fields["slug"] == "" {
+	if v.Fields["placement_level"] == "" || v.Fields["code"] == "" {
 		t.Errorf("county placement and a digit-led slug should both be refused: %v", v.Fields)
 	}
 }
@@ -488,9 +490,9 @@ func TestDecodeCadre(t *testing.T) {
 // run of a category.
 func TestCadreOptionsGroupByCategory(t *testing.T) {
 	groups := cadreOptions([]domain.Cadre{
-		{ID: 1, Slug: "vht", Label: "VHT", CategoryLabel: "Community Health Workers", PlacementLevel: domain.LevelVillage},
-		{ID: 2, Slug: "chew", Label: "CHEW", CategoryLabel: "Community Health Workers", PlacementLevel: domain.LevelParish},
-		{ID: 3, Slug: "ha", Label: "Health Assistant", CategoryLabel: "Environmental Health", PlacementLevel: domain.LevelSubcounty},
+		{ID: 1, Code: "vht", Label: "VHT", CategoryLabel: "Community Health Workers", PlacementLevel: domain.LevelVillage},
+		{ID: 2, Code: "chew", Label: "CHEW", CategoryLabel: "Community Health Workers", PlacementLevel: domain.LevelParish},
+		{ID: 3, Code: "ha", Label: "Health Assistant", CategoryLabel: "Environmental Health", PlacementLevel: domain.LevelSubcounty},
 	}, "chew")
 
 	if len(groups) != 2 || len(groups[0].Cadres) != 2 || len(groups[1].Cadres) != 1 {

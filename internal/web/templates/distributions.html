@@ -1,0 +1,30 @@
+{{define "title"}}Tool distributions · Health Workers Registry{{end}}
+
+{{define "content"}}
+<div class="row-between">
+  <h1>Tool distributions</h1>
+  {{if .Page.CanDistribute}}<a class="button" href="/distributions/new">Record a distribution</a>{{end}}
+</div>
+<p class="muted">Each hand-out is recorded as it happened: one district, one date, and which worker
+  received which tool. A worker must have been posted in that district on that date, and a tool
+  must be one their cadre carries.</p>
+
+{{if .Page.Distributions}}
+<table class="grid">
+  <thead><tr><th>Date</th><th>District</th><th class="num">Workers</th><th class="num">Tools</th><th>Note</th></tr></thead>
+  <tbody>
+  {{range .Page.Distributions}}
+    <tr>
+      <td><a href="/distributions/{{.ID}}">{{date .ReportingDate}}</a></td>
+      <td>{{.DistrictName}}</td>
+      <td class="num">{{num .Recipients}}</td>
+      <td class="num">{{num .Units}}</td>
+      <td>{{.Note}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="card muted">No distributions recorded yet.</p>
+{{end}}
+{{end}}

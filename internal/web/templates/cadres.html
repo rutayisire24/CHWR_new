@@ -12,13 +12,13 @@
 
 <table class="grid grouped">
   <thead>
-    <tr><th>Cadre</th><th>Slug</th><th>Placed at</th><th>Import spellings</th><th>Serving</th><th>Status</th><th></th></tr>
+    <tr><th>Cadre</th><th>Code</th><th>Placed at</th><th>Import spellings</th><th>Serving</th><th>Status</th><th></th></tr>
   </thead>
   {{range .Page.Groups}}
   <tbody>
     <tr class="group{{if not .Category.Active}} dim{{end}}">
       <th colspan="6" scope="rowgroup">
-        {{.Category.Label}} <code>{{.Category.Slug}}</code>
+        {{.Category.Label}} <code>{{.Category.Code}}</code>
         {{if not .Category.Active}}<span class="pill disabled">retired</span>{{end}}
         <span class="group-note">{{if .HasProfile}}CHW profile: phone, incentive, tools and services{{else}}Identity and posting only, no profile yet{{end}}</span>
       </th>
@@ -27,9 +27,9 @@
     {{range .Cadres}}
     <tr class="{{if not .Active}}dim{{end}}">
       <td>{{.Label}}</td>
-      <td><code>{{.Slug}}</code></td>
+      <td><code>{{.Code}}</code></td>
       <td>{{.PlacementLevel.Label}}</td>
-      <td>{{range $i, $a := .ImportAliases}}{{if $i}}, {{end}}{{$a}}{{else}}<span class="muted">slug only</span>{{end}}</td>
+      <td>{{range $i, $a := .ImportAliases}}{{if $i}}, {{end}}{{$a}}{{else}}<span class="muted">code only</span>{{end}}</td>
       <td>{{.Serving}}</td>
       <td>{{if .Active}}<span class="pill active">offered</span>{{else}}<span class="pill disabled">retired</span>{{end}}</td>
       <td class="actions"><a href="/cadres/{{.ID}}">Edit</a></td>
@@ -54,10 +54,10 @@
       {{template "field-error" .Page.CategoryErrors.category_label}}
     </div>
     <div>
-      <label for="category_slug">Slug</label>
-      <input id="category_slug" name="category_slug" required maxlength="32"
-             pattern="[a-z][a-z0-9_]{1,31}" value="{{.Page.Category.Slug}}" placeholder="nursing">
-      {{template "field-error" .Page.CategoryErrors.category_slug}}
+      <label for="category_code">Code</label>
+      <input id="category_code" name="category_code" required maxlength="32"
+             pattern="[a-z][a-z0-9_]{1,31}" value="{{.Page.Category.Code}}" placeholder="nursing">
+      {{template "field-error" .Page.CategoryErrors.category_code}}
     </div>
   </div>
   <label for="category_sort_order">Sort order</label>

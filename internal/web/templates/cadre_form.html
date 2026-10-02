@@ -9,7 +9,7 @@
 
   {{if $locked}}
   <p class="hint">{{.Page.Cadre.Deployments}} posting{{if ne .Page.Cadre.Deployments 1}}s{{end}} name this cadre
-    ({{.Page.Cadre.Serving}} serving now), so its category, slug and placement level are fixed.
+    ({{.Page.Cadre.Serving}} serving now), so its category, code and placement level are fixed.
     To change them, retire this cadre and add a new one; workers move across by an ordinary change of cadre.</p>
   {{end}}
 
@@ -35,11 +35,11 @@
 
   <div class="two-up">
     <div>
-      <label for="slug">Slug</label>
-      <input id="slug" name="slug" required maxlength="32" pattern="[a-z][a-z0-9_]{1,31}"
-             value="{{.Page.Cadre.Slug}}" placeholder="health_assistant" {{if $locked}}readonly{{end}}>
+      <label for="code">Code</label>
+      <input id="code" name="code" required maxlength="32" pattern="[a-z][a-z0-9_]{1,31}"
+             value="{{.Page.Cadre.Code}}" placeholder="health_assistant" {{if $locked}}readonly{{end}}>
       <span class="hint">The short name in links, the export's <code>cadre</code> column and staged imports.</span>
-      {{template "field-error" .Page.Errors.slug}}
+      {{template "field-error" .Page.Errors.code}}
     </div>
     <div>
       <label for="placement_level">Placed at</label>
@@ -61,7 +61,7 @@
   <label for="import_aliases">Other spellings accepted on import</label>
   <textarea id="import_aliases" name="import_aliases" rows="3"
             placeholder="HA&#10;health asst">{{.Page.Aliases}}</textarea>
-  <span class="hint">One per line. The slug is always accepted. Case, spaces, dots and dashes are ignored,
+  <span class="hint">One per line. The code is always accepted. Case, spaces, dots and dashes are ignored,
     and a spelling can name only one cadre.</span>
   {{template "field-error" .Page.Errors.import_aliases}}
 

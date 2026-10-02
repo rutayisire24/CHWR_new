@@ -74,9 +74,10 @@ func counted(sc auth.Scope, f Filter, args []any) (from, where string, _ []any) 
 	f.Query, f.Limit, f.After, f.Before = "", 0, nil, nil
 	where, args = f.where(sc, args)
 	return `
-	  FROM health_workers w` + seenThrough + `
+	  FROM health_workers w
+	  JOIN persons p            ON p.id   = w.person_id` + seenThrough + `
 	  JOIN cadres cd            ON cd.id  = dep.cadre_id
-	  JOIN cadre_categories cat ON cat.id = cd.category_id
+	  JOIN cadre_categories cat ON cat.id = cd.cadre_category_id
 	  JOIN locations l          ON l.id   = dep.location_id`, where, args
 }
 
@@ -112,9 +113,9 @@ func (s *Stats) Totals(ctx context.Context, sc auth.Scope, f Filter) (Totals, er
 	    SELECT count(*),
 	           count(*) FILTER (WHERE w.status = 'active'),
 	           count(*) FILTER (WHERE w.status = 'inactive'),
-	           count(*) FILTER (WHERE w.sex    = 'female'),
-	           count(*) FILTER (WHERE w.sex    = 'male'),
-	           coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY w.age_years), 0)` + from + where
+	           count(*) FILTER (WHERE p.sex    = 'female'),
+	           count(*) FILTER (WHERE p.sex    = 'male'),
+	           coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY ` + ageYears + `), 0)` + from + where
 
 	var t Totals
 	err := s.pool.QueryRow(ctx, q, args...).Scan(&t.Total, &t.Active, &t.Inactive,
@@ -150,12 +151,12 @@ func (s *Stats) Cadres(ctx context.Context, sc auth.Scope, f Filter) ([]CadreSpl
 	out := make([]CadreSplit, len(cadres))
 	at := make(map[string]int, len(cadres))
 	for i, c := range cadres {
-		out[i] = CadreSplit{Slug: c.Slug, Label: c.Label, Category: c.CategoryLabel}
-		at[c.Slug] = i
+		out[i] = CadreSplit{Slug: c.Code, Label: c.Label, Category: c.CategoryLabel}
+		at[c.Code] = i
 	}
 
 	from, where, args := counted(sc, f, nil)
-	q := `SELECT cd.slug, w.sex::text, w.status::text, count(*)` + from + where + ` GROUP BY 1, 2, 3`
+	q := `SELECT cd.code, p.sex::text, w.status::text, count(*)` + from + where + ` GROUP BY 1, 2, 3`
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -195,11 +196,11 @@ func (s *Stats) activeCadres(ctx context.Context, f Filter) ([]domain.Cadre, err
 	var args []any
 	if f.Category != "" {
 		args = append(args, f.Category)
-		where += fmt.Sprintf(" AND cat.slug = $%d", len(args))
+		where += fmt.Sprintf(" AND cat.code = $%d", len(args))
 	}
 	if f.Cadre != "" {
 		args = append(args, f.Cadre)
-		where += fmt.Sprintf(" AND c.slug = $%d", len(args))
+		where += fmt.Sprintf(" AND c.code = $%d", len(args))
 	}
 	return queryCadres(ctx, s.pool, where, args...)
 }
@@ -237,14 +238,14 @@ func (s *Stats) Areas(ctx context.Context, sc auth.Scope, f Filter, level domain
 	}
 	at := make(map[string]int, len(cadres))
 	for i, c := range cadres {
-		at[c.Slug] = i
+		at[c.Code] = i
 	}
 
 	// The scope lands twice: once inside the derived table, so a district user
 	// sums only their own workers, and once on the area list itself, so the
 	// chart does not carry 145 empty districts.
 	from, where, args := counted(sc, f, []any{segment(level), string(level)})
-	inner := `SELECT w.status::text AS status, cd.slug AS cadre_slug,
+	inner := `SELECT w.status::text AS status, cd.code AS cadre_slug,
 	                 nullif(split_part(l.path, '/', $1::int), '')::bigint AS area_id,
 	                 count(*) AS n` + from + where + ` GROUP BY 1, 2, 3`
 
@@ -312,11 +313,13 @@ func (s *Stats) Areas(ctx context.Context, sc auth.Scope, f Filter, level domain
 	return out, cadres, nil
 }
 
-// AgeBands are five-year bands over the recorded age. Age is a snapshot rather
-// than a fact — `age_captured_on` says when it was true — so this is the shape
-// of the register as captured, not a birth-date distribution.
+// ageYears is a worker's age today, from the birth date. An estimated birth
+// date (one an age implied) counts: it is the register's best answer.
+const ageYears = `extract(year FROM age(current_date, p.dob))::int`
+
+// AgeBands are five-year bands over the age the birth date gives today.
 //
-// The first band is open at the bottom (the column check floors it at 18) and
+// The first band is open at the bottom (the register floors age at 18) and
 // the last is open at the top.
 type AgeBand struct {
 	Label string
@@ -332,8 +335,8 @@ var ageBandLabels = []string{
 // the distribution and has to keep its slot on the axis.
 func (s *Stats) Ages(ctx context.Context, sc auth.Scope, f Filter) ([]AgeBand, int64, error) {
 	from, where, args := counted(sc, f, nil)
-	q := `SELECT least(9, greatest(0, (w.age_years - 20) / 5)) AS band, count(*)` + from + where +
-		` AND w.age_years IS NOT NULL GROUP BY band ORDER BY band`
+	q := `SELECT least(9, greatest(0, (` + ageYears + ` - 20) / 5)) AS band, count(*)` + from + where +
+		` AND p.dob IS NOT NULL GROUP BY band ORDER BY band`
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -360,10 +363,9 @@ func (s *Stats) Ages(ctx context.Context, sc auth.Scope, f Filter) ([]AgeBand, i
 	return bands, known, rows.Err()
 }
 
-// FieldFill is how much of one field the register actually holds. Every profile
-// column is nullable and "no" and "not asked" are different answers, so this
-// counts rows where an answer of any kind was recorded — not rows that answered
-// yes.
+// FieldFill is how much of one field the register actually holds. "No" and
+// "not asked" are different answers, so this counts records where an answer
+// of any kind was recorded — not records that answered yes.
 type FieldFill struct {
 	Label string
 	Have  int64
@@ -371,51 +373,73 @@ type FieldFill struct {
 
 // Completeness is the register's own data-quality view, in two parts with two
 // denominators. Register fields belong to every health worker whatever their
-// cadre, and are measured against the whole selection. Profile fields belong
-// to the Community Health Workers category alone — chw_profiles is its profile
-// surface and no other category has one — so they are measured against the
-// CHWs in the selection, never against a clinician who was never asked.
+// cadre, and are measured against the whole selection. Survey fields belong
+// to the workers the CHW baseline survey applies to, and are measured against
+// those in the selection, never against a clinician who was never asked.
 type Completeness struct {
 	Register []FieldFill
 	Profile  []FieldFill
 	// CHWs is the Profile denominator: workers in the selection whose posting
-	// is in the CHW category.
+	// is in a cadre the CHW baseline survey applies to.
 	CHWs int64
+}
+
+// baselineApplies is the predicate "the CHW baseline applies to this worker's
+// cadre", with the profile code bound at $n.
+func baselineApplies(n int) string {
+	return fmt.Sprintf(`cd.id IN (SELECT a.cadre_id FROM profile_applicable_cadre a
+	                               JOIN profiles pr ON pr.id = a.profile_id WHERE pr.code = $%d)`, n)
+}
+
+// latestAnswered folds each worker's latest baseline submission to the set of
+// question codes it answered, one row per worker, so the measures below are
+// joins rather than per-row probes. The profile code is bound at $n.
+func latestAnswered(n int) string {
+	return fmt.Sprintf(`
+	    LEFT JOIN (
+	        SELECT l.health_worker_id, array_agg(DISTINCT pq.code) AS codes
+	          FROM (SELECT DISTINCT ON (s.health_worker_id) s.health_worker_id, s.id
+	                  FROM health_worker_profiles s JOIN profiles pr ON pr.id = s.profile_id
+	                 WHERE pr.code = $%d
+	                 ORDER BY s.health_worker_id, s.captured_on DESC, s.id DESC) l
+	          JOIN health_worker_profile_responses r ON r.health_worker_profile_id = l.id
+	          JOIN profile_questions pq ON pq.id = r.profile_question_id
+	         GROUP BY l.health_worker_id
+	    ) ans ON ans.health_worker_id = w.id`, n)
 }
 
 // Completeness reports, per field, how many workers carry a recorded answer.
 // An import that dropped a column shows up here as a bar that never rises.
 func (s *Stats) Completeness(ctx context.Context, sc auth.Scope, f Filter) (Completeness, error) {
 	from, where, args := counted(sc, f, nil)
-	args = append(args, domain.CategoryCHW)
-	chw := fmt.Sprintf("cat.slug = $%d", len(args))
+	args = append(args, CHWBaseline)
+	chw := baselineApplies(len(args))
+	answered := func(code string) string {
+		return `count(*) FILTER (WHERE ` + chw + ` AND '` + code + `' = ANY(ans.codes))`
+	}
 
 	q := `
-	    SELECT count(*) FILTER (WHERE w.nin IS NOT NULL),
-	           count(*) FILTER (WHERE w.age_years IS NOT NULL),
+	    SELECT count(*) FILTER (WHERE p.nin IS NOT NULL),
+	           count(*) FILTER (WHERE p.dob IS NOT NULL),
 	           -- The supervising facility is a fact of the open posting.
 	           count(*) FILTER (WHERE dep.ended_on IS NULL AND dep.facility_id IS NOT NULL),
+	           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM person_contacts c
+	                                           WHERE c.person_id = p.id AND c.kind = 'phone')),
+	           count(*) FILTER (WHERE EXISTS (SELECT 1 FROM person_education e WHERE e.person_id = p.id)),
 	           count(*) FILTER (WHERE ` + chw + `),
-	           count(p.health_worker_id) FILTER (WHERE ` + chw + `),
-	           count(*) FILTER (WHERE ` + chw + ` AND p.owns_phone IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND p.education IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND p.service_start_year IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND p.households_served IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND p.receives_incentive IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND p.received_supervision IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND d.health_worker_id IS NOT NULL),
-	           count(*) FILTER (WHERE ` + chw + ` AND t.health_worker_id IS NOT NULL)` + from + `
-	      LEFT JOIN chw_profiles p ON p.health_worker_id = w.id
-	      -- The two junctions are folded to one row per worker and joined,
-	      -- rather than probed with EXISTS per row: same answer, ~40x less
-	      -- work over a register this size.
-	      LEFT JOIN (SELECT DISTINCT health_worker_id FROM chw_service_domains) d ON d.health_worker_id = w.id
-	      LEFT JOIN (SELECT DISTINCT health_worker_id FROM chw_tools)           t ON t.health_worker_id = w.id` + where
+	           count(ans.health_worker_id) FILTER (WHERE ` + chw + `),
+	           ` + answered("owns_phone") + `,
+	           ` + answered("service_start_year") + `,
+	           ` + answered("households_served") + `,
+	           ` + answered("receives_incentive") + `,
+	           ` + answered("received_supervision") + `,
+	           ` + answered("services_provided") + `,
+	           ` + answered("tools_held") + from + latestAnswered(len(args)) + where
 
-	register := []string{"National ID (NIN)", "Age", "Health facility"}
+	register := []string{"National ID (NIN)", "Date of birth", "Health facility", "Phone number", "Education"}
 	profile := []string{
-		"Profile started", "Phone ownership", "Education", "Year started service",
-		"Households served", "Incentive", "Supervision", "Service domains", "Tools held",
+		"Survey started", "Phone ownership", "Year started service",
+		"Households served", "Incentive", "Supervision", "Services offered", "Tools held",
 	}
 	counts := make([]int64, len(register)+1+len(profile))
 	dest := make([]any, len(counts))
@@ -437,47 +461,68 @@ func (s *Stats) Completeness(ctx context.Context, sc auth.Scope, f Filter) (Comp
 	return c, nil
 }
 
-// ServiceCount is one service domain and how much of the selection offers it.
-// Trained is a subset of Provides by constraint (trained_implies_provides), so
-// the two are read as a whole and its part, never as two independent series.
+// ServiceCount is one service and how much of the selection offers it.
+// Trained is a subset of Provides by the survey's own rule, so the two are
+// read as a whole and its part, never as two independent series.
 type ServiceCount struct {
 	Label    string
 	Provides int64
 	Trained  int64
 }
 
-// Services counts the CHWs in the selection per service domain, in the
-// vocabulary's own order, and returns how many workers the counts are drawn
-// from. Service domains are a CHW profile question, so only that category is
-// counted. Domains nobody offers keep their row: a service with no providers is
-// the point of the chart.
+// Services counts the workers in the selection per service, as their latest
+// baseline submission answers it, in the question's own order. Services
+// nobody offers keep their row: a service with no providers is the point of
+// the chart.
 //
-// The denominator is the workers with any service answer at all, not the whole
-// selection — a domain offered by every one of ten answered records is not a
-// domain offered by the country.
+// The denominator is the workers who answered the question at all — "none"
+// included — not the whole selection: a service offered by every one of ten
+// answered records is not a service offered by the country.
 func (s *Stats) Services(ctx context.Context, sc auth.Scope, f Filter) ([]ServiceCount, int64, error) {
 	from, where, args := counted(sc, f, nil)
-	args = append(args, domain.CategoryCHW)
-	// The selection is a derived table the answers are joined through, so the
-	// outer join from service_domains stays outer: as a WHERE predicate it
-	// would turn inner and drop every domain nobody offers.
-	sel := `SELECT w.id` + from + where + fmt.Sprintf(" AND cat.slug = $%d", len(args))
-	answers := `SELECT x.* FROM chw_service_domains x JOIN (` + sel + `) sel ON sel.id = x.health_worker_id`
+	args = append(args, CHWBaseline)
+	n := len(args)
+	sel := `SELECT w.id` + from + where + ` AND ` + baselineApplies(n)
 
+	// sel goes in by concatenation, never through Sprintf: a location filter
+	// leaves a literal % in it.
 	q := `
-	    SELECT d.label,
-	           count(*) FILTER (WHERE x.provides),
-	           count(*) FILTER (WHERE x.trained),
-	           (SELECT count(DISTINCT health_worker_id) FROM (` + answers + `) y)
-	      FROM service_domains d
-	      LEFT JOIN (` + answers + `) x ON x.domain_id = d.id
-	     WHERE d.active
-	     GROUP BY d.id, d.label, d.sort_order
-	     ORDER BY d.sort_order`
+	    WITH sel AS (` + sel + `),` + fmt.Sprintf(`
+	    latest AS (
+	        SELECT DISTINCT ON (s.health_worker_id) s.health_worker_id, s.id
+	          FROM health_worker_profiles s
+	          JOIN sel ON sel.id = s.health_worker_id
+	          JOIN profiles pr ON pr.id = s.profile_id
+	         WHERE pr.code = $%[1]d
+	         ORDER BY s.health_worker_id, s.captured_on DESC, s.id DESC
+	    ),
+	    answers AS (
+	        SELECT l.health_worker_id, pq.code, r.response_option_id AS option_id
+	          FROM latest l
+	          JOIN health_worker_profile_responses r ON r.health_worker_profile_id = l.id
+	          JOIN profile_questions pq ON pq.id = r.profile_question_id
+	         WHERE pq.code IN ('services_provided', 'services_trained')
+	    ),
+	    choices AS (
+	        SELECT (o->>'id')::int AS id, o->>'prompt' AS prompt, ord
+	          FROM profile_questions pq
+	          JOIN profiles pr ON pr.id = pq.profile_id
+	          JOIN question_pool q ON q.id = pq.question_id,
+	               jsonb_array_elements(q.response_options) WITH ORDINALITY AS x(o, ord)
+	         WHERE pr.code = $%[1]d AND pq.code = 'services_provided' AND o->>'code' <> 'none'
+	    )
+	    SELECT c.prompt,
+	           count(*) FILTER (WHERE a.code = 'services_provided'),
+	           count(*) FILTER (WHERE a.code = 'services_trained'),
+	           (SELECT count(DISTINCT health_worker_id) FROM answers WHERE code = 'services_provided')
+	      FROM choices c
+	      LEFT JOIN answers a ON a.option_id = c.id
+	     GROUP BY c.id, c.prompt, c.ord
+	     ORDER BY c.ord`, n)
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("count service domains: %w", translate(err))
+		return nil, 0, fmt.Errorf("count services: %w", translate(err))
 	}
 	defer rows.Close()
 
@@ -486,7 +531,7 @@ func (s *Stats) Services(ctx context.Context, sc auth.Scope, f Filter) ([]Servic
 	for rows.Next() {
 		var sd ServiceCount
 		if err := rows.Scan(&sd.Label, &sd.Provides, &sd.Trained, &respondents); err != nil {
-			return nil, 0, fmt.Errorf("scan service domain: %w", err)
+			return nil, 0, fmt.Errorf("scan service: %w", err)
 		}
 		out = append(out, sd)
 	}
@@ -524,4 +569,68 @@ func (s *Stats) Reach(ctx context.Context, sc auth.Scope, f Filter, level domain
 		return Coverage{}, fmt.Errorf("measure reach: %w", translate(err))
 	}
 	return c, nil
+}
+
+// EventCount is one tool or service and how often the selection's events name
+// it.
+type EventCount struct {
+	Label string
+	Count int64
+}
+
+// ToolsHandedOut sums the tools distributed to the workers in the selection,
+// over every hand-out on record, per tool in the vocabulary's order, and says
+// how many workers received anything. A tool nobody received keeps its row.
+func (s *Stats) ToolsHandedOut(ctx context.Context, sc auth.Scope, f Filter) ([]EventCount, int64, error) {
+	from, where, args := counted(sc, f, nil)
+	q := `
+	    WITH sel AS (SELECT w.id` + from + where + `),
+	    given AS (
+	        SELECT x.health_worker_id, x.tool_id, x.quantity
+	          FROM health_worker_tool_distribution_details x JOIN sel ON sel.id = x.health_worker_id
+	    )
+	    SELECT t.label, coalesce(sum(g.quantity), 0), (SELECT count(DISTINCT health_worker_id) FROM given)
+	      FROM tools t LEFT JOIN given g ON g.tool_id = t.id
+	     WHERE t.active
+	     GROUP BY t.id, t.label, t.sort_order ORDER BY t.sort_order, t.id`
+	return eventCounts(ctx, s.pool, "count tools handed out", q, args)
+}
+
+// ServicesReported counts, per service, the workers in the selection who
+// reported giving it in the last ninety days, and how many reported at all.
+// Recent rather than ever: a service report is about current work.
+func (s *Stats) ServicesReported(ctx context.Context, sc auth.Scope, f Filter) ([]EventCount, int64, error) {
+	from, where, args := counted(sc, f, nil)
+	q := `
+	    WITH sel AS (SELECT w.id` + from + where + `),
+	    reported AS (
+	        SELECT u.health_worker_id, x.service_id
+	          FROM health_worker_service_updates u
+	          JOIN sel ON sel.id = u.health_worker_id
+	          LEFT JOIN health_worker_service_update_details x ON x.health_worker_service_update_id = u.id
+	         WHERE u.reporting_date > current_date - 90
+	    )
+	    SELECT sv.label, count(DISTINCT r.health_worker_id), (SELECT count(DISTINCT health_worker_id) FROM reported)
+	      FROM services sv LEFT JOIN reported r ON r.service_id = sv.id
+	     WHERE sv.active
+	     GROUP BY sv.id, sv.label, sv.sort_order ORDER BY sv.sort_order, sv.id`
+	return eventCounts(ctx, s.pool, "count services reported", q, args)
+}
+
+func eventCounts(ctx context.Context, q querier, what, sql string, args []any) ([]EventCount, int64, error) {
+	rows, err := q.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%s: %w", what, translate(err))
+	}
+	defer rows.Close()
+	var out []EventCount
+	var workers int64
+	for rows.Next() {
+		var e EventCount
+		if err := rows.Scan(&e.Label, &e.Count, &workers); err != nil {
+			return nil, 0, fmt.Errorf("%s: %w", what, err)
+		}
+		out = append(out, e)
+	}
+	return out, workers, rows.Err()
 }

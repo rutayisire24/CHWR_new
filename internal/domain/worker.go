@@ -39,24 +39,72 @@ const (
 	WorkerInactive WorkerStatus = "inactive"
 )
 
-// HealthWorker is the person — `health_workers`, without the optional survey
-// attributes that live on a category profile, and without the posting that
-// lives on deployments. What a worker does and where they do it is a
-// Deployment; who they are survives every transfer.
+// PersonStatus is the `person_status` enum: the record's own state. It is not
+// the workforce status — a health worker leaves the workforce (WorkerStatus);
+// a person dies, or turns out to be another record and is merged into it.
+type PersonStatus string
+
+const (
+	PersonActive   PersonStatus = "active"
+	PersonDeceased PersonStatus = "deceased"
+	PersonMerged   PersonStatus = "merged"
+)
+
+// Person is `persons`: who someone is, independent of the work they do. Their
+// contacts, documents, education, languages and history hang off it.
+type Person struct {
+	ID        int64
+	NIN       string // empty when not recorded; unique where present
+	FirstName string
+	LastName  string
+	OtherName string
+	Sex       Sex
+	// DOB is the birth date, or the estimate an age implies when DOBEstimated
+	// is set. The field forms collected an age, which is a snapshot; a date is
+	// not, and the age is computed from it rather than stored going stale.
+	DOB          *time.Time
+	DOBEstimated bool
+	Status       PersonStatus
+}
+
+// AgeOn is the person's age in whole years on a date, nil without a birth date.
+func (p Person) AgeOn(on time.Time) *int {
+	if p.DOB == nil {
+		return nil
+	}
+	years := on.Year() - p.DOB.Year()
+	if on.Month() < p.DOB.Month() || (on.Month() == p.DOB.Month() && on.Day() < p.DOB.Day()) {
+		years-- // the birthday is still to come this year
+	}
+	return &years
+}
+
+// Age is the person's age today.
+func (p Person) Age() *int { return p.AgeOn(time.Now()) }
+
+// EstimateDOB is the birth date an age stated on a date implies: the middle of
+// the year it points at, so the estimate is never more than six months out.
+func EstimateDOB(years int, on time.Time) time.Time {
+	return time.Date(on.Year()-years, time.July, 1, 0, 0, 0, 0, time.UTC)
+}
+
+// HealthWorker is a person's place in the workforce — `health_workers` and the
+// `persons` row it points at — without the survey answers that live on a
+// profile submission, and without the posting that lives on deployments. What
+// a worker does and where they do it is a Deployment; who they are survives
+// every transfer.
+//
+// Person is embedded, so a worker reads as the person it is (w.FirstName); the
+// worker's own ID is the one everything in the register joins on, and the
+// person's is w.Person.ID.
 type HealthWorker struct {
 	ID int64
+	Person
 	// Code is the human-legible permanent identifier, e.g. KYE00042: the
 	// district's three-letter code and a serial. Issued by trigger with the
 	// first deployment, never supplied and never changed, so no input type
 	// carries it. Empty only inside the creating transaction.
-	Code      string
-	NIN       string // empty when not recorded; unique where present
-	FirstName string
-	LastName  string
-	Sex       Sex
-	AgeYears  *int16
-	// AgeCapturedOn is when the age was true. Age is a snapshot, not a fact.
-	AgeCapturedOn time.Time
+	Code string
 
 	// DistrictID is the district that owns this record for scoping. It is
 	// derived by trigger from the worker's deployments and never supplied; it
@@ -72,10 +120,10 @@ type HealthWorker struct {
 	DeactivatedAt      *time.Time
 	DeactivationReason string
 
-	CreatedBy *int64
-	UpdatedBy *int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedBy     *int64
+	LastUpdatedBy *int64
+	CreatedOn     time.Time
+	LastUpdatedOn time.Time
 }
 
 // FullName is "first last", the form the register displays and searches.
