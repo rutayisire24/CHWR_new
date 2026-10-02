@@ -172,9 +172,12 @@ type Filter struct {
 	// holding, and a search that answered to a national identity number
 	// invites someone to probe for one.
 	Query string
-	// Cadre is a cadres slug ('vht'), matched against the posting the worker
-	// is seen through.
-	Cadre string
+	// Category is a cadre_categories slug ('chw'), and Cadre a cadres slug
+	// ('vht'); both are matched against the posting the worker is seen through.
+	Category string
+	Cadre    string
+	// Sex empty means both.
+	Sex domain.Sex
 	// Status empty means both. A register that hid inactive workers by default
 	// would quietly answer a different question than the one asked.
 	Status domain.WorkerStatus
@@ -213,17 +216,28 @@ type Page struct {
 // where builds the predicate the listing and the count share. Keeping it in one
 // place is not tidiness: a count that filtered differently from the page it
 // counts would be a bug nobody notices until the numbers disagree.
-func (f Filter) where(sc auth.Scope) (string, []any) {
+//
+// args are placeholders the caller has already bound; the predicate numbers
+// its own after them and returns the whole list.
+func (f Filter) where(sc auth.Scope, args []any) (string, []any) {
 	where := ` WHERE true`
-	var args []any
 
 	if frag, extra := sc.Filter("w.district_id", len(args)+1); frag != "" {
 		where += frag
 		args = append(args, extra...)
 	}
+	if f.Category != "" {
+		args = append(args, f.Category)
+		where += fmt.Sprintf(
+			" AND cd.category_id = (SELECT id FROM cadre_categories WHERE slug = $%d)", len(args))
+	}
 	if f.Cadre != "" {
 		args = append(args, f.Cadre)
 		where += fmt.Sprintf(" AND cd.slug = $%d", len(args))
+	}
+	if f.Sex != "" {
+		args = append(args, string(f.Sex))
+		where += fmt.Sprintf(" AND w.sex = $%d::sex", len(args))
 	}
 	if f.Status != "" {
 		args = append(args, string(f.Status))
@@ -261,7 +275,9 @@ func (f Filter) where(sc auth.Scope) (string, []any) {
 
 // needsDeployment reports whether the filter touches the posting. A count that
 // does not can skip the lateral join and count the people directly.
-func (f Filter) needsDeployment() bool { return f.Cadre != "" || f.LocationID != 0 }
+func (f Filter) needsDeployment() bool {
+	return f.Category != "" || f.Cadre != "" || f.LocationID != 0
+}
 
 // List returns one page of the register, ordered by name.
 //
@@ -273,7 +289,7 @@ func (s *Workers) List(ctx context.Context, sc auth.Scope, f Filter) (Page, erro
 		f.Limit = 50
 	}
 
-	where, args := f.where(sc)
+	where, args := f.where(sc, nil)
 
 	// Keyset. Row-wise comparison is what lets one predicate use the whole
 	// three-column index; comparing the columns with AND/OR by hand does not.
@@ -356,7 +372,7 @@ func cursorFor(w domain.HealthWorker) Cursor {
 // never counts, and a count that ran on every page would undo that.
 func (s *Workers) Matching(ctx context.Context, sc auth.Scope, f Filter) (int64, error) {
 	f.Limit, f.After, f.Before = 0, nil, nil
-	where, args := f.where(sc)
+	where, args := f.where(sc, nil)
 
 	from := ` FROM health_workers w`
 	if f.needsDeployment() {

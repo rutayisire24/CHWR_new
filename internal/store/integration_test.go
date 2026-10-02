@@ -814,7 +814,7 @@ func TestTheDashboardAgreesWithTheListing(t *testing.T) {
 	}
 
 	for _, sc := range []auth.Scope{w.a.scope(), auth.National()} {
-		totals, err := w.store.Stats.Totals(ctx, sc)
+		totals, err := w.store.Stats.Totals(ctx, sc, Filter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -826,7 +826,7 @@ func TestTheDashboardAgreesWithTheListing(t *testing.T) {
 				totals.Total, totals.Active, totals.Inactive, all, active, inactive)
 		}
 
-		split, err := w.store.Stats.Cadres(ctx, sc)
+		split, err := w.store.Stats.Cadres(ctx, sc, Filter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -834,6 +834,22 @@ func TestTheDashboardAgreesWithTheListing(t *testing.T) {
 			n, _ := w.store.Workers.Matching(ctx, sc, Filter{Cadre: c.Slug})
 			if c.Active+c.Inactive != n {
 				t.Errorf("national=%v: %s tile %d, listing %d", sc.IsNational(), c.Slug, c.Active+c.Inactive, n)
+			}
+		}
+
+		// A filtered dashboard is the filtered listing: the same predicate.
+		for _, f := range []Filter{
+			{Category: domain.CategoryCHW},
+			{Sex: domain.SexFemale, Status: domain.WorkerActive},
+			{Cadre: "vht", LocationID: w.a.parish},
+		} {
+			totals, err := w.store.Stats.Totals(ctx, sc, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, _ := w.store.Workers.Matching(ctx, sc, f)
+			if totals.Total != n {
+				t.Errorf("national=%v, %+v: tiles %d, listing %d", sc.IsNational(), f, totals.Total, n)
 			}
 		}
 	}

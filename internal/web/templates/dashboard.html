@@ -12,9 +12,82 @@
 {{$p := .Page}}{{$t := .Page.Totals}}
 <h1>Dashboard</h1>
 <p class="muted">
-  {{.User.Role.Label}}{{if .User.DistrictName}}, {{.User.DistrictName}} district{{else}} · the whole country{{end}}.
-  Every figure below is the slice you may open.
+  {{.User.Role.Label}} · {{$p.Where}}{{if and .User.DistrictName (not $p.Places)}} district{{end}}.
+  Every figure below is the slice you may open{{if $p.Filter.Active}}, narrowed by the filter{{end}}.
 </p>
+
+<form method="get" action="/" class="filters-bar" data-location-cascade>
+  <div>
+    <label for="category">Category</label>
+    <select id="category" name="category">
+      <option value="">All categories</option>
+      {{range $p.Categories}}<option value="{{.Slug}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+  </div>
+
+  <div>
+    <label for="cadre">Cadre</label>
+    <select id="cadre" name="cadre">
+      <option value="">All cadres</option>
+      {{range $p.CadreOpts}}
+      <optgroup label="{{.Label}}">
+        {{range .Cadres}}<option value="{{.Slug}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}
+      </optgroup>
+      {{end}}
+    </select>
+  </div>
+
+  <div>
+    <label for="status">Status</label>
+    <select id="status" name="status">
+      <option value="">Any</option>
+      <option value="active" {{if eq $p.Filter.Status "active"}}selected{{end}}>Active</option>
+      <option value="inactive" {{if eq $p.Filter.Status "inactive"}}selected{{end}}>Inactive</option>
+    </select>
+  </div>
+
+  <div>
+    <label for="sex">Sex</label>
+    <select id="sex" name="sex">
+      <option value="">Any</option>
+      {{range $p.Sexes}}<option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+  </div>
+
+  <div>
+    <label for="district_id">District</label>
+    <select id="district_id" name="district_id" data-level="district">
+      <option value="">{{if .User.DistrictName}}{{.User.DistrictName}}{{else}}Whole country{{end}}</option>
+      {{range $p.Districts}}<option value="{{.ID}}" {{if .Selected}}selected{{end}}>{{.Name}}</option>{{end}}
+    </select>
+  </div>
+
+  <div>
+    <label for="subcounty_id">Subcounty</label>
+    <select id="subcounty_id" name="subcounty_id" data-under="district_id"
+            data-level="subcounty" data-selected="{{index $p.Prefill "subcounty"}}">
+      <option value="">— any —</option>
+    </select>
+  </div>
+
+  <div>
+    <label for="parish_id">Parish</label>
+    <select id="parish_id" name="parish_id" data-under="subcounty_id"
+            data-level="parish" data-selected="{{index $p.Prefill "parish"}}">
+      <option value="">— any —</option>
+    </select>
+  </div>
+
+  <div class="actions">
+    <button type="submit">Apply</button>
+    {{if $p.Filter.Active}}<a class="cancel" href="/">Clear</a>{{end}}
+  </div>
+</form>
+{{if $p.Places}}
+<p class="muted result-line">Showing
+  {{range $i, $pl := $p.Places}}{{if gt $i 0}} › {{end}}{{$pl.Name}}{{end}}.
+</p>
+{{end}}
 
 <!-- The lede: one hero figure and the numbers that qualify it. -->
 <section class="lede">
@@ -26,15 +99,15 @@
       <strong>{{num $t.Active}}</strong> active · <strong>{{num $t.Inactive}}</strong> inactive ·
       median age <strong>{{printf "%.0f" $t.MedianAge}}</strong>
     </span>
-    <span class="go"><a href="/health-workers">Open the register &rsaquo;</a></span>
+    <span class="go"><a href="{{$p.RegisterURL}}">Open {{if $p.Filter.Active}}these records{{else}}the register{{end}} &rsaquo;</a></span>
   </div>
 
   <div class="tiles">
     {{range $p.Cadres}}
     <div class="tile">
       <span class="caption">{{.Label}}</span>
-      <span class="figure"><a href="/health-workers?cadre={{.Slug}}">{{num .Active}}</a></span>
-      <span class="sub">{{share .Active $t.Total}} of the register</span>
+      <span class="figure"><a href="{{.Href}}">{{num .Total}}</a></span>
+      <span class="sub">{{.Category}} · {{num .Active}} active</span>
     </div>
     {{end}}
     <div class="tile">
@@ -51,8 +124,9 @@
   <section class="viz span-7">
     <h2>Health workers by {{lower $p.AreaLevel.Label}}</h2>
     <p class="note">
-      {{if eq $p.AreaLevel.Label "Region"}}All 15 regions, densest first. A bar opens nothing — the district table below links through.
-      {{else}}The {{len $p.Areas}} busiest subcounties in {{.User.DistrictName}}. Select a bar to open that subcounty in the register.{{end}}
+      {{if eq $p.AreaLevel "region"}}All 15 regions, densest first. A bar opens nothing — the district table below links through.
+      {{else}}The {{len $p.Areas}} busiest {{lower (plural $p.AreaLevel.Label)}} in {{$p.Where}}. Select a bar to open it in the register.{{end}}
+      {{if $p.AboveTier}}<strong>{{num $p.AboveTier}}</strong> worker{{if ne $p.AboveTier 1}}s are{{else}} is{{end}} placed above the {{lower $p.AreaLevel.Label}} level, so in none of these.{{end}}
     </p>
     <div class="plot h-lg"><canvas id="chart-areas"></canvas></div>
     <details class="viz-table">
@@ -130,30 +204,62 @@
   <section class="viz span-7">
     <h2>Record completeness</h2>
     <p class="note">
-      Share of the {{num $t.Total}} records carrying an answer for each field. A recorded
-      &ldquo;no&rdquo; counts; a field nobody was asked does not.
+      Share of the {{num $t.Total}} records carrying each field every health worker has,
+      whatever the cadre.{{if $p.ShowCHW}} The CHW survey's own fields are measured below,
+      against CHWs only.{{end}}
     </p>
-    <div class="plot h-lg"><canvas id="chart-fields"></canvas></div>
+    <div class="plot h-xs"><canvas id="chart-fields"></canvas></div>
     <details class="viz-table">
       <summary>Show the numbers</summary>
       <table class="grid">
         <thead><tr><th>Field</th><th class="num">Recorded</th><th class="num">Share</th></tr></thead>
         <tbody>
-        {{range $p.Fields}}<tr><td>{{.Label}}</td><td class="num">{{num .Have}}</td><td class="num">{{share .Have $t.Total}}</td></tr>{{end}}
+        {{range $p.Complete.Register}}<tr><td>{{.Label}}</td><td class="num">{{num .Have}}</td><td class="num">{{share .Have $t.Total}}</td></tr>{{end}}
         </tbody>
       </table>
     </details>
   </section>
+</div>
+
+{{if $p.ShowCHW}}{{$chw := $p.Complete.CHWs}}
+<!-- The CHW category's own profile. No other category is asked these
+     questions, so every share here is of the CHWs in the selection. -->
+<h2 class="spaced">Community Health Workers profile</h2>
+<p class="muted">
+  The survey attributes only the Community Health Workers category carries, measured against the
+  <strong>{{num $chw}}</strong> CHW{{if ne $chw 1}}s{{end}} in this selection{{if ne $chw $t.Total}}, not all {{num $t.Total}} health workers{{end}}.
+</p>
+<div class="viz-grid">
+  <section class="viz span-5">
+    <h2>Profile completeness</h2>
+    <p class="note">
+      Share of CHW records carrying an answer. A recorded &ldquo;no&rdquo; counts; a field
+      nobody was asked does not.
+    </p>
+    {{if $chw}}
+    <div class="plot h-md"><canvas id="chart-profile"></canvas></div>
+    <details class="viz-table">
+      <summary>Show the numbers</summary>
+      <table class="grid">
+        <thead><tr><th>Field</th><th class="num">Recorded</th><th class="num">Share</th></tr></thead>
+        <tbody>
+        {{range $p.Complete.Profile}}<tr><td>{{.Label}}</td><td class="num">{{num .Have}}</td><td class="num">{{share .Have $chw}}</td></tr>{{end}}
+        </tbody>
+      </table>
+    </details>
+    {{else}}
+    <p class="empty">No Community Health Workers in this selection.</p>
+    {{end}}
+  </section>
 
   <!-- A whole and its part: trained is a subset of provides by constraint. -->
-  <section class="viz">
+  <section class="viz span-7">
     <h2>Service domains offered</h2>
     <p class="note">
       What the register says these workers do, and where the training is recent. Being trained
       implies offering the service, so the darker segment is part of the bar, not beside it.
-      {{if $p.AnyService}}Drawn from the records that answered the question at all:
-      <strong>{{num $p.ServicesFrom}}</strong> of {{num $t.Total}} ({{share $p.ServicesFrom $t.Total}}),
-      not from the whole register.{{end}}
+      {{if $p.AnyService}}Drawn from the CHWs that answered the question at all:
+      <strong>{{num $p.ServicesFrom}}</strong> of {{num $chw}} ({{share $p.ServicesFrom $chw}}).{{end}}
     </p>
     {{if $p.AnyService}}
     <div class="legend">
@@ -172,22 +278,24 @@
     </details>
     {{else}}
     <p class="empty">
-      No service domains recorded yet in this scope. They arrive with the profile form on
-      each record, and in bulk once import runs.
+      No service domains recorded for the CHWs in this selection. They arrive with the
+      profile form on each CHW record, and in bulk through import.
     </p>
     {{end}}
   </section>
 </div>
+{{end}}
 
 <!-- The league table. The chart above ranks the tier over this one; this is
      where a name becomes a link into the register. -->
+{{if $p.LeagueLevel}}
 <h2>Busiest {{lower (plural $p.LeagueLevel.Label)}}</h2>
-<p class="muted">Top {{len $p.League}} by headcount{{if eq $p.LeagueLevel.Label "District"}}, of {{num $p.Reach.Total}} districts{{end}}. Each name opens the register filtered to it.</p>
+<p class="muted">Top {{len $p.League}} by headcount{{if eq $p.LeagueLevel "district"}}, of {{num $p.Reach.Total}} districts{{end}}. Each name opens the register filtered to it.</p>
 <table class="grid">
   <thead>
     <tr>
       <th>{{$p.LeagueLevel.Label}}</th>
-      <th>{{if eq $p.LeagueLevel.Label "District"}}Region{{else}}Subcounty{{end}}</th>
+      <th>{{$p.LeagueParent.Label}}</th>
       <th class="num">Workers</th>
       <th></th>
       {{range $p.AreaCadres}}<th class="num">{{.Label}}</th>{{end}}
@@ -211,6 +319,7 @@
   {{end}}
   </tbody>
 </table>
+{{end}}
 
 {{if $p.CanAudit}}
 <h2 class="spaced">Recent changes</h2>
@@ -240,5 +349,6 @@
 
 <script type="application/json" id="dashboard-data">{{$p.Charts}}</script>
 <script src="/static/vendor/chart.umd.min.js" defer></script>
+<script src="/static/locations.js" defer></script>
 <script src="/static/dashboard.js" defer></script>
 {{end}}

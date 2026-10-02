@@ -295,14 +295,18 @@
   ]);
 
   // --- Record completeness ----------------------------------------------
-  var fields = mount('chart-fields');
-  if (fields && d.fields.labels.length) {
-    new Chart(fields, {
+  // Two of these, with two denominators: the fields every health worker has,
+  // against the whole selection, and the CHW survey's fields, against the CHWs
+  // in it — a clinician was never asked whether they own a phone.
+  function completeness(id, labels, counts, pcts, of, noun) {
+    var el = mount(id);
+    if (!el || !labels || !labels.length) return;
+    new Chart(el, {
       type: 'bar',
       data: {
-        labels: d.fields.labels,
+        labels: labels,
         datasets: [Object.assign({
-          data: d.fieldPct,
+          data: pcts,
           backgroundColor: C.s1,
           borderRadius: 4,
           borderSkipped: 'start',
@@ -323,7 +327,7 @@
           tooltip: {
             callbacks: {
               label: function (c) {
-                return n(d.fields.values[c.dataIndex]) + ' of ' + n(d.total) + ' records (' + c.parsed.x + '%)';
+                return n(counts[c.dataIndex]) + ' of ' + n(of) + ' ' + noun + ' (' + c.parsed.x + '%)';
               }
             }
           }
@@ -332,6 +336,9 @@
       plugins: [directLabels]
     });
   }
+
+  completeness('chart-fields', d.fields.labels, d.fields.values, d.fieldPct, d.total, 'records');
+  completeness('chart-profile', d.profile.labels, d.profile.values, d.profilePct, d.chws, 'CHW records');
 
   // --- Service domains ---------------------------------------------------
   // A whole and its part: `trained_implies_provides` makes recently-trained a

@@ -95,7 +95,7 @@ func (e *Export) Rows(ctx context.Context, sc auth.Scope, f Filter, yield func(E
 	// Paging fields are ignored on purpose: an export of "page three" would be
 	// a file nobody asked for.
 	f.Limit, f.After, f.Before = 0, nil, nil
-	where, args := f.where(sc)
+	where, args := f.where(sc, nil)
 
 	// The junction sets are folded to one row per worker and joined, rather
 	// than probed per row: the dashboard learned the same lesson at this size,

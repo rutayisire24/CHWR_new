@@ -202,6 +202,13 @@ it**: nationally the chart groups by region and the league table by district; in
 district those become subcounty and parish. Every query lives in `internal/store/stats.go`
 and takes a `Scope` like any other read.
 
+It is filtered by the listing's own `store.Filter` (category, cadre, status, sex, location),
+decoded by the same `decodeFilter`, so every link out of it carries the filter and lands on
+a register that agrees. A location filter re-anchors the tiers one level down (subcounty →
+parishes and villages); a location outside the `Scope` is dropped, not honoured. The page is
+cadre-neutral: CHW survey fields and service domains sit in their own section, measured
+against the CHWs in the selection, and hidden when the filter cannot select a CHW.
+
 The tiles count the register — workers, one tile per active cadre, areas reached.
 **Completeness measures are not tiles**: a "% carrying a NIN" or "% supervised" is a fact
 about how filled-in the register is, not about workers, and a headline `0%` reads as an

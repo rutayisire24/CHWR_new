@@ -17,6 +17,16 @@
   </div>
 
   <div>
+    <label for="category">Category</label>
+    <select id="category" name="category">
+      <option value="">Any</option>
+      {{range .Page.Categories}}
+      <option value="{{.Slug}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </div>
+
+  <div>
     <label for="cadre">Cadre</label>
     <select id="cadre" name="cadre">
       <option value="">Any</option>
@@ -36,6 +46,16 @@
       <option value="">Any</option>
       <option value="active" {{if eq .Page.Filter.Status "active"}}selected{{end}}>Active</option>
       <option value="inactive" {{if eq .Page.Filter.Status "inactive"}}selected{{end}}>Inactive</option>
+    </select>
+  </div>
+
+  <div>
+    <label for="sex">Sex</label>
+    <select id="sex" name="sex">
+      <option value="">Any</option>
+      {{range .Page.Sexes}}
+      <option value="{{.Value}}" {{if .Selected}}selected{{end}}>{{.Label}}</option>
+      {{end}}
     </select>
   </div>
 

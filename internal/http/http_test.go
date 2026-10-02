@@ -284,8 +284,63 @@ func TestAreaHref(t *testing.T) {
 		{domain.LevelCounty, ""},
 	}
 	for _, c := range cases {
-		if got := areaHref(c.level, 42); got != c.want {
+		if got := areaHref(c.level, 42, url.Values{}); got != c.want {
 			t.Errorf("areaHref(%s, 42) = %q, want %q", c.level, got, c.want)
+		}
+	}
+
+	// A filtered dashboard's link carries its filter, and the area replaces
+	// the location the page was anchored to rather than sitting beside it.
+	carry := filterQuery(store.Filter{Cadre: "vht", Sex: domain.SexFemale, LocationID: 7})
+	want := "/health-workers?cadre=vht&parish_id=42&sex=female"
+	if got := areaHref(domain.LevelParish, 42, carry); got != want {
+		t.Errorf("filtered areaHref = %q, want %q", got, want)
+	}
+	if carry.Get("district_id") != "7" {
+		t.Error("areaHref modified the filter it was handed")
+	}
+}
+
+// The dashboard draws the tier below the area it is anchored to, and the
+// league the tier below that; at the bottom of the hierarchy there is none.
+func TestDashboardTiers(t *testing.T) {
+	cases := []struct {
+		anchor, chart, league, reach domain.Level
+	}{
+		{"", domain.LevelRegion, domain.LevelDistrict, domain.LevelDistrict},
+		{domain.LevelDistrict, domain.LevelSubcounty, domain.LevelParish, domain.LevelSubcounty},
+		{domain.LevelSubcounty, domain.LevelParish, domain.LevelVillage, domain.LevelParish},
+		{domain.LevelParish, domain.LevelVillage, "", domain.LevelVillage},
+	}
+	for _, c := range cases {
+		chart, league, reach := dashboardTiers(c.anchor)
+		if chart != c.chart || league != c.league || reach != c.reach {
+			t.Errorf("dashboardTiers(%q) = %s/%s/%s, want %s/%s/%s",
+				c.anchor, chart, league, reach, c.chart, c.league, c.reach)
+		}
+	}
+}
+
+// The CHW profile section belongs to the CHW category, so a filter that cannot
+// select a CHW hides it.
+func TestAdmitsCHW(t *testing.T) {
+	cadres := []domain.Cadre{
+		{Slug: "vht", CategorySlug: domain.CategoryCHW},
+		{Slug: "md", CategorySlug: "clinicians"},
+	}
+	cases := []struct {
+		f    store.Filter
+		want bool
+	}{
+		{store.Filter{}, true},
+		{store.Filter{Category: domain.CategoryCHW}, true},
+		{store.Filter{Category: "clinicians"}, false},
+		{store.Filter{Cadre: "vht"}, true},
+		{store.Filter{Cadre: "md"}, false},
+	}
+	for _, c := range cases {
+		if got := admitsCHW(c.f, cadres); got != c.want {
+			t.Errorf("admitsCHW(%+v) = %v, want %v", c.f, got, c.want)
 		}
 	}
 }

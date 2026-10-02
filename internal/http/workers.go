@@ -18,13 +18,15 @@ type workersPage struct {
 	Filter   filterView
 	// PrevURL and NextURL are empty when there is no page that way, so the
 	// template asks a string rather than reassembling the query itself.
-	PrevURL   string
-	NextURL   string
-	Cadres    []cadreGroup
-	Places    []domain.Place // the chosen location's chain, for the "filtered to" line
-	Districts []districtOption
-	Prefill   map[string]int64
-	CanEdit   bool
+	PrevURL    string
+	NextURL    string
+	Cadres     []cadreGroup
+	Categories []categoryOption
+	Sexes      []sexOption
+	Places     []domain.Place // the chosen location's chain, for the "filtered to" line
+	Districts  []districtOption
+	Prefill    map[string]int64
+	CanEdit    bool
 	// ExportURL carries the listing's own query string, so the file holds what
 	// the page is showing rather than the whole register.
 	ExportURL string
@@ -34,8 +36,10 @@ type workersPage struct {
 // filterView is the filter as the form redisplays it.
 type filterView struct {
 	Query      string
+	Category   string
 	Cadre      string
 	Status     string
+	Sex        string
 	LocationID int64
 	Active     bool // any filter set at all
 }
@@ -55,6 +59,37 @@ type cadreOption struct {
 type cadreGroup struct {
 	Label  string
 	Cadres []cadreOption
+}
+
+// categoryOption is a cadre category as a filter choice.
+type categoryOption struct {
+	Slug     string
+	Label    string
+	Selected bool
+}
+
+// categoryOptions lists the categories the active cadres fall into, in the
+// vocabulary's order. A category with no active cadre is nothing to filter by.
+func categoryOptions(cadres []domain.Cadre, selectedSlug string) []categoryOption {
+	var out []categoryOption
+	for _, c := range cadres {
+		if len(out) == 0 || out[len(out)-1].Slug != c.CategorySlug {
+			out = append(out, categoryOption{
+				Slug: c.CategorySlug, Label: c.CategoryLabel,
+				Selected: c.CategorySlug == selectedSlug,
+			})
+		}
+	}
+	return out
+}
+
+// sexOptions lists the sex vocabulary as filter choices.
+func sexOptions(selected string) []sexOption {
+	out := make([]sexOption, 0, len(domain.Sexes))
+	for _, sex := range domain.Sexes {
+		out = append(out, sexOption{Value: sex, Label: sex.Label(), Selected: string(sex) == selected})
+	}
+	return out
 }
 
 type sexOption struct {
@@ -146,18 +181,20 @@ func (s *Server) workersList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, r, http.StatusOK, "workers", workersPage{
-		Workers:   page.Workers,
-		Matching:  matching,
-		Filter:    view,
-		PrevURL:   pageURL(r, page.HasPrev, "before", page.First),
-		NextURL:   pageURL(r, page.HasNext, "after", page.Last),
-		Cadres:    cadreOptions(cadres, view.Cadre),
-		Places:    places,
-		Districts: options,
-		Prefill:   prefill,
-		CanEdit:   auth.Can(auth.MustUser(r.Context()).Role, auth.CapWorkerCreate),
-		ExportURL: exportURL(r),
-		CanExport: auth.Can(auth.MustUser(r.Context()).Role, auth.CapExport),
+		Workers:    page.Workers,
+		Matching:   matching,
+		Filter:     view,
+		PrevURL:    pageURL(r, page.HasPrev, "before", page.First),
+		NextURL:    pageURL(r, page.HasNext, "after", page.Last),
+		Cadres:     cadreOptions(cadres, view.Cadre),
+		Categories: categoryOptions(cadres, view.Category),
+		Sexes:      sexOptions(view.Sex),
+		Places:     places,
+		Districts:  options,
+		Prefill:    prefill,
+		CanEdit:    auth.Can(auth.MustUser(r.Context()).Role, auth.CapWorkerCreate),
+		ExportURL:  exportURL(r),
+		CanExport:  auth.Can(auth.MustUser(r.Context()).Role, auth.CapExport),
 	})
 }
 
@@ -189,8 +226,17 @@ func decodeFilter(r *http.Request, cadres []domain.Cadre) (store.Filter, filterV
 	f := store.Filter{Query: strings.TrimSpace(q.Get("q"))}
 	view := filterView{Query: f.Query}
 
-	// The cadre filter is a slug from the vocabulary; a stale one — a cadre
-	// since retired — is dropped rather than matched against nothing.
+	// The cadre and category filters are slugs from the vocabulary; a stale
+	// one — since retired — is dropped rather than matched against nothing.
+	if slug := q.Get("category"); slug != "" {
+		for _, c := range cadres {
+			if c.CategorySlug == slug {
+				f.Category = slug
+				view.Category = slug
+				break
+			}
+		}
+	}
 	if slug := q.Get("cadre"); slug != "" {
 		for _, c := range cadres {
 			if c.Slug == slug {
@@ -205,6 +251,10 @@ func decodeFilter(r *http.Request, cadres []domain.Cadre) (store.Filter, filterV
 		f.Status = status
 		view.Status = string(status)
 	}
+	if sex := domain.Sex(q.Get("sex")); sex.Valid() {
+		f.Sex = sex
+		view.Sex = string(sex)
+	}
 
 	// The location cascade contributes one field per level; the deepest one
 	// filled in is the filter, exactly as on the worker form.
@@ -215,7 +265,8 @@ func decodeFilter(r *http.Request, cadres []domain.Cadre) (store.Filter, filterV
 			break
 		}
 	}
-	view.Active = f.Query != "" || f.Cadre != "" || f.Status != "" || f.LocationID != 0
+	view.Active = f.Query != "" || f.Category != "" || f.Cadre != "" ||
+		f.Status != "" || f.Sex != "" || f.LocationID != 0
 
 	f.After = decodeCursor(q.Get("after"))
 	f.Before = decodeCursor(q.Get("before"))
